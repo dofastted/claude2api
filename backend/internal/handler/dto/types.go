@@ -484,6 +484,11 @@ type UsageLog struct {
 	// Cache TTL Override 标记
 	CacheTTLOverridden bool `json:"cache_ttl_overridden"`
 
+	// LocalIntercept 标记由网关本地模拟响应、未转发上游的请求。
+	LocalIntercept bool `json:"local_intercept"`
+	// InterceptType 记录本地拦截类型，如 warmup/max_tokens_one_haiku。
+	InterceptType *string `json:"intercept_type,omitempty"`
+
 	// BillingMode 计费模式：token/image
 	BillingMode *string `json:"billing_mode,omitempty"`
 

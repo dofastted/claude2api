@@ -74,6 +74,12 @@ func (_u *UsageLogUpdate) SetNillableAccountID(v *int64) *UsageLogUpdate {
 	return _u
 }
 
+// ClearAccountID clears the value of the "account_id" field.
+func (_u *UsageLogUpdate) ClearAccountID() *UsageLogUpdate {
+	_u.mutation.ClearAccountID()
+	return _u
+}
+
 // SetRequestID sets the "request_id" field.
 func (_u *UsageLogUpdate) SetRequestID(v string) *UsageLogUpdate {
 	_u.mutation.SetRequestID(v)
@@ -825,6 +831,40 @@ func (_u *UsageLogUpdate) SetNillableCacheTTLOverridden(v *bool) *UsageLogUpdate
 	return _u
 }
 
+// SetLocalIntercept sets the "local_intercept" field.
+func (_u *UsageLogUpdate) SetLocalIntercept(v bool) *UsageLogUpdate {
+	_u.mutation.SetLocalIntercept(v)
+	return _u
+}
+
+// SetNillableLocalIntercept sets the "local_intercept" field if the given value is not nil.
+func (_u *UsageLogUpdate) SetNillableLocalIntercept(v *bool) *UsageLogUpdate {
+	if v != nil {
+		_u.SetLocalIntercept(*v)
+	}
+	return _u
+}
+
+// SetInterceptType sets the "intercept_type" field.
+func (_u *UsageLogUpdate) SetInterceptType(v string) *UsageLogUpdate {
+	_u.mutation.SetInterceptType(v)
+	return _u
+}
+
+// SetNillableInterceptType sets the "intercept_type" field if the given value is not nil.
+func (_u *UsageLogUpdate) SetNillableInterceptType(v *string) *UsageLogUpdate {
+	if v != nil {
+		_u.SetInterceptType(*v)
+	}
+	return _u
+}
+
+// ClearInterceptType clears the value of the "intercept_type" field.
+func (_u *UsageLogUpdate) ClearInterceptType() *UsageLogUpdate {
+	_u.mutation.ClearInterceptType()
+	return _u
+}
+
 // SetUser sets the "user" edge to the User entity.
 func (_u *UsageLogUpdate) SetUser(v *User) *UsageLogUpdate {
 	return _u.SetUserID(v.ID)
@@ -979,14 +1019,16 @@ func (_u *UsageLogUpdate) check() error {
 			return &ValidationError{Name: "image_size_source", err: fmt.Errorf(`ent: validator failed for field "UsageLog.image_size_source": %w`, err)}
 		}
 	}
+	if v, ok := _u.mutation.InterceptType(); ok {
+		if err := usagelog.InterceptTypeValidator(v); err != nil {
+			return &ValidationError{Name: "intercept_type", err: fmt.Errorf(`ent: validator failed for field "UsageLog.intercept_type": %w`, err)}
+		}
+	}
 	if _u.mutation.UserCleared() && len(_u.mutation.UserIDs()) > 0 {
 		return errors.New(`ent: clearing a required unique edge "UsageLog.user"`)
 	}
 	if _u.mutation.APIKeyCleared() && len(_u.mutation.APIKeyIDs()) > 0 {
 		return errors.New(`ent: clearing a required unique edge "UsageLog.api_key"`)
-	}
-	if _u.mutation.AccountCleared() && len(_u.mutation.AccountIDs()) > 0 {
-		return errors.New(`ent: clearing a required unique edge "UsageLog.account"`)
 	}
 	return nil
 }
@@ -1213,6 +1255,15 @@ func (_u *UsageLogUpdate) sqlSave(ctx context.Context) (_node int, err error) {
 	if value, ok := _u.mutation.CacheTTLOverridden(); ok {
 		_spec.SetField(usagelog.FieldCacheTTLOverridden, field.TypeBool, value)
 	}
+	if value, ok := _u.mutation.LocalIntercept(); ok {
+		_spec.SetField(usagelog.FieldLocalIntercept, field.TypeBool, value)
+	}
+	if value, ok := _u.mutation.InterceptType(); ok {
+		_spec.SetField(usagelog.FieldInterceptType, field.TypeString, value)
+	}
+	if _u.mutation.InterceptTypeCleared() {
+		_spec.ClearField(usagelog.FieldInterceptType, field.TypeString)
+	}
 	if _u.mutation.UserCleared() {
 		edge := &sqlgraph.EdgeSpec{
 			Rel:     sqlgraph.M2O,
@@ -1417,6 +1468,12 @@ func (_u *UsageLogUpdateOne) SetNillableAccountID(v *int64) *UsageLogUpdateOne {
 	if v != nil {
 		_u.SetAccountID(*v)
 	}
+	return _u
+}
+
+// ClearAccountID clears the value of the "account_id" field.
+func (_u *UsageLogUpdateOne) ClearAccountID() *UsageLogUpdateOne {
+	_u.mutation.ClearAccountID()
 	return _u
 }
 
@@ -2171,6 +2228,40 @@ func (_u *UsageLogUpdateOne) SetNillableCacheTTLOverridden(v *bool) *UsageLogUpd
 	return _u
 }
 
+// SetLocalIntercept sets the "local_intercept" field.
+func (_u *UsageLogUpdateOne) SetLocalIntercept(v bool) *UsageLogUpdateOne {
+	_u.mutation.SetLocalIntercept(v)
+	return _u
+}
+
+// SetNillableLocalIntercept sets the "local_intercept" field if the given value is not nil.
+func (_u *UsageLogUpdateOne) SetNillableLocalIntercept(v *bool) *UsageLogUpdateOne {
+	if v != nil {
+		_u.SetLocalIntercept(*v)
+	}
+	return _u
+}
+
+// SetInterceptType sets the "intercept_type" field.
+func (_u *UsageLogUpdateOne) SetInterceptType(v string) *UsageLogUpdateOne {
+	_u.mutation.SetInterceptType(v)
+	return _u
+}
+
+// SetNillableInterceptType sets the "intercept_type" field if the given value is not nil.
+func (_u *UsageLogUpdateOne) SetNillableInterceptType(v *string) *UsageLogUpdateOne {
+	if v != nil {
+		_u.SetInterceptType(*v)
+	}
+	return _u
+}
+
+// ClearInterceptType clears the value of the "intercept_type" field.
+func (_u *UsageLogUpdateOne) ClearInterceptType() *UsageLogUpdateOne {
+	_u.mutation.ClearInterceptType()
+	return _u
+}
+
 // SetUser sets the "user" edge to the User entity.
 func (_u *UsageLogUpdateOne) SetUser(v *User) *UsageLogUpdateOne {
 	return _u.SetUserID(v.ID)
@@ -2338,14 +2429,16 @@ func (_u *UsageLogUpdateOne) check() error {
 			return &ValidationError{Name: "image_size_source", err: fmt.Errorf(`ent: validator failed for field "UsageLog.image_size_source": %w`, err)}
 		}
 	}
+	if v, ok := _u.mutation.InterceptType(); ok {
+		if err := usagelog.InterceptTypeValidator(v); err != nil {
+			return &ValidationError{Name: "intercept_type", err: fmt.Errorf(`ent: validator failed for field "UsageLog.intercept_type": %w`, err)}
+		}
+	}
 	if _u.mutation.UserCleared() && len(_u.mutation.UserIDs()) > 0 {
 		return errors.New(`ent: clearing a required unique edge "UsageLog.user"`)
 	}
 	if _u.mutation.APIKeyCleared() && len(_u.mutation.APIKeyIDs()) > 0 {
 		return errors.New(`ent: clearing a required unique edge "UsageLog.api_key"`)
-	}
-	if _u.mutation.AccountCleared() && len(_u.mutation.AccountIDs()) > 0 {
-		return errors.New(`ent: clearing a required unique edge "UsageLog.account"`)
 	}
 	return nil
 }
@@ -2588,6 +2681,15 @@ func (_u *UsageLogUpdateOne) sqlSave(ctx context.Context) (_node *UsageLog, err 
 	}
 	if value, ok := _u.mutation.CacheTTLOverridden(); ok {
 		_spec.SetField(usagelog.FieldCacheTTLOverridden, field.TypeBool, value)
+	}
+	if value, ok := _u.mutation.LocalIntercept(); ok {
+		_spec.SetField(usagelog.FieldLocalIntercept, field.TypeBool, value)
+	}
+	if value, ok := _u.mutation.InterceptType(); ok {
+		_spec.SetField(usagelog.FieldInterceptType, field.TypeString, value)
+	}
+	if _u.mutation.InterceptTypeCleared() {
+		_spec.ClearField(usagelog.FieldInterceptType, field.TypeString)
 	}
 	if _u.mutation.UserCleared() {
 		edge := &sqlgraph.EdgeSpec{

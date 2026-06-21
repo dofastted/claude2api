@@ -35029,6 +35029,8 @@ type UsageLogMutation struct {
 	image_size_source           *string
 	image_size_breakdown        *map[string]int
 	cache_ttl_overridden        *bool
+	local_intercept             *bool
+	intercept_type              *string
 	created_at                  *time.Time
 	clearedFields               map[string]struct{}
 	user                        *int64
@@ -35233,7 +35235,7 @@ func (m *UsageLogMutation) AccountID() (r int64, exists bool) {
 // OldAccountID returns the old "account_id" field's value of the UsageLog entity.
 // If the UsageLog object wasn't provided to the builder, the object is fetched from the database.
 // An error is returned if the mutation operation is not UpdateOne, or the database query fails.
-func (m *UsageLogMutation) OldAccountID(ctx context.Context) (v int64, err error) {
+func (m *UsageLogMutation) OldAccountID(ctx context.Context) (v *int64, err error) {
 	if !m.op.Is(OpUpdateOne) {
 		return v, errors.New("OldAccountID is only allowed on UpdateOne operations")
 	}
@@ -35247,9 +35249,22 @@ func (m *UsageLogMutation) OldAccountID(ctx context.Context) (v int64, err error
 	return oldValue.AccountID, nil
 }
 
+// ClearAccountID clears the value of the "account_id" field.
+func (m *UsageLogMutation) ClearAccountID() {
+	m.account = nil
+	m.clearedFields[usagelog.FieldAccountID] = struct{}{}
+}
+
+// AccountIDCleared returns if the "account_id" field was cleared in this mutation.
+func (m *UsageLogMutation) AccountIDCleared() bool {
+	_, ok := m.clearedFields[usagelog.FieldAccountID]
+	return ok
+}
+
 // ResetAccountID resets all changes to the "account_id" field.
 func (m *UsageLogMutation) ResetAccountID() {
 	m.account = nil
+	delete(m.clearedFields, usagelog.FieldAccountID)
 }
 
 // SetRequestID sets the "request_id" field.
@@ -37202,6 +37217,91 @@ func (m *UsageLogMutation) ResetCacheTTLOverridden() {
 	m.cache_ttl_overridden = nil
 }
 
+// SetLocalIntercept sets the "local_intercept" field.
+func (m *UsageLogMutation) SetLocalIntercept(b bool) {
+	m.local_intercept = &b
+}
+
+// LocalIntercept returns the value of the "local_intercept" field in the mutation.
+func (m *UsageLogMutation) LocalIntercept() (r bool, exists bool) {
+	v := m.local_intercept
+	if v == nil {
+		return
+	}
+	return *v, true
+}
+
+// OldLocalIntercept returns the old "local_intercept" field's value of the UsageLog entity.
+// If the UsageLog object wasn't provided to the builder, the object is fetched from the database.
+// An error is returned if the mutation operation is not UpdateOne, or the database query fails.
+func (m *UsageLogMutation) OldLocalIntercept(ctx context.Context) (v bool, err error) {
+	if !m.op.Is(OpUpdateOne) {
+		return v, errors.New("OldLocalIntercept is only allowed on UpdateOne operations")
+	}
+	if m.id == nil || m.oldValue == nil {
+		return v, errors.New("OldLocalIntercept requires an ID field in the mutation")
+	}
+	oldValue, err := m.oldValue(ctx)
+	if err != nil {
+		return v, fmt.Errorf("querying old value for OldLocalIntercept: %w", err)
+	}
+	return oldValue.LocalIntercept, nil
+}
+
+// ResetLocalIntercept resets all changes to the "local_intercept" field.
+func (m *UsageLogMutation) ResetLocalIntercept() {
+	m.local_intercept = nil
+}
+
+// SetInterceptType sets the "intercept_type" field.
+func (m *UsageLogMutation) SetInterceptType(s string) {
+	m.intercept_type = &s
+}
+
+// InterceptType returns the value of the "intercept_type" field in the mutation.
+func (m *UsageLogMutation) InterceptType() (r string, exists bool) {
+	v := m.intercept_type
+	if v == nil {
+		return
+	}
+	return *v, true
+}
+
+// OldInterceptType returns the old "intercept_type" field's value of the UsageLog entity.
+// If the UsageLog object wasn't provided to the builder, the object is fetched from the database.
+// An error is returned if the mutation operation is not UpdateOne, or the database query fails.
+func (m *UsageLogMutation) OldInterceptType(ctx context.Context) (v *string, err error) {
+	if !m.op.Is(OpUpdateOne) {
+		return v, errors.New("OldInterceptType is only allowed on UpdateOne operations")
+	}
+	if m.id == nil || m.oldValue == nil {
+		return v, errors.New("OldInterceptType requires an ID field in the mutation")
+	}
+	oldValue, err := m.oldValue(ctx)
+	if err != nil {
+		return v, fmt.Errorf("querying old value for OldInterceptType: %w", err)
+	}
+	return oldValue.InterceptType, nil
+}
+
+// ClearInterceptType clears the value of the "intercept_type" field.
+func (m *UsageLogMutation) ClearInterceptType() {
+	m.intercept_type = nil
+	m.clearedFields[usagelog.FieldInterceptType] = struct{}{}
+}
+
+// InterceptTypeCleared returns if the "intercept_type" field was cleared in this mutation.
+func (m *UsageLogMutation) InterceptTypeCleared() bool {
+	_, ok := m.clearedFields[usagelog.FieldInterceptType]
+	return ok
+}
+
+// ResetInterceptType resets all changes to the "intercept_type" field.
+func (m *UsageLogMutation) ResetInterceptType() {
+	m.intercept_type = nil
+	delete(m.clearedFields, usagelog.FieldInterceptType)
+}
+
 // SetCreatedAt sets the "created_at" field.
 func (m *UsageLogMutation) SetCreatedAt(t time.Time) {
 	m.created_at = &t
@@ -37300,7 +37400,7 @@ func (m *UsageLogMutation) ClearAccount() {
 
 // AccountCleared reports if the "account" edge to the Account entity was cleared.
 func (m *UsageLogMutation) AccountCleared() bool {
-	return m.clearedaccount
+	return m.AccountIDCleared() || m.clearedaccount
 }
 
 // AccountIDs returns the "account" edge IDs in the mutation.
@@ -37407,7 +37507,7 @@ func (m *UsageLogMutation) Type() string {
 // order to get all numeric fields that were incremented/decremented, call
 // AddedFields().
 func (m *UsageLogMutation) Fields() []string {
-	fields := make([]string, 0, 41)
+	fields := make([]string, 0, 43)
 	if m.user != nil {
 		fields = append(fields, usagelog.FieldUserID)
 	}
@@ -37528,6 +37628,12 @@ func (m *UsageLogMutation) Fields() []string {
 	if m.cache_ttl_overridden != nil {
 		fields = append(fields, usagelog.FieldCacheTTLOverridden)
 	}
+	if m.local_intercept != nil {
+		fields = append(fields, usagelog.FieldLocalIntercept)
+	}
+	if m.intercept_type != nil {
+		fields = append(fields, usagelog.FieldInterceptType)
+	}
 	if m.created_at != nil {
 		fields = append(fields, usagelog.FieldCreatedAt)
 	}
@@ -37619,6 +37725,10 @@ func (m *UsageLogMutation) Field(name string) (ent.Value, bool) {
 		return m.ImageSizeBreakdown()
 	case usagelog.FieldCacheTTLOverridden:
 		return m.CacheTTLOverridden()
+	case usagelog.FieldLocalIntercept:
+		return m.LocalIntercept()
+	case usagelog.FieldInterceptType:
+		return m.InterceptType()
 	case usagelog.FieldCreatedAt:
 		return m.CreatedAt()
 	}
@@ -37710,6 +37820,10 @@ func (m *UsageLogMutation) OldField(ctx context.Context, name string) (ent.Value
 		return m.OldImageSizeBreakdown(ctx)
 	case usagelog.FieldCacheTTLOverridden:
 		return m.OldCacheTTLOverridden(ctx)
+	case usagelog.FieldLocalIntercept:
+		return m.OldLocalIntercept(ctx)
+	case usagelog.FieldInterceptType:
+		return m.OldInterceptType(ctx)
 	case usagelog.FieldCreatedAt:
 		return m.OldCreatedAt(ctx)
 	}
@@ -38001,6 +38115,20 @@ func (m *UsageLogMutation) SetField(name string, value ent.Value) error {
 		}
 		m.SetCacheTTLOverridden(v)
 		return nil
+	case usagelog.FieldLocalIntercept:
+		v, ok := value.(bool)
+		if !ok {
+			return fmt.Errorf("unexpected type %T for field %s", value, name)
+		}
+		m.SetLocalIntercept(v)
+		return nil
+	case usagelog.FieldInterceptType:
+		v, ok := value.(string)
+		if !ok {
+			return fmt.Errorf("unexpected type %T for field %s", value, name)
+		}
+		m.SetInterceptType(v)
+		return nil
 	case usagelog.FieldCreatedAt:
 		v, ok := value.(time.Time)
 		if !ok {
@@ -38269,6 +38397,9 @@ func (m *UsageLogMutation) AddField(name string, value ent.Value) error {
 // mutation.
 func (m *UsageLogMutation) ClearedFields() []string {
 	var fields []string
+	if m.FieldCleared(usagelog.FieldAccountID) {
+		fields = append(fields, usagelog.FieldAccountID)
+	}
 	if m.FieldCleared(usagelog.FieldRequestedModel) {
 		fields = append(fields, usagelog.FieldRequestedModel)
 	}
@@ -38323,6 +38454,9 @@ func (m *UsageLogMutation) ClearedFields() []string {
 	if m.FieldCleared(usagelog.FieldImageSizeBreakdown) {
 		fields = append(fields, usagelog.FieldImageSizeBreakdown)
 	}
+	if m.FieldCleared(usagelog.FieldInterceptType) {
+		fields = append(fields, usagelog.FieldInterceptType)
+	}
 	return fields
 }
 
@@ -38337,6 +38471,9 @@ func (m *UsageLogMutation) FieldCleared(name string) bool {
 // error if the field is not defined in the schema.
 func (m *UsageLogMutation) ClearField(name string) error {
 	switch name {
+	case usagelog.FieldAccountID:
+		m.ClearAccountID()
+		return nil
 	case usagelog.FieldRequestedModel:
 		m.ClearRequestedModel()
 		return nil
@@ -38390,6 +38527,9 @@ func (m *UsageLogMutation) ClearField(name string) error {
 		return nil
 	case usagelog.FieldImageSizeBreakdown:
 		m.ClearImageSizeBreakdown()
+		return nil
+	case usagelog.FieldInterceptType:
+		m.ClearInterceptType()
 		return nil
 	}
 	return fmt.Errorf("unknown UsageLog nullable field %s", name)
@@ -38518,6 +38658,12 @@ func (m *UsageLogMutation) ResetField(name string) error {
 		return nil
 	case usagelog.FieldCacheTTLOverridden:
 		m.ResetCacheTTLOverridden()
+		return nil
+	case usagelog.FieldLocalIntercept:
+		m.ResetLocalIntercept()
+		return nil
+	case usagelog.FieldInterceptType:
+		m.ResetInterceptType()
 		return nil
 	case usagelog.FieldCreatedAt:
 		m.ResetCreatedAt()

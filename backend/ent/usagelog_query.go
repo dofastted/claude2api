@@ -640,7 +640,10 @@ func (_q *UsageLogQuery) loadAccount(ctx context.Context, query *AccountQuery, n
 	ids := make([]int64, 0, len(nodes))
 	nodeids := make(map[int64][]*UsageLog)
 	for i := range nodes {
-		fk := nodes[i].AccountID
+		if nodes[i].AccountID == nil {
+			continue
+		}
+		fk := *nodes[i].AccountID
 		if _, ok := nodeids[fk]; !ok {
 			ids = append(ids, fk)
 		}

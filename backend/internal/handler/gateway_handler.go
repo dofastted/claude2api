@@ -262,6 +262,18 @@ func (h *GatewayHandler) Messages(c *gin.Context) {
 	} else if apiKey.Group != nil {
 		platform = apiKey.Group.Platform
 	}
+	if platform != service.PlatformGemini {
+		interceptType := detectInterceptType(body, reqModel, parsedReq.MaxTokens, isClaudeCodeClient)
+		if shouldLocalIntercept(interceptType, h.settingService.GetLocalInterceptSettings(c.Request.Context())) {
+			h.recordLocalInterceptUsage(c, apiKey, body, reqModel, reqStream, interceptType, channelMapping)
+			if reqStream {
+				sendMockInterceptStream(c, reqModel, interceptType)
+			} else {
+				sendMockInterceptResponse(c, reqModel, interceptType)
+			}
+			return
+		}
+	}
 	sessionKey := sessionHash
 	if platform == service.PlatformGemini && sessionHash != "" {
 		sessionKey = "gemini:" + sessionHash
@@ -1812,6 +1824,35 @@ const (
 	InterceptTypeMaxTokensOneHaiku               // max_tokens=1 + haiku 探测请求（返回 "#"）
 )
 
+func (t InterceptType) String() string {
+	switch t {
+	case InterceptTypeWarmup:
+		return "warmup"
+	case InterceptTypeSuggestionMode:
+		return "suggestion"
+	case InterceptTypeMaxTokensOneHaiku:
+		return "max_tokens_one_haiku"
+	default:
+		return "none"
+	}
+}
+
+func shouldLocalIntercept(interceptType InterceptType, settings service.LocalInterceptSettings) bool {
+	if !settings.Enabled {
+		return false
+	}
+	switch interceptType {
+	case InterceptTypeMaxTokensOneHaiku:
+		return settings.InterceptMaxTokensOne
+	case InterceptTypeWarmup:
+		return settings.InterceptWarmup
+	case InterceptTypeSuggestionMode:
+		return settings.InterceptSuggestion
+	default:
+		return false
+	}
+}
+
 // isHaikuModel 检查模型名称是否包含 "haiku"（大小写不敏感）
 func isHaikuModel(model string) bool {
 	return strings.Contains(strings.ToLower(model), "haiku")
@@ -1913,6 +1954,10 @@ func sendMockInterceptStream(c *gin.Context, model string, interceptType Interce
 		msgID = "msg_mock_suggestion"
 		outputTokens = 1
 		textDeltas = []string{""} // 空内容
+	case InterceptTypeMaxTokensOneHaiku:
+		msgID = generateRealisticMsgID()
+		outputTokens = 1
+		textDeltas = []string{"#"}
 	default: // InterceptTypeWarmup
 		msgID = "msg_mock_warmup"
 		outputTokens = 2
@@ -1935,7 +1980,7 @@ func sendMockInterceptStream(c *gin.Context, model string, interceptType Interce
 	}
 
 	// Add final events
-	messageDeltaJSON := `{"type":"message_delta","delta":{"stop_reason":"end_turn","stop_sequence":null},"usage":{"input_tokens":10,"output_tokens":` + strconv.Itoa(outputTokens) + `}}`
+	messageDeltaJSON := `{"type":"message_delta","delta":{"stop_reason":` + strconv.Quote(interceptStopReason(interceptType)) + `,"stop_sequence":null},"usage":{"input_tokens":10,"output_tokens":` + strconv.Itoa(outputTokens) + `}}`
 
 	events = append(events,
 		`event: content_block_stop`+"\n"+`data: {"index":0,"type":"content_block_stop"}`,
@@ -1963,7 +2008,15 @@ func generateRealisticMsgID() string {
 	for i := range b {
 		b[i] = charset[int(randomBytes[i])%len(charset)]
 	}
+
 	return "msg_bdrk_" + string(b)
+}
+
+func interceptStopReason(interceptType InterceptType) string {
+	if interceptType == InterceptTypeMaxTokensOneHaiku {
+		return "max_tokens"
+	}
+	return "end_turn"
 }
 
 // sendMockInterceptResponse 发送非流式 mock 响应（用于请求拦截）
@@ -2012,6 +2065,35 @@ func sendMockInterceptResponse(c *gin.Context, model string, interceptType Inter
 	}
 
 	c.JSON(http.StatusOK, response)
+}
+
+func (h *GatewayHandler) recordLocalInterceptUsage(c *gin.Context, apiKey *service.APIKey, body []byte, model string, stream bool, interceptType InterceptType, channelMapping service.ChannelMappingResult) {
+	if h == nil || h.gatewayService == nil || c == nil || apiKey == nil || apiKey.User == nil {
+		return
+	}
+	userAgent := c.GetHeader("User-Agent")
+	clientIP := ip.GetClientIP(c)
+	inboundEndpoint := GetInboundEndpoint(c)
+	upstreamEndpoint := GetUpstreamEndpoint(c, service.PlatformAnthropic)
+	h.gatewayService.RecordLocalInterceptUsage(c.Request.Context(), service.LocalInterceptUsageInput{
+		APIKey:             apiKey,
+		User:               apiKey.User,
+		Model:              model,
+		Stream:             stream,
+		InterceptType:      interceptType.String(),
+		InboundEndpoint:    inboundEndpoint,
+		UpstreamEndpoint:   upstreamEndpoint,
+		UserAgent:          userAgent,
+		IPAddress:          clientIP,
+		RequestPayloadHash: service.HashUsageRequestPayload(body),
+		ChannelUsageFields: channelMapping.ToUsageFields(model, ""),
+	})
+	logger.L().Info("local_intercept",
+		zap.String("type", interceptType.String()),
+		zap.String("model", model),
+		zap.Bool("stream", stream),
+		zap.Int64("api_key_id", apiKey.ID),
+	)
 }
 
 // extractQuotaResetSeconds 从 quota 错误的 metadata 中提取 window_resets_at 并计算

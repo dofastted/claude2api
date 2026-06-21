@@ -1771,8 +1771,16 @@ func init() {
 	usagelogDescCacheTTLOverridden := usagelogFields[39].Descriptor()
 	// usagelog.DefaultCacheTTLOverridden holds the default value on creation for the cache_ttl_overridden field.
 	usagelog.DefaultCacheTTLOverridden = usagelogDescCacheTTLOverridden.Default.(bool)
+	// usagelogDescLocalIntercept is the schema descriptor for local_intercept field.
+	usagelogDescLocalIntercept := usagelogFields[40].Descriptor()
+	// usagelog.DefaultLocalIntercept holds the default value on creation for the local_intercept field.
+	usagelog.DefaultLocalIntercept = usagelogDescLocalIntercept.Default.(bool)
+	// usagelogDescInterceptType is the schema descriptor for intercept_type field.
+	usagelogDescInterceptType := usagelogFields[41].Descriptor()
+	// usagelog.InterceptTypeValidator is a validator for the "intercept_type" field. It is called by the builders before save.
+	usagelog.InterceptTypeValidator = usagelogDescInterceptType.Validators[0].(func(string) error)
 	// usagelogDescCreatedAt is the schema descriptor for created_at field.
-	usagelogDescCreatedAt := usagelogFields[40].Descriptor()
+	usagelogDescCreatedAt := usagelogFields[42].Descriptor()
 	// usagelog.DefaultCreatedAt holds the default value on creation for the created_at field.
 	usagelog.DefaultCreatedAt = usagelogDescCreatedAt.Default.(func() time.Time)
 	userMixin := schema.User{}.Mixin()

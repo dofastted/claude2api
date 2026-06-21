@@ -90,6 +90,8 @@ func TestUsageLogRepositoryCreateSyncRequestTypeAndLegacyFields(t *testing.T) {
 			sqlmock.AnyArg(), // billing_tier
 			sqlmock.AnyArg(), // billing_mode
 			sqlmock.AnyArg(), // account_stats_cost
+			log.LocalIntercept,
+			sqlmock.AnyArg(), // intercept_type
 			createdAt,
 		).
 		WillReturnRows(sqlmock.NewRows([]string{"id", "created_at"}).AddRow(int64(99), createdAt))
@@ -173,6 +175,8 @@ func TestUsageLogRepositoryCreate_PersistsServiceTier(t *testing.T) {
 			sqlmock.AnyArg(), // billing_tier
 			sqlmock.AnyArg(), // billing_mode
 			sqlmock.AnyArg(), // account_stats_cost
+			log.LocalIntercept,
+			sqlmock.AnyArg(), // intercept_type
 			createdAt,
 		).
 		WillReturnRows(sqlmock.NewRows([]string{"id", "created_at"}).AddRow(int64(100), createdAt))
@@ -236,6 +240,24 @@ func TestPrepareUsageLogInsert_ArgCountMatchesTypes(t *testing.T) {
 	})
 
 	require.Len(t, prepared.args, len(usageLogInsertArgTypes))
+}
+
+func TestPrepareUsageLogInsert_AllowsEmptyAccountForLocalIntercept(t *testing.T) {
+	interceptType := "max_tokens_one_haiku"
+	prepared := prepareUsageLogInsert(&service.UsageLog{
+		UserID:         1,
+		APIKeyID:       2,
+		AccountID:      0,
+		RequestID:      "req-local-intercept",
+		Model:          "claude-haiku-4-5",
+		LocalIntercept: true,
+		InterceptType:  &interceptType,
+		CreatedAt:      time.Date(2025, 1, 5, 12, 0, 0, 0, time.UTC),
+	})
+
+	require.Nil(t, prepared.args[2])
+	require.Equal(t, true, prepared.args[49])
+	require.Same(t, &interceptType, prepared.args[50])
 }
 
 func TestPrepareUsageLogInsert_PersistsImageSizeMetadata(t *testing.T) {
@@ -640,6 +662,8 @@ func TestScanUsageLogRequestTypeAndLegacyFallback(t *testing.T) {
 			sql.NullString{},
 			sql.NullString{},
 			sql.NullFloat64{},
+			false,
+			sql.NullString{},
 			now,
 		}})
 		require.NoError(t, err)
@@ -708,6 +732,8 @@ func TestScanUsageLogRequestTypeAndLegacyFallback(t *testing.T) {
 			sql.NullString{},  // billing_tier
 			sql.NullString{},  // billing_mode
 			sql.NullFloat64{}, // account_stats_cost
+			false,             // local_intercept
+			sql.NullString{},  // intercept_type
 			now,
 		}})
 		require.NoError(t, err)
@@ -760,6 +786,8 @@ func TestScanUsageLogRequestTypeAndLegacyFallback(t *testing.T) {
 			sql.NullString{},  // billing_tier
 			sql.NullString{},  // billing_mode
 			sql.NullFloat64{}, // account_stats_cost
+			false,             // local_intercept
+			sql.NullString{},  // intercept_type
 			now,
 		}})
 		require.NoError(t, err)
@@ -812,6 +840,8 @@ func TestScanUsageLogRequestTypeAndLegacyFallback(t *testing.T) {
 			sql.NullString{},  // billing_tier
 			sql.NullString{},  // billing_mode
 			sql.NullFloat64{}, // account_stats_cost
+			false,             // local_intercept
+			sql.NullString{},  // intercept_type
 			now,
 		}})
 		require.NoError(t, err)

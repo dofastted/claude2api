@@ -94,6 +94,10 @@ const (
 	FieldImageSizeBreakdown = "image_size_breakdown"
 	// FieldCacheTTLOverridden holds the string denoting the cache_ttl_overridden field in the database.
 	FieldCacheTTLOverridden = "cache_ttl_overridden"
+	// FieldLocalIntercept holds the string denoting the local_intercept field in the database.
+	FieldLocalIntercept = "local_intercept"
+	// FieldInterceptType holds the string denoting the intercept_type field in the database.
+	FieldInterceptType = "intercept_type"
 	// FieldCreatedAt holds the string denoting the created_at field in the database.
 	FieldCreatedAt = "created_at"
 	// EdgeUser holds the string denoting the user edge name in mutations.
@@ -188,6 +192,8 @@ var Columns = []string{
 	FieldImageSizeSource,
 	FieldImageSizeBreakdown,
 	FieldCacheTTLOverridden,
+	FieldLocalIntercept,
+	FieldInterceptType,
 	FieldCreatedAt,
 }
 
@@ -262,6 +268,10 @@ var (
 	ImageSizeSourceValidator func(string) error
 	// DefaultCacheTTLOverridden holds the default value on creation for the "cache_ttl_overridden" field.
 	DefaultCacheTTLOverridden bool
+	// DefaultLocalIntercept holds the default value on creation for the "local_intercept" field.
+	DefaultLocalIntercept bool
+	// InterceptTypeValidator is a validator for the "intercept_type" field. It is called by the builders before save.
+	InterceptTypeValidator func(string) error
 	// DefaultCreatedAt holds the default value on creation for the "created_at" field.
 	DefaultCreatedAt func() time.Time
 )
@@ -467,6 +477,16 @@ func ByImageSizeSource(opts ...sql.OrderTermOption) OrderOption {
 // ByCacheTTLOverridden orders the results by the cache_ttl_overridden field.
 func ByCacheTTLOverridden(opts ...sql.OrderTermOption) OrderOption {
 	return sql.OrderByField(FieldCacheTTLOverridden, opts...).ToFunc()
+}
+
+// ByLocalIntercept orders the results by the local_intercept field.
+func ByLocalIntercept(opts ...sql.OrderTermOption) OrderOption {
+	return sql.OrderByField(FieldLocalIntercept, opts...).ToFunc()
+}
+
+// ByInterceptType orders the results by the intercept_type field.
+func ByInterceptType(opts ...sql.OrderTermOption) OrderOption {
+	return sql.OrderByField(FieldInterceptType, opts...).ToFunc()
 }
 
 // ByCreatedAt orders the results by the created_at field.

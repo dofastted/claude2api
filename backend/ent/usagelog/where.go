@@ -250,6 +250,16 @@ func CacheTTLOverridden(v bool) predicate.UsageLog {
 	return predicate.UsageLog(sql.FieldEQ(FieldCacheTTLOverridden, v))
 }
 
+// LocalIntercept applies equality check predicate on the "local_intercept" field. It's identical to LocalInterceptEQ.
+func LocalIntercept(v bool) predicate.UsageLog {
+	return predicate.UsageLog(sql.FieldEQ(FieldLocalIntercept, v))
+}
+
+// InterceptType applies equality check predicate on the "intercept_type" field. It's identical to InterceptTypeEQ.
+func InterceptType(v string) predicate.UsageLog {
+	return predicate.UsageLog(sql.FieldEQ(FieldInterceptType, v))
+}
+
 // CreatedAt applies equality check predicate on the "created_at" field. It's identical to CreatedAtEQ.
 func CreatedAt(v time.Time) predicate.UsageLog {
 	return predicate.UsageLog(sql.FieldEQ(FieldCreatedAt, v))
@@ -313,6 +323,16 @@ func AccountIDIn(vs ...int64) predicate.UsageLog {
 // AccountIDNotIn applies the NotIn predicate on the "account_id" field.
 func AccountIDNotIn(vs ...int64) predicate.UsageLog {
 	return predicate.UsageLog(sql.FieldNotIn(FieldAccountID, vs...))
+}
+
+// AccountIDIsNil applies the IsNil predicate on the "account_id" field.
+func AccountIDIsNil() predicate.UsageLog {
+	return predicate.UsageLog(sql.FieldIsNull(FieldAccountID))
+}
+
+// AccountIDNotNil applies the NotNil predicate on the "account_id" field.
+func AccountIDNotNil() predicate.UsageLog {
+	return predicate.UsageLog(sql.FieldNotNull(FieldAccountID))
 }
 
 // RequestIDEQ applies the EQ predicate on the "request_id" field.
@@ -2158,6 +2178,91 @@ func CacheTTLOverriddenEQ(v bool) predicate.UsageLog {
 // CacheTTLOverriddenNEQ applies the NEQ predicate on the "cache_ttl_overridden" field.
 func CacheTTLOverriddenNEQ(v bool) predicate.UsageLog {
 	return predicate.UsageLog(sql.FieldNEQ(FieldCacheTTLOverridden, v))
+}
+
+// LocalInterceptEQ applies the EQ predicate on the "local_intercept" field.
+func LocalInterceptEQ(v bool) predicate.UsageLog {
+	return predicate.UsageLog(sql.FieldEQ(FieldLocalIntercept, v))
+}
+
+// LocalInterceptNEQ applies the NEQ predicate on the "local_intercept" field.
+func LocalInterceptNEQ(v bool) predicate.UsageLog {
+	return predicate.UsageLog(sql.FieldNEQ(FieldLocalIntercept, v))
+}
+
+// InterceptTypeEQ applies the EQ predicate on the "intercept_type" field.
+func InterceptTypeEQ(v string) predicate.UsageLog {
+	return predicate.UsageLog(sql.FieldEQ(FieldInterceptType, v))
+}
+
+// InterceptTypeNEQ applies the NEQ predicate on the "intercept_type" field.
+func InterceptTypeNEQ(v string) predicate.UsageLog {
+	return predicate.UsageLog(sql.FieldNEQ(FieldInterceptType, v))
+}
+
+// InterceptTypeIn applies the In predicate on the "intercept_type" field.
+func InterceptTypeIn(vs ...string) predicate.UsageLog {
+	return predicate.UsageLog(sql.FieldIn(FieldInterceptType, vs...))
+}
+
+// InterceptTypeNotIn applies the NotIn predicate on the "intercept_type" field.
+func InterceptTypeNotIn(vs ...string) predicate.UsageLog {
+	return predicate.UsageLog(sql.FieldNotIn(FieldInterceptType, vs...))
+}
+
+// InterceptTypeGT applies the GT predicate on the "intercept_type" field.
+func InterceptTypeGT(v string) predicate.UsageLog {
+	return predicate.UsageLog(sql.FieldGT(FieldInterceptType, v))
+}
+
+// InterceptTypeGTE applies the GTE predicate on the "intercept_type" field.
+func InterceptTypeGTE(v string) predicate.UsageLog {
+	return predicate.UsageLog(sql.FieldGTE(FieldInterceptType, v))
+}
+
+// InterceptTypeLT applies the LT predicate on the "intercept_type" field.
+func InterceptTypeLT(v string) predicate.UsageLog {
+	return predicate.UsageLog(sql.FieldLT(FieldInterceptType, v))
+}
+
+// InterceptTypeLTE applies the LTE predicate on the "intercept_type" field.
+func InterceptTypeLTE(v string) predicate.UsageLog {
+	return predicate.UsageLog(sql.FieldLTE(FieldInterceptType, v))
+}
+
+// InterceptTypeContains applies the Contains predicate on the "intercept_type" field.
+func InterceptTypeContains(v string) predicate.UsageLog {
+	return predicate.UsageLog(sql.FieldContains(FieldInterceptType, v))
+}
+
+// InterceptTypeHasPrefix applies the HasPrefix predicate on the "intercept_type" field.
+func InterceptTypeHasPrefix(v string) predicate.UsageLog {
+	return predicate.UsageLog(sql.FieldHasPrefix(FieldInterceptType, v))
+}
+
+// InterceptTypeHasSuffix applies the HasSuffix predicate on the "intercept_type" field.
+func InterceptTypeHasSuffix(v string) predicate.UsageLog {
+	return predicate.UsageLog(sql.FieldHasSuffix(FieldInterceptType, v))
+}
+
+// InterceptTypeIsNil applies the IsNil predicate on the "intercept_type" field.
+func InterceptTypeIsNil() predicate.UsageLog {
+	return predicate.UsageLog(sql.FieldIsNull(FieldInterceptType))
+}
+
+// InterceptTypeNotNil applies the NotNil predicate on the "intercept_type" field.
+func InterceptTypeNotNil() predicate.UsageLog {
+	return predicate.UsageLog(sql.FieldNotNull(FieldInterceptType))
+}
+
+// InterceptTypeEqualFold applies the EqualFold predicate on the "intercept_type" field.
+func InterceptTypeEqualFold(v string) predicate.UsageLog {
+	return predicate.UsageLog(sql.FieldEqualFold(FieldInterceptType, v))
+}
+
+// InterceptTypeContainsFold applies the ContainsFold predicate on the "intercept_type" field.
+func InterceptTypeContainsFold(v string) predicate.UsageLog {
+	return predicate.UsageLog(sql.FieldContainsFold(FieldInterceptType, v))
 }
 
 // CreatedAtEQ applies the EQ predicate on the "created_at" field.

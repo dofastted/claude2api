@@ -168,9 +168,25 @@ type cachedCyberSessionBlockRuntime struct {
 	expiresAt int64 // unix nano
 }
 
+type LocalInterceptSettings struct {
+	Enabled               bool `json:"enabled"`
+	InterceptWarmup       bool `json:"intercept_warmup"`
+	InterceptMaxTokensOne bool `json:"intercept_max_tokens_one"`
+	InterceptSuggestion   bool `json:"intercept_suggestion"`
+}
+
+type cachedLocalInterceptSettings struct {
+	settings  LocalInterceptSettings
+	expiresAt int64
+}
+
 const cyberSessionBlockRuntimeCacheTTL = 60 * time.Second
 const cyberSessionBlockRuntimeErrorTTL = 5 * time.Second
 const cyberSessionBlockRuntimeDBTimeout = 5 * time.Second
+
+const localInterceptSettingsCacheTTL = 60 * time.Second
+const localInterceptSettingsErrorTTL = 5 * time.Second
+const localInterceptSettingsDBTimeout = 5 * time.Second
 
 const openAIQuotaAutoPauseSettingsCacheTTL = 60 * time.Second
 const openAIQuotaAutoPauseSettingsErrorTTL = 5 * time.Second
@@ -205,6 +221,8 @@ type SettingService struct {
 
 	cyberSessionBlockRuntimeCache atomic.Value // *cachedCyberSessionBlockRuntime
 	cyberSessionBlockRuntimeSF    singleflight.Group
+	localInterceptSettingsCache   atomic.Value // *cachedLocalInterceptSettings
+	localInterceptSettingsSF      singleflight.Group
 
 	// openAIQuotaAutoPauseSettingsCache holds the most recently observed quota auto-pause
 	// settings. GetOpenAIQuotaAutoPauseSettings reads this atomic.Value on the request hot
@@ -764,6 +782,63 @@ func (s *SettingService) GetCyberSessionBlockRuntime(ctx context.Context) (bool,
 		return entry.enabled, entry.ttl
 	}
 	return false, time.Hour
+}
+
+func defaultLocalInterceptSettings() LocalInterceptSettings {
+	return LocalInterceptSettings{
+		Enabled:               true,
+		InterceptWarmup:       false,
+		InterceptMaxTokensOne: true,
+		InterceptSuggestion:   false,
+	}
+}
+
+func (s *SettingService) GetLocalInterceptSettings(ctx context.Context) LocalInterceptSettings {
+	defaults := defaultLocalInterceptSettings()
+	if s == nil || s.settingRepo == nil {
+		return defaults
+	}
+	if cached, ok := s.localInterceptSettingsCache.Load().(*cachedLocalInterceptSettings); ok && cached != nil {
+		if time.Now().UnixNano() < cached.expiresAt {
+			return cached.settings
+		}
+	}
+	result, _, _ := s.localInterceptSettingsSF.Do("local_intercept_settings", func() (any, error) {
+		if cached, ok := s.localInterceptSettingsCache.Load().(*cachedLocalInterceptSettings); ok && cached != nil {
+			if time.Now().UnixNano() < cached.expiresAt {
+				return cached, nil
+			}
+		}
+		dbCtx, cancel := context.WithTimeout(context.WithoutCancel(ctx), localInterceptSettingsDBTimeout)
+		defer cancel()
+
+		value, err := s.settingRepo.GetValue(dbCtx, SettingKeyLocalIntercept)
+		if err != nil {
+			ttl := localInterceptSettingsCacheTTL
+			if !errors.Is(err, ErrSettingNotFound) {
+				slog.Warn("failed to get local_intercept setting", "error", err)
+				ttl = localInterceptSettingsErrorTTL
+			}
+			entry := &cachedLocalInterceptSettings{settings: defaults, expiresAt: time.Now().Add(ttl).UnixNano()}
+			s.localInterceptSettingsCache.Store(entry)
+			return entry, nil
+		}
+
+		settings := defaults
+		if strings.TrimSpace(value) != "" {
+			if err := json.Unmarshal([]byte(value), &settings); err != nil {
+				slog.Warn("failed to parse local_intercept setting", "error", err)
+				settings = defaults
+			}
+		}
+		entry := &cachedLocalInterceptSettings{settings: settings, expiresAt: time.Now().Add(localInterceptSettingsCacheTTL).UnixNano()}
+		s.localInterceptSettingsCache.Store(entry)
+		return entry, nil
+	})
+	if cached, ok := result.(*cachedLocalInterceptSettings); ok && cached != nil {
+		return cached.settings
+	}
+	return defaults
 }
 
 // GetPublicSettings 获取公开设置（无需登录）

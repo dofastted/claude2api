@@ -34,7 +34,7 @@ func (UsageLog) Fields() []ent.Field {
 		// 关联字段
 		field.Int64("user_id"),
 		field.Int64("api_key_id"),
-		field.Int64("account_id"),
+		field.Int64("account_id").Optional().Nillable(),
 		field.String("request_id").
 			MaxLen(64).
 			NotEmpty(),
@@ -152,6 +152,12 @@ func (UsageLog) Fields() []ent.Field {
 		// Cache TTL Override 标记（管理员强制替换了缓存 TTL 计费）
 		field.Bool("cache_ttl_overridden").
 			Default(false),
+		field.Bool("local_intercept").
+			Default(false),
+		field.String("intercept_type").
+			MaxLen(64).
+			Optional().
+			Nillable(),
 
 		// 时间戳（只有 created_at，日志不可修改）
 		field.Time("created_at").
@@ -177,7 +183,6 @@ func (UsageLog) Edges() []ent.Edge {
 		edge.From("account", Account.Type).
 			Ref("usage_logs").
 			Field("account_id").
-			Required().
 			Unique(),
 		edge.From("group", Group.Type).
 			Ref("usage_logs").
@@ -202,6 +207,7 @@ func (UsageLog) Indexes() []ent.Index {
 		index.Fields("model"),
 		index.Fields("requested_model"),
 		index.Fields("request_id"),
+		index.Fields("local_intercept", "created_at"),
 		// 复合索引用于时间范围查询
 		index.Fields("user_id", "created_at"),
 		index.Fields("api_key_id", "created_at"),

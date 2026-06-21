@@ -45,6 +45,14 @@ func (_c *UsageLogCreate) SetAccountID(v int64) *UsageLogCreate {
 	return _c
 }
 
+// SetNillableAccountID sets the "account_id" field if the given value is not nil.
+func (_c *UsageLogCreate) SetNillableAccountID(v *int64) *UsageLogCreate {
+	if v != nil {
+		_c.SetAccountID(*v)
+	}
+	return _c
+}
+
 // SetRequestID sets the "request_id" field.
 func (_c *UsageLogCreate) SetRequestID(v string) *UsageLogCreate {
 	_c.mutation.SetRequestID(v)
@@ -539,6 +547,34 @@ func (_c *UsageLogCreate) SetNillableCacheTTLOverridden(v *bool) *UsageLogCreate
 	return _c
 }
 
+// SetLocalIntercept sets the "local_intercept" field.
+func (_c *UsageLogCreate) SetLocalIntercept(v bool) *UsageLogCreate {
+	_c.mutation.SetLocalIntercept(v)
+	return _c
+}
+
+// SetNillableLocalIntercept sets the "local_intercept" field if the given value is not nil.
+func (_c *UsageLogCreate) SetNillableLocalIntercept(v *bool) *UsageLogCreate {
+	if v != nil {
+		_c.SetLocalIntercept(*v)
+	}
+	return _c
+}
+
+// SetInterceptType sets the "intercept_type" field.
+func (_c *UsageLogCreate) SetInterceptType(v string) *UsageLogCreate {
+	_c.mutation.SetInterceptType(v)
+	return _c
+}
+
+// SetNillableInterceptType sets the "intercept_type" field if the given value is not nil.
+func (_c *UsageLogCreate) SetNillableInterceptType(v *string) *UsageLogCreate {
+	if v != nil {
+		_c.SetInterceptType(*v)
+	}
+	return _c
+}
+
 // SetCreatedAt sets the "created_at" field.
 func (_c *UsageLogCreate) SetCreatedAt(v time.Time) *UsageLogCreate {
 	_c.mutation.SetCreatedAt(v)
@@ -681,6 +717,10 @@ func (_c *UsageLogCreate) defaults() {
 		v := usagelog.DefaultCacheTTLOverridden
 		_c.mutation.SetCacheTTLOverridden(v)
 	}
+	if _, ok := _c.mutation.LocalIntercept(); !ok {
+		v := usagelog.DefaultLocalIntercept
+		_c.mutation.SetLocalIntercept(v)
+	}
 	if _, ok := _c.mutation.CreatedAt(); !ok {
 		v := usagelog.DefaultCreatedAt()
 		_c.mutation.SetCreatedAt(v)
@@ -694,9 +734,6 @@ func (_c *UsageLogCreate) check() error {
 	}
 	if _, ok := _c.mutation.APIKeyID(); !ok {
 		return &ValidationError{Name: "api_key_id", err: errors.New(`ent: missing required field "UsageLog.api_key_id"`)}
-	}
-	if _, ok := _c.mutation.AccountID(); !ok {
-		return &ValidationError{Name: "account_id", err: errors.New(`ent: missing required field "UsageLog.account_id"`)}
 	}
 	if _, ok := _c.mutation.RequestID(); !ok {
 		return &ValidationError{Name: "request_id", err: errors.New(`ent: missing required field "UsageLog.request_id"`)}
@@ -820,6 +857,14 @@ func (_c *UsageLogCreate) check() error {
 	if _, ok := _c.mutation.CacheTTLOverridden(); !ok {
 		return &ValidationError{Name: "cache_ttl_overridden", err: errors.New(`ent: missing required field "UsageLog.cache_ttl_overridden"`)}
 	}
+	if _, ok := _c.mutation.LocalIntercept(); !ok {
+		return &ValidationError{Name: "local_intercept", err: errors.New(`ent: missing required field "UsageLog.local_intercept"`)}
+	}
+	if v, ok := _c.mutation.InterceptType(); ok {
+		if err := usagelog.InterceptTypeValidator(v); err != nil {
+			return &ValidationError{Name: "intercept_type", err: fmt.Errorf(`ent: validator failed for field "UsageLog.intercept_type": %w`, err)}
+		}
+	}
 	if _, ok := _c.mutation.CreatedAt(); !ok {
 		return &ValidationError{Name: "created_at", err: errors.New(`ent: missing required field "UsageLog.created_at"`)}
 	}
@@ -828,9 +873,6 @@ func (_c *UsageLogCreate) check() error {
 	}
 	if len(_c.mutation.APIKeyIDs()) == 0 {
 		return &ValidationError{Name: "api_key", err: errors.New(`ent: missing required edge "UsageLog.api_key"`)}
-	}
-	if len(_c.mutation.AccountIDs()) == 0 {
-		return &ValidationError{Name: "account", err: errors.New(`ent: missing required edge "UsageLog.account"`)}
 	}
 	return nil
 }
@@ -999,6 +1041,14 @@ func (_c *UsageLogCreate) createSpec() (*UsageLog, *sqlgraph.CreateSpec) {
 		_spec.SetField(usagelog.FieldCacheTTLOverridden, field.TypeBool, value)
 		_node.CacheTTLOverridden = value
 	}
+	if value, ok := _c.mutation.LocalIntercept(); ok {
+		_spec.SetField(usagelog.FieldLocalIntercept, field.TypeBool, value)
+		_node.LocalIntercept = value
+	}
+	if value, ok := _c.mutation.InterceptType(); ok {
+		_spec.SetField(usagelog.FieldInterceptType, field.TypeString, value)
+		_node.InterceptType = &value
+	}
 	if value, ok := _c.mutation.CreatedAt(); ok {
 		_spec.SetField(usagelog.FieldCreatedAt, field.TypeTime, value)
 		_node.CreatedAt = value
@@ -1051,7 +1101,7 @@ func (_c *UsageLogCreate) createSpec() (*UsageLog, *sqlgraph.CreateSpec) {
 		for _, k := range nodes {
 			edge.Target.Nodes = append(edge.Target.Nodes, k)
 		}
-		_node.AccountID = nodes[0]
+		_node.AccountID = &nodes[0]
 		_spec.Edges = append(_spec.Edges, edge)
 	}
 	if nodes := _c.mutation.GroupIDs(); len(nodes) > 0 {
@@ -1173,6 +1223,12 @@ func (u *UsageLogUpsert) SetAccountID(v int64) *UsageLogUpsert {
 // UpdateAccountID sets the "account_id" field to the value that was provided on create.
 func (u *UsageLogUpsert) UpdateAccountID() *UsageLogUpsert {
 	u.SetExcluded(usagelog.FieldAccountID)
+	return u
+}
+
+// ClearAccountID clears the value of the "account_id" field.
+func (u *UsageLogUpsert) ClearAccountID() *UsageLogUpsert {
+	u.SetNull(usagelog.FieldAccountID)
 	return u
 }
 
@@ -1842,6 +1898,36 @@ func (u *UsageLogUpsert) UpdateCacheTTLOverridden() *UsageLogUpsert {
 	return u
 }
 
+// SetLocalIntercept sets the "local_intercept" field.
+func (u *UsageLogUpsert) SetLocalIntercept(v bool) *UsageLogUpsert {
+	u.Set(usagelog.FieldLocalIntercept, v)
+	return u
+}
+
+// UpdateLocalIntercept sets the "local_intercept" field to the value that was provided on create.
+func (u *UsageLogUpsert) UpdateLocalIntercept() *UsageLogUpsert {
+	u.SetExcluded(usagelog.FieldLocalIntercept)
+	return u
+}
+
+// SetInterceptType sets the "intercept_type" field.
+func (u *UsageLogUpsert) SetInterceptType(v string) *UsageLogUpsert {
+	u.Set(usagelog.FieldInterceptType, v)
+	return u
+}
+
+// UpdateInterceptType sets the "intercept_type" field to the value that was provided on create.
+func (u *UsageLogUpsert) UpdateInterceptType() *UsageLogUpsert {
+	u.SetExcluded(usagelog.FieldInterceptType)
+	return u
+}
+
+// ClearInterceptType clears the value of the "intercept_type" field.
+func (u *UsageLogUpsert) ClearInterceptType() *UsageLogUpsert {
+	u.SetNull(usagelog.FieldInterceptType)
+	return u
+}
+
 // UpdateNewValues updates the mutable fields using the new values that were set on create.
 // Using this option is equivalent to using:
 //
@@ -1926,6 +2012,13 @@ func (u *UsageLogUpsertOne) SetAccountID(v int64) *UsageLogUpsertOne {
 func (u *UsageLogUpsertOne) UpdateAccountID() *UsageLogUpsertOne {
 	return u.Update(func(s *UsageLogUpsert) {
 		s.UpdateAccountID()
+	})
+}
+
+// ClearAccountID clears the value of the "account_id" field.
+func (u *UsageLogUpsertOne) ClearAccountID() *UsageLogUpsertOne {
+	return u.Update(func(s *UsageLogUpsert) {
+		s.ClearAccountID()
 	})
 }
 
@@ -2706,6 +2799,41 @@ func (u *UsageLogUpsertOne) UpdateCacheTTLOverridden() *UsageLogUpsertOne {
 	})
 }
 
+// SetLocalIntercept sets the "local_intercept" field.
+func (u *UsageLogUpsertOne) SetLocalIntercept(v bool) *UsageLogUpsertOne {
+	return u.Update(func(s *UsageLogUpsert) {
+		s.SetLocalIntercept(v)
+	})
+}
+
+// UpdateLocalIntercept sets the "local_intercept" field to the value that was provided on create.
+func (u *UsageLogUpsertOne) UpdateLocalIntercept() *UsageLogUpsertOne {
+	return u.Update(func(s *UsageLogUpsert) {
+		s.UpdateLocalIntercept()
+	})
+}
+
+// SetInterceptType sets the "intercept_type" field.
+func (u *UsageLogUpsertOne) SetInterceptType(v string) *UsageLogUpsertOne {
+	return u.Update(func(s *UsageLogUpsert) {
+		s.SetInterceptType(v)
+	})
+}
+
+// UpdateInterceptType sets the "intercept_type" field to the value that was provided on create.
+func (u *UsageLogUpsertOne) UpdateInterceptType() *UsageLogUpsertOne {
+	return u.Update(func(s *UsageLogUpsert) {
+		s.UpdateInterceptType()
+	})
+}
+
+// ClearInterceptType clears the value of the "intercept_type" field.
+func (u *UsageLogUpsertOne) ClearInterceptType() *UsageLogUpsertOne {
+	return u.Update(func(s *UsageLogUpsert) {
+		s.ClearInterceptType()
+	})
+}
+
 // Exec executes the query.
 func (u *UsageLogUpsertOne) Exec(ctx context.Context) error {
 	if len(u.create.conflict) == 0 {
@@ -2956,6 +3084,13 @@ func (u *UsageLogUpsertBulk) SetAccountID(v int64) *UsageLogUpsertBulk {
 func (u *UsageLogUpsertBulk) UpdateAccountID() *UsageLogUpsertBulk {
 	return u.Update(func(s *UsageLogUpsert) {
 		s.UpdateAccountID()
+	})
+}
+
+// ClearAccountID clears the value of the "account_id" field.
+func (u *UsageLogUpsertBulk) ClearAccountID() *UsageLogUpsertBulk {
+	return u.Update(func(s *UsageLogUpsert) {
+		s.ClearAccountID()
 	})
 }
 
@@ -3733,6 +3868,41 @@ func (u *UsageLogUpsertBulk) SetCacheTTLOverridden(v bool) *UsageLogUpsertBulk {
 func (u *UsageLogUpsertBulk) UpdateCacheTTLOverridden() *UsageLogUpsertBulk {
 	return u.Update(func(s *UsageLogUpsert) {
 		s.UpdateCacheTTLOverridden()
+	})
+}
+
+// SetLocalIntercept sets the "local_intercept" field.
+func (u *UsageLogUpsertBulk) SetLocalIntercept(v bool) *UsageLogUpsertBulk {
+	return u.Update(func(s *UsageLogUpsert) {
+		s.SetLocalIntercept(v)
+	})
+}
+
+// UpdateLocalIntercept sets the "local_intercept" field to the value that was provided on create.
+func (u *UsageLogUpsertBulk) UpdateLocalIntercept() *UsageLogUpsertBulk {
+	return u.Update(func(s *UsageLogUpsert) {
+		s.UpdateLocalIntercept()
+	})
+}
+
+// SetInterceptType sets the "intercept_type" field.
+func (u *UsageLogUpsertBulk) SetInterceptType(v string) *UsageLogUpsertBulk {
+	return u.Update(func(s *UsageLogUpsert) {
+		s.SetInterceptType(v)
+	})
+}
+
+// UpdateInterceptType sets the "intercept_type" field to the value that was provided on create.
+func (u *UsageLogUpsertBulk) UpdateInterceptType() *UsageLogUpsertBulk {
+	return u.Update(func(s *UsageLogUpsert) {
+		s.UpdateInterceptType()
+	})
+}
+
+// ClearInterceptType clears the value of the "intercept_type" field.
+func (u *UsageLogUpsertBulk) ClearInterceptType() *UsageLogUpsertBulk {
+	return u.Update(func(s *UsageLogUpsert) {
+		s.ClearInterceptType()
 	})
 }
 

@@ -7,6 +7,8 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/Wei-Shaw/sub2api/internal/service"
+
 	"github.com/gin-gonic/gin"
 	"github.com/stretchr/testify/require"
 )
@@ -62,4 +64,33 @@ func TestSendMockInterceptResponse_MaxTokensOneHaiku(t *testing.T) {
 	usage, ok := response["usage"].(map[string]any)
 	require.True(t, ok)
 	require.Equal(t, float64(1), usage["output_tokens"])
+}
+
+func TestShouldLocalInterceptUsesGlobalSettings(t *testing.T) {
+	settings := service.LocalInterceptSettings{
+		Enabled:               true,
+		InterceptWarmup:       true,
+		InterceptMaxTokensOne: true,
+		InterceptSuggestion:   false,
+	}
+
+	require.True(t, shouldLocalIntercept(InterceptTypeWarmup, settings))
+	require.True(t, shouldLocalIntercept(InterceptTypeMaxTokensOneHaiku, settings))
+	require.False(t, shouldLocalIntercept(InterceptTypeSuggestionMode, settings))
+
+	settings.Enabled = false
+	require.False(t, shouldLocalIntercept(InterceptTypeWarmup, settings))
+}
+
+func TestSendMockInterceptStream_MaxTokensOneHaiku(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+	rec := httptest.NewRecorder()
+	ctx, _ := gin.CreateTestContext(rec)
+
+	sendMockInterceptStream(ctx, "claude-haiku-4-5", InterceptTypeMaxTokensOneHaiku)
+
+	require.Equal(t, http.StatusOK, rec.Code)
+	body := rec.Body.String()
+	require.Contains(t, body, `"text":"#"`)
+	require.Contains(t, body, `"stop_reason":"max_tokens"`)
 }

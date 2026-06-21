@@ -4918,6 +4918,11 @@ func (s *GatewayService) Forward(ctx context.Context, c *gin.Context, account *A
 				return nil, err
 			}
 		}
+		if profile := s.getClaudeCodeHeaderProfile(account); profile != nil {
+			slog.Debug("claude_code_header_profile_will_apply", "account_id", account.ID)
+		} else {
+			slog.Debug("claude_code_header_profile_fallback", "account_id", account.ID, "reason", "no_profile_or_expired")
+		}
 	}
 
 	// 强制执行 cache_control 块数量限制（最多 4 个）
@@ -5446,6 +5451,9 @@ func (s *GatewayService) Forward(ctx context.Context, c *gin.Context, account *A
 		}
 	}
 
+	if isClaudeCode && resp.StatusCode >= http.StatusOK && resp.StatusCode < http.StatusMultipleChoices {
+		s.learnClaudeCodeHeaderProfile(ctx, account, c.Request.Header)
+	}
 	// 触发上游接受回调（提前释放串行锁，不等流完成）
 	if parsed.OnUpstreamAccepted != nil {
 		parsed.OnUpstreamAccepted()
@@ -6816,6 +6824,9 @@ func (s *GatewayService) buildUpstreamRequest(ctx context.Context, c *gin.Contex
 	// （user-agent/x-stainless-*/x-app/Accept/x-stainless-helper-method/x-client-request-id）
 	if tokenType == "oauth" && mimicClaudeCode {
 		applyClaudeCodeMimicHeaders(req, reqStream, s.identityRegistry)
+		if profile := s.getClaudeCodeHeaderProfile(account); profile != nil {
+			s.applyClaudeCodeHeaderProfile(req, account, profile)
+		}
 	}
 
 	// 写入最终 anthropic-beta header
@@ -8757,6 +8768,8 @@ type RecordUsageInput struct {
 	ForceCacheBilling  bool               // 强制缓存计费：将 input_tokens 转为 cache_read 计费（用于粘性会话切换）
 	APIKeyService      APIKeyQuotaUpdater // 可选：用于更新API Key配额
 	QuotaPlatform      string             // user×platform 配额计量平台：handler 在请求 ctx 内经 QuotaPlatform() 算定后传入（后扣运行在 worker 池 background ctx 上，取不到 ForcePlatform）
+	LocalIntercept     bool               // 是否为本地拦截响应
+	InterceptType      string             // 本地拦截类型
 
 	ChannelUsageFields // 渠道映射信息（由 handler 在 Forward 前解析）
 }
@@ -9245,6 +9258,8 @@ func (s *GatewayService) RecordUsage(ctx context.Context, input *RecordUsageInpu
 		ForceCacheBilling:  input.ForceCacheBilling,
 		APIKeyService:      input.APIKeyService,
 		QuotaPlatform:      input.QuotaPlatform,
+		LocalIntercept:     input.LocalIntercept,
+		InterceptType:      input.InterceptType,
 		ChannelUsageFields: input.ChannelUsageFields,
 	}, &recordUsageOpts{})
 }
@@ -9308,6 +9323,8 @@ type recordUsageCoreInput struct {
 	ForceCacheBilling  bool
 	APIKeyService      APIKeyQuotaUpdater
 	QuotaPlatform      string
+	LocalIntercept     bool
+	InterceptType      string
 	ChannelUsageFields
 }
 
@@ -9609,6 +9626,8 @@ func (s *GatewayService) buildRecordUsageLog(
 		Stream:                result.Stream,
 		DurationMs:            &durationMs,
 		FirstTokenMs:          result.FirstTokenMs,
+		LocalIntercept:        input.LocalIntercept,
+		InterceptType:         optionalTrimmedStringPtr(input.InterceptType),
 		ImageCount:            result.ImageCount,
 		ImageSize:             optionalTrimmedStringPtr(result.ImageSize),
 		ImageInputSize:        optionalTrimmedStringPtr(result.ImageInputSize),
