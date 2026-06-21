@@ -1,0 +1,2168 @@
+Reading additional input from stdin...
+OpenAI Codex v0.141.0
+--------
+workdir: /mnt/x/project/sub2api
+model: gpt-5.5
+provider: fkcodex
+approval: never
+sandbox: danger-full-access
+reasoning effort: high
+reasoning summaries: detailed
+session id: 019ee80a-b774-7e10-b488-18f7faca914a
+--------
+user
+Active task: .trellis/tasks/06-21-slim-build-strip-payment
+
+你是 Go 后端工程师，为 sub2api L1.2（网关鉴权退化）做前置准备：**精确定位所有 BillingCacheService.CheckBillingEligibility 调用点**。
+
+## 背景（codex 审查发现的关键风险）
+- 真正拦截请求的不是 `SubscriptionService`，而是 `BillingCacheService.CheckBillingEligibility`。
+- handler 多处**直接调用且无 nil guard** → slim 传 nil 会 panic。
+- codex 已给出几处调用点：`gateway_handler.go:227`、`openai_gateway_handler.go:716/1311`，但可能不全。
+
+## 任务
+用 grep 找出 `backend/internal/handler/` 下**所有** `CheckBillingEligibility` 调用点（含间接调用、方法接收者、变量名缩写），输出：
+1. **调用清单**：文件路径:行号 + 上下文（调用所在函数名）
+2. **人工确认**：读每个调用点上下文，判断是否真的在鉴权拦截路径（非测试、非后台任务）
+3. **分类**：
+   - **热路径拦截**（slim 必须改造，否则 panic）
+   - **冷路径/可选**（测试、admin 工具、后台统计等）
+4. **输出格式**：
+   ```
+   热路径拦截（slim 必须走 BillingGate）：
+   - backend/internal/handler/gateway_handler.go:227 (func handleClaudeMessages)
+   - backend/internal/handler/openai_gateway_handler.go:716 (func handleOpenAIResponses)
+   - ...
+
+   冷路径（slim 可保留原逻辑或 skip）：
+   - ...
+   ```
+
+## 检索策略
+- `grep -rn "CheckBillingEligibility\|billingCacheService\|billingCache" backend/internal/handler --include="*.go" | grep -v "_test.go"`
+- 再人工读每个匹配的文件相关段落，确认调用上下文。
+- 注意方法调用可能缩写（如 `h.billingCache.Check...`、`svc.CheckBilling...`）。
+
+## 注意
+- **只定位调用点，不要修改代码**。这步是为下一步（抽 BillingGate）做准备。
+- 输出要精确到行号与函数名，方便下一步逐点改造。
+
+开始执行。
+hook: SessionStart
+hook: SessionStart Completed
+hook: UserPromptSubmit
+hook: UserPromptSubmit Completed
+**Inspecting the file**
+
+I need to inspect the file, using exec_command without making any modifications. First, I'll need to run a grep command to read specific contexts, and it might help to do this in parallel. I might also consider finding some useful functions. Maybe I should start with running pwd or ls to get my bearings. Alright, let's proceed with the grep command to see what I can uncover!
+codex
+// DECISION: skill_needed=true reason=这是代码定位/分析任务，使用 investigate 技能；只读代码，不改文件。
+exec
+/bin/bash -lc "sed -n '1,220p' /home/mci777/.codex/skills/investigate/SKILL.md" in /mnt/x/project/sub2api
+ succeeded in 0ms:
+---
+name: investigate
+description: "Use when user asks 'what is X', 'how does X work', 'find out about', 'analyze', 'explain the code', or needs quick codebase investigation. Returns findings directly in conversation without saving files. Prefer this over Explore agent."
+disable-model-invocation: false
+context: fork
+allowed-tools: Read, Glob, Grep, Bash, WebSearch, WebFetch
+---
+
+# /investigate
+
+This skill performs rapid, documentation-driven codebase investigation and reports findings directly.
+
+## Pre-fetched Context
+
+- **Llmdoc exists:** !`test -d llmdoc && echo "llmdoc initialized" || echo "No llmdoc directory"`
+- **Llmdoc index:** !`cat llmdoc/index.md 2>/dev/null | head -100 || echo "No index"`
+- **Doc structure:** !`find llmdoc -name "*.md" 2>/dev/null | head -50`
+- **Project structure:** !`ls -la 2>/dev/null | head -20`
+
+## Investigation Protocol
+
+### Phase 1: Documentation First
+
+Before touching any source code, you MUST:
+
+1. Check if `llmdoc/` exists (see pre-fetched context above).
+2. If exists, read relevant documents in this order:
+   - `llmdoc/index.md` - navigation and overview
+   - `llmdoc/overview/*.md` - project context
+   - `llmdoc/architecture/*.md` - system design
+   - `llmdoc/guides/*.md` - workflows
+   - `llmdoc/reference/*.md` - conventions
+
+### Phase 2: Code Investigation
+
+Only after exhausting documentation, investigate source code:
+
+1. Use `Glob` to find relevant files.
+2. Use `Grep` to search for patterns.
+3. Use `Read` to examine specific files.
+
+### Phase 3: Report
+
+Output a concise report with this structure:
+
+```markdown
+#### Code Sections
+- `path/to/file.ext:line~line` (SymbolName): Brief description
+
+#### Report
+
+**Conclusions:**
+> Key findings...
+
+**Relations:**
+> File/module relationships...
+
+**Result:**
+> Direct answer to the question...
+```
+
+## Key Practices
+
+- **Stateless**: Output directly, do not write files.
+- **Concise**: Report under 150 lines.
+- **No Code Blocks**: Reference code with `path/file.ext` format, not paste.
+- **Objective**: State facts only, no subjective judgments.
+
+codex
+我先按只读方式确认项目文档和匹配范围，然后逐个读调用点上下文。不会改代码。
+exec
+/bin/bash -lc 'test -d llmdoc && echo llmdoc_exists || echo no_llmdoc' in /mnt/x/project/sub2api
+ succeeded in 0ms:
+no_llmdoc
+
+exec
+/bin/bash -lc "test -f SKILL.md && sed -n '1,220p' SKILL.md || true" in /mnt/x/project/sub2api
+ succeeded in 0ms:
+exec
+/bin/bash -lc "test -f llmdoc/index.md && sed -n '1,160p' llmdoc/index.md || true" in /mnt/x/project/sub2api
+ succeeded in 0ms:
+exec
+/bin/bash -lc "find llmdoc -maxdepth 2 -type f -name '*.md' 2>/dev/null | sort | head -80" in /mnt/x/project/sub2api
+ succeeded in 0ms:
+**Clarifying project approach**
+
+I'm thinking about using skills for the project, but the user only wants to locate info without coding. There's mention of Trellis being involved, but I'm wondering if it's necessary to start coding tasks or just to investigate. AGENTS say Trellis is present, but we might just use "trellis-start" to signal beginning a coding task. The user asked for grep, so I need to focus on that while remembering we might not need to edit anything in GitNexus. Let's run grep!
+**Finding relevant information**
+
+I’m considering whether I should read the task specifics since the user only wants to locate information. Inspecting the .trellis skill might not help much because of the "before writing code" aspect. I know I need to focus on grep, specifically to find all calls, including indirect ones like method receivers and variable names. The grep I have includes billingCache and CheckBillingEligibility, so I might use rg for those, and gather functions with scripts like awk. I'll run rg -n to get exact matches!
+codex
+`llmdoc/` 和仓库根 `SKILL.md` 都不存在，所以继续按仓库规则和用户给定 grep 策略执行。下一步我会先收全匹配，再只读相关函数段落。
+exec
+/bin/bash -lc "find backend/internal/handler -type f -name '*.go' "'! -name '"'*_test.go' | sort" in /mnt/x/project/sub2api
+ succeeded in 0ms:
+backend/internal/handler/admin/account_codex_import.go
+backend/internal/handler/admin/account_data.go
+backend/internal/handler/admin/account_handler.go
+backend/internal/handler/admin/account_today_stats_cache.go
+backend/internal/handler/admin/affiliate_handler.go
+backend/internal/handler/admin/announcement_handler.go
+backend/internal/handler/admin/antigravity_oauth_handler.go
+backend/internal/handler/admin/apikey_handler.go
+backend/internal/handler/admin/backup_handler.go
+backend/internal/handler/admin/channel_handler.go
+backend/internal/handler/admin/channel_monitor_handler.go
+backend/internal/handler/admin/channel_monitor_template_handler.go
+backend/internal/handler/admin/compliance_handler.go
+backend/internal/handler/admin/content_moderation_handler.go
+backend/internal/handler/admin/dashboard_handler.go
+backend/internal/handler/admin/dashboard_query_cache.go
+backend/internal/handler/admin/dashboard_snapshot_v2_handler.go
+backend/internal/handler/admin/data_management_handler.go
+backend/internal/handler/admin/error_passthrough_handler.go
+backend/internal/handler/admin/gemini_oauth_handler.go
+backend/internal/handler/admin/group_handler.go
+backend/internal/handler/admin/id_list_utils.go
+backend/internal/handler/admin/idempotency_helper.go
+backend/internal/handler/admin/openai_oauth_handler.go
+backend/internal/handler/admin/ops_alerts_handler.go
+backend/internal/handler/admin/ops_dashboard_handler.go
+backend/internal/handler/admin/ops_handler.go
+backend/internal/handler/admin/ops_realtime_handler.go
+backend/internal/handler/admin/ops_settings_handler.go
+backend/internal/handler/admin/ops_snapshot_v2_handler.go
+backend/internal/handler/admin/ops_system_log_handler.go
+backend/internal/handler/admin/ops_ws_handler.go
+backend/internal/handler/admin/payment_handler.go
+backend/internal/handler/admin/promo_handler.go
+backend/internal/handler/admin/proxy_data.go
+backend/internal/handler/admin/proxy_handler.go
+backend/internal/handler/admin/redeem_handler.go
+backend/internal/handler/admin/scheduled_test_handler.go
+backend/internal/handler/admin/setting_handler.go
+backend/internal/handler/admin/snapshot_cache.go
+backend/internal/handler/admin/subscription_handler.go
+backend/internal/handler/admin/system_handler.go
+backend/internal/handler/admin/tls_fingerprint_profile_handler.go
+backend/internal/handler/admin/usage_handler.go
+backend/internal/handler/admin/usage_query_cache.go
+backend/internal/handler/admin/user_attribute_handler.go
+backend/internal/handler/admin/user_handler.go
+backend/internal/handler/announcement_handler.go
+backend/internal/handler/api_key_handler.go
+backend/internal/handler/auth_dingtalk_client.go
+backend/internal/handler/auth_dingtalk_oauth.go
+backend/internal/handler/auth_email_oauth.go
+backend/internal/handler/auth_handler.go
+backend/internal/handler/auth_linuxdo_oauth.go
+backend/internal/handler/auth_oauth_pending_flow.go
+backend/internal/handler/auth_oidc_oauth.go
+backend/internal/handler/auth_wechat_oauth.go
+backend/internal/handler/available_channel_handler.go
+backend/internal/handler/channel_monitor_user_handler.go
+backend/internal/handler/concurrency_error_response.go
+backend/internal/handler/content_moderation_helper.go
+backend/internal/handler/dto/announcement.go
+backend/internal/handler/dto/channel_monitor.go
+backend/internal/handler/dto/credentials_redact.go
+backend/internal/handler/dto/mappers.go
+backend/internal/handler/dto/notify_email_entry.go
+backend/internal/handler/dto/settings.go
+backend/internal/handler/dto/types.go
+backend/internal/handler/endpoint.go
+backend/internal/handler/failover_loop.go
+backend/internal/handler/gateway_handler.go
+backend/internal/handler/gateway_handler_chat_completions.go
+backend/internal/handler/gateway_handler_responses.go
+backend/internal/handler/gateway_helper.go
+backend/internal/handler/gemini_v1beta_handler.go
+backend/internal/handler/handler.go
+backend/internal/handler/idempotency_helper.go
+backend/internal/handler/image_concurrency_limiter.go
+backend/internal/handler/logging.go
+backend/internal/handler/openai_chat_completions.go
+backend/internal/handler/openai_embeddings.go
+backend/internal/handler/openai_gateway_handler.go
+backend/internal/handler/openai_images.go
+backend/internal/handler/openai_stream_validation.go
+backend/internal/handler/ops_error_logger.go
+backend/internal/handler/page_handler.go
+backend/internal/handler/payment_handler.go
+backend/internal/handler/payment_webhook_handler.go
+backend/internal/handler/quotaview/helpers.go
+backend/internal/handler/redeem_handler.go
+backend/internal/handler/request_body_limit.go
+backend/internal/handler/setting_handler.go
+backend/internal/handler/stream_error_event.go
+backend/internal/handler/subscription_handler.go
+backend/internal/handler/totp_handler.go
+backend/internal/handler/usage_handler.go
+backend/internal/handler/user_handler.go
+backend/internal/handler/user_msg_queue_helper.go
+backend/internal/handler/wire.go
+
+exec
+/bin/bash -lc "rg -n \"CheckBillingEligibility|billingCacheService|billingCache\" backend/internal/handler -g '*.go' -g '"'!**/*_test.go'"'" in /mnt/x/project/sub2api
+ succeeded in 0ms:
+backend/internal/handler/openai_images.go:127:	if err := h.billingCacheService.CheckBillingEligibility(c.Request.Context(), apiKey.User, apiKey, apiKey.Group, subscription, service.QuotaPlatform(c.Request.Context(), apiKey)); err != nil {
+backend/internal/handler/gemini_v1beta_handler.go:226:	if err := h.billingCacheService.CheckBillingEligibility(c.Request.Context(), apiKey.User, apiKey, apiKey.Group, subscription, service.QuotaPlatform(c.Request.Context(), apiKey)); err != nil {
+backend/internal/handler/openai_gateway_handler.go:32:	billingCacheService      *service.BillingCacheService
+backend/internal/handler/openai_gateway_handler.go:104:	billingCacheService *service.BillingCacheService,
+backend/internal/handler/openai_gateway_handler.go:122:		billingCacheService:      billingCacheService,
+backend/internal/handler/openai_gateway_handler.go:299:	if err := h.billingCacheService.CheckBillingEligibility(c.Request.Context(), apiKey.User, apiKey, apiKey.Group, subscription, service.QuotaPlatform(c.Request.Context(), apiKey)); err != nil {
+backend/internal/handler/openai_gateway_handler.go:716:	if err := h.billingCacheService.CheckBillingEligibility(c.Request.Context(), apiKey.User, apiKey, apiKey.Group, subscription, service.QuotaPlatform(c.Request.Context(), apiKey)); err != nil {
+backend/internal/handler/openai_gateway_handler.go:1312:	if err := h.billingCacheService.CheckBillingEligibility(ctx, apiKey.User, apiKey, apiKey.Group, subscription, service.QuotaPlatform(c.Request.Context(), apiKey)); err != nil {
+backend/internal/handler/openai_gateway_handler.go:1668:	if h.billingCacheService == nil {
+backend/internal/handler/openai_gateway_handler.go:1669:		missing = append(missing, "billingCacheService")
+backend/internal/handler/gateway_handler.go:45:	billingCacheService       *service.BillingCacheService
+backend/internal/handler/gateway_handler.go:66:	billingCacheService *service.BillingCacheService,
+backend/internal/handler/gateway_handler.go:100:		billingCacheService:       billingCacheService,
+backend/internal/handler/gateway_handler.go:228:	if err := h.billingCacheService.CheckBillingEligibility(c.Request.Context(), apiKey.User, apiKey, apiKey.Group, subscription, service.QuotaPlatform(c.Request.Context(), apiKey)); err != nil {
+backend/internal/handler/gateway_handler.go:827:						if err := h.billingCacheService.CheckBillingEligibility(c.Request.Context(), fallbackAPIKey.User, fallbackAPIKey, fallbackGroup, nil, service.PlatformFromAPIKey(fallbackAPIKey)); err != nil {
+backend/internal/handler/gateway_handler.go:1767:	if err := h.billingCacheService.CheckBillingEligibility(c.Request.Context(), apiKey.User, apiKey, apiKey.Group, subscription, service.QuotaPlatform(c.Request.Context(), apiKey)); err != nil {
+backend/internal/handler/openai_embeddings.go:90:	if err := h.billingCacheService.CheckBillingEligibility(c.Request.Context(), apiKey.User, apiKey, apiKey.Group, subscription, service.QuotaPlatform(c.Request.Context(), apiKey)); err != nil {
+backend/internal/handler/gateway_handler_chat_completions.go:124:	if err := h.billingCacheService.CheckBillingEligibility(c.Request.Context(), apiKey.User, apiKey, apiKey.Group, subscription, service.QuotaPlatform(c.Request.Context(), apiKey)); err != nil {
+backend/internal/handler/gateway_handler_responses.go:133:	if err := h.billingCacheService.CheckBillingEligibility(requestCtx, apiKey.User, apiKey, apiKey.Group, subscription, service.QuotaPlatform(requestCtx, apiKey)); err != nil {
+backend/internal/handler/openai_chat_completions.go:116:	if err := h.billingCacheService.CheckBillingEligibility(c.Request.Context(), apiKey.User, apiKey, apiKey.Group, subscription, service.QuotaPlatform(c.Request.Context(), apiKey)); err != nil {
+backend/internal/handler/admin/user_handler.go:31:	billingCache          service.BillingCache                // T17/T18 缓存失效（PUT/POST 路径）
+backend/internal/handler/admin/user_handler.go:39:	billingCache service.BillingCache,
+backend/internal/handler/admin/user_handler.go:45:		billingCache:          billingCache,
+backend/internal/handler/admin/user_handler.go:754:	if h.billingCache != nil {
+backend/internal/handler/admin/user_handler.go:756:			if err := h.billingCache.DeleteUserPlatformQuotaCache(ctx, userID, p); err != nil {
+backend/internal/handler/admin/user_handler.go:839:	if h.billingCache != nil {
+backend/internal/handler/admin/user_handler.go:840:		if err := h.billingCache.DeleteUserPlatformQuotaCache(ctx, userID, req.Platform); err != nil {
+
+exec
+/bin/bash -lc "rg -n \"Check.*Billing|Billing.*Eligibility|Eligibility\" backend/internal/handler -g '*.go' -g '"'!**/*_test.go'"'" in /mnt/x/project/sub2api
+ succeeded in 0ms:
+backend/internal/handler/openai_embeddings.go:90:	if err := h.billingCacheService.CheckBillingEligibility(c.Request.Context(), apiKey.User, apiKey, apiKey.Group, subscription, service.QuotaPlatform(c.Request.Context(), apiKey)); err != nil {
+backend/internal/handler/gateway_handler.go:228:	if err := h.billingCacheService.CheckBillingEligibility(c.Request.Context(), apiKey.User, apiKey, apiKey.Group, subscription, service.QuotaPlatform(c.Request.Context(), apiKey)); err != nil {
+backend/internal/handler/gateway_handler.go:827:						if err := h.billingCacheService.CheckBillingEligibility(c.Request.Context(), fallbackAPIKey.User, fallbackAPIKey, fallbackGroup, nil, service.PlatformFromAPIKey(fallbackAPIKey)); err != nil {
+backend/internal/handler/gateway_handler.go:1767:	if err := h.billingCacheService.CheckBillingEligibility(c.Request.Context(), apiKey.User, apiKey, apiKey.Group, subscription, service.QuotaPlatform(c.Request.Context(), apiKey)); err != nil {
+backend/internal/handler/openai_chat_completions.go:116:	if err := h.billingCacheService.CheckBillingEligibility(c.Request.Context(), apiKey.User, apiKey, apiKey.Group, subscription, service.QuotaPlatform(c.Request.Context(), apiKey)); err != nil {
+backend/internal/handler/gemini_v1beta_handler.go:226:	if err := h.billingCacheService.CheckBillingEligibility(c.Request.Context(), apiKey.User, apiKey, apiKey.Group, subscription, service.QuotaPlatform(c.Request.Context(), apiKey)); err != nil {
+backend/internal/handler/gateway_handler_chat_completions.go:124:	if err := h.billingCacheService.CheckBillingEligibility(c.Request.Context(), apiKey.User, apiKey, apiKey.Group, subscription, service.QuotaPlatform(c.Request.Context(), apiKey)); err != nil {
+backend/internal/handler/gateway_handler_responses.go:133:	if err := h.billingCacheService.CheckBillingEligibility(requestCtx, apiKey.User, apiKey, apiKey.Group, subscription, service.QuotaPlatform(requestCtx, apiKey)); err != nil {
+backend/internal/handler/openai_images.go:127:	if err := h.billingCacheService.CheckBillingEligibility(c.Request.Context(), apiKey.User, apiKey, apiKey.Group, subscription, service.QuotaPlatform(c.Request.Context(), apiKey)); err != nil {
+backend/internal/handler/openai_gateway_handler.go:299:	if err := h.billingCacheService.CheckBillingEligibility(c.Request.Context(), apiKey.User, apiKey, apiKey.Group, subscription, service.QuotaPlatform(c.Request.Context(), apiKey)); err != nil {
+backend/internal/handler/openai_gateway_handler.go:716:	if err := h.billingCacheService.CheckBillingEligibility(c.Request.Context(), apiKey.User, apiKey, apiKey.Group, subscription, service.QuotaPlatform(c.Request.Context(), apiKey)); err != nil {
+backend/internal/handler/openai_gateway_handler.go:1312:	if err := h.billingCacheService.CheckBillingEligibility(ctx, apiKey.User, apiKey, apiKey.Group, subscription, service.QuotaPlatform(c.Request.Context(), apiKey)); err != nil {
+
+**Running grep for safety**
+
+I’m thinking about what the user asked regarding using grep. Now, there’s a chance I could use `rg`, but since the user prefers grep, it’s probably best to stick with that to ensure they get the expected results. So, I’ll run grep in its exact form to be on the safe side. After all, I want to deliver the correct information! That way, I’m aligning with what the user needs.
+codex
+初步匹配到 12 个直接调用点，另有 admin 的 `billingCache` 只做缓存删除，不是 `CheckBillingEligibility`。我现在逐个读这些调用点所在函数，确认是否属于网关请求鉴权拦截。
+exec
+/bin/bash -lc 'rg -n "''^func |CheckBillingEligibility" backend/internal/handler/gateway_handler.go' in /mnt/x/project/sub2api
+ succeeded in 0ms:
+60:func NewGatewayHandler(
+117:func (h *GatewayHandler) Messages(c *gin.Context) {
+228:	if err := h.billingCacheService.CheckBillingEligibility(c.Request.Context(), apiKey.User, apiKey, apiKey.Group, subscription, service.QuotaPlatform(c.Request.Context(), apiKey)); err != nil {
+827:						if err := h.billingCacheService.CheckBillingEligibility(c.Request.Context(), fallbackAPIKey.User, fallbackAPIKey, fallbackGroup, nil, service.PlatformFromAPIKey(fallbackAPIKey)); err != nil {
+975:func (h *GatewayHandler) Models(c *gin.Context) {
+1025:func writeModelsList(c *gin.Context, modelIDs []string) {
+1041:func writeCustomModelsList(c *gin.Context, platform string, modelIDs []string) {
+1049:func writeOpenAIModelsList(c *gin.Context, modelIDs []string) {
+1076:func filterModelsByCustomList(availableModels, fallbackModels, selectedModels []string) []string {
+1115:func customModelsListAllowsModel(availablePatterns []string, model string) bool {
+1127:func defaultModelIDsForPlatform(platform string) []string {
+1155:func (h *GatewayHandler) AntigravityModels(c *gin.Context) {
+1162:func cloneAPIKeyWithGroup(apiKey *service.APIKey, group *service.Group) *service.APIKey {
+1179:func (h *GatewayHandler) Usage(c *gin.Context) {
+1226:func (h *GatewayHandler) parseUsageDateRange(c *gin.Context) (time.Time, time.Time) {
+1245:func (h *GatewayHandler) buildUsageData(ctx context.Context, apiKeyID int64) gin.H {
+1280:func (h *GatewayHandler) buildAPIKeyDailyUsage(c *gin.Context, userID, apiKeyID int64, days int) any {
+1293:func (h *GatewayHandler) usageQuotaLimited(c *gin.Context, ctx context.Context, apiKey *service.APIKey, usageData gin.H, dailyUsage any, modelStats any) {
+1386:func (h *GatewayHandler) usageUnrestricted(c *gin.Context, ctx context.Context, apiKey *service.APIKey, subject middleware2.AuthSubject, usageData gin.H, dailyUsage any, modelStats any) {
+1456:func (h *GatewayHandler) calculateSubscriptionRemaining(group *service.Group, sub *service.UserSubscription) float64 {
+1502:func (h *GatewayHandler) handleConcurrencyError(c *gin.Context, err error, slotType string, streamStarted bool) {
+1507:func (h *GatewayHandler) handleFailoverExhausted(c *gin.Context, failoverErr *service.UpstreamFailoverError, platform string, streamStarted bool) {
+1550:func (h *GatewayHandler) handleFailoverExhaustedSimple(c *gin.Context, statusCode int, streamStarted bool) {
+1556:func (h *GatewayHandler) mapUpstreamError(statusCode int) (int, string, string) {
+1574:func (h *GatewayHandler) handleStreamingAwareError(c *gin.Context, status int, errType, message string, streamStarted bool) {
+1605:func (h *GatewayHandler) ensureForwardErrorResponse(c *gin.Context, streamStarted bool) bool {
+1629:func gatewayForwardErrorAlreadyCommunicated(c *gin.Context, writerSizeBeforeForward int, err error) bool {
+1646:func (h *GatewayHandler) checkClaudeCodeVersion(c *gin.Context) bool {
+1689:func (h *GatewayHandler) errorResponse(c *gin.Context, status int, errType, message string) {
+1702:func (h *GatewayHandler) CountTokens(c *gin.Context) {
+1767:	if err := h.billingCacheService.CheckBillingEligibility(c.Request.Context(), apiKey.User, apiKey, apiKey.Group, subscription, service.QuotaPlatform(c.Request.Context(), apiKey)); err != nil {
+1813:func isHaikuModel(model string) bool {
+1820:func isMaxTokensOneHaikuRequest(model string, maxTokens int) bool {
+1830:func detectInterceptType(body []byte, model string, maxTokens int, isClaudeCodeClient bool) InterceptType {
+1897:func sendMockInterceptStream(c *gin.Context, model string, interceptType InterceptType) {
+1952:func generateRealisticMsgID() string {
+1967:func sendMockInterceptResponse(c *gin.Context, model string, interceptType InterceptType) {
+2016:func extractQuotaResetSeconds(err error) int {
+2044:func billingErrorDetails(err error) (status int, code, message string, retryAfter int) {
+2090:func (h *GatewayHandler) metadataBridgeEnabled() bool {
+2097:func (h *GatewayHandler) maybeLogCompatibilityFallbackMetrics(reqLog *zap.Logger) {
+2114:func (h *GatewayHandler) submitUsageRecordTask(parent context.Context, task service.UsageRecordTask) {
+2139:func (h *GatewayHandler) getUserMsgQueueMode(account *service.Account, parsed *service.ParsedRequest) string {
+
+exec
+/bin/bash -lc 'rg -n "''^func |CheckBillingEligibility" backend/internal/handler/openai_gateway_handler.go' in /mnt/x/project/sub2api
+ succeeded in 0ms:
+44:func resolveOpenAIMessagesDispatchMappedModel(apiKey *service.APIKey, requestedModel string) string {
+53:func openAIModelMappedBody(body []byte, mapped bool, mappedModel string, replace openAIModelBodyReplaceFunc) []byte {
+60:func newOpenAIModelMappedBodyCache(body []byte, replace openAIModelBodyReplaceFunc) func(bool, string) []byte {
+75:func usageRecordContext(parent context.Context, base context.Context) context.Context {
+91:func wrapUsageRecordTaskContext(parent context.Context, task service.UsageRecordTask) service.UsageRecordTask {
+101:func NewOpenAIGatewayHandler(
+137:func (h *OpenAIGatewayHandler) Responses(c *gin.Context) {
+299:	if err := h.billingCacheService.CheckBillingEligibility(c.Request.Context(), apiKey.User, apiKey, apiKey.Group, subscription, service.QuotaPlatform(c.Request.Context(), apiKey)); err != nil {
+537:func isOpenAIRemoteCompactPath(c *gin.Context) bool {
+545:func (h *OpenAIGatewayHandler) logOpenAIRemoteCompactOutcome(c *gin.Context, startedAt time.Time) {
+619:func (h *OpenAIGatewayHandler) Messages(c *gin.Context) {
+716:	if err := h.billingCacheService.CheckBillingEligibility(c.Request.Context(), apiKey.User, apiKey, apiKey.Group, subscription, service.QuotaPlatform(c.Request.Context(), apiKey)); err != nil {
+941:func resolveOpenAIMessagesMetadataSession(sessionHash, promptCacheKey, reqModel string, body []byte) (string, string) {
+956:func (h *OpenAIGatewayHandler) anthropicErrorResponse(c *gin.Context, status int, errType, message string) {
+968:func (h *OpenAIGatewayHandler) anthropicStreamingAwareError(c *gin.Context, status int, errType, message string, streamStarted bool) {
+988:func (h *OpenAIGatewayHandler) handleAnthropicFailoverExhausted(c *gin.Context, failoverErr *service.UpstreamFailoverError, streamStarted bool) {
+994:func (h *OpenAIGatewayHandler) ensureAnthropicErrorResponse(c *gin.Context, streamStarted bool) bool {
+1002:func (h *OpenAIGatewayHandler) validateFunctionCallOutputRequest(c *gin.Context, body []byte, reqLog *zap.Logger) bool {
+1035:func (h *OpenAIGatewayHandler) acquireResponsesUserSlot(
+1053:func (h *OpenAIGatewayHandler) acquireResponsesAccountSlot(
+1141:func (h *OpenAIGatewayHandler) ResponsesWebSocket(c *gin.Context) {
+1312:	if err := h.billingCacheService.CheckBillingEligibility(ctx, apiKey.User, apiKey, apiKey.Group, subscription, service.QuotaPlatform(c.Request.Context(), apiKey)); err != nil {
+1599:func (h *OpenAIGatewayHandler) recoverResponsesPanic(c *gin.Context, streamStarted *bool) {
+1620:func (h *OpenAIGatewayHandler) recoverAnthropicMessagesPanic(c *gin.Context, streamStarted *bool) {
+1638:func (h *OpenAIGatewayHandler) ensureResponsesDependencies(c *gin.Context, reqLog *zap.Logger) bool {
+1660:func (h *OpenAIGatewayHandler) missingResponsesDependencies() []string {
+1680:func getContextInt64(c *gin.Context, key string) (int64, bool) {
+1702:func (h *OpenAIGatewayHandler) submitUsageRecordTask(parent context.Context, task service.UsageRecordTask) {
+1725:func (h *OpenAIGatewayHandler) submitOpenAIUsageRecordTask(parent context.Context, result *service.OpenAIForwardResult, task service.UsageRecordTask) {
+1733:func (h *OpenAIGatewayHandler) submitMandatoryUsageRecordTask(parent context.Context, task service.UsageRecordTask) {
+1759:func (h *OpenAIGatewayHandler) acquireImageGenerationSlot(c *gin.Context, streamStarted bool) (func(), bool) {
+1781:func (h *OpenAIGatewayHandler) handleConcurrencyError(c *gin.Context, err error, slotType string, streamStarted bool) {
+1786:func (h *OpenAIGatewayHandler) handleFailoverExhausted(c *gin.Context, failoverErr *service.UpstreamFailoverError, streamStarted bool) {
+1829:func (h *OpenAIGatewayHandler) handleFailoverExhaustedSimple(c *gin.Context, statusCode int, streamStarted bool) {
+1835:func (h *OpenAIGatewayHandler) mapUpstreamError(statusCode int) (int, string, string) {
+1853:func (h *OpenAIGatewayHandler) handleStreamingAwareError(c *gin.Context, status int, errType, message string, streamStarted bool) {
+1882:func (h *OpenAIGatewayHandler) ensureForwardErrorResponse(c *gin.Context, streamStarted bool) bool {
+1896:func shouldLogOpenAIForwardFailureAsWarn(c *gin.Context, wroteFallback bool) bool {
+1917:func openAIForwardErrorAlreadyCommunicated(c *gin.Context, writerSizeBeforeForward int, err error) bool {
+1946:func (h *OpenAIGatewayHandler) errorResponse(c *gin.Context, status int, errType, message string) {
+1955:func setOpenAIClientTransportHTTP(c *gin.Context) {
+1959:func setOpenAIClientTransportWS(c *gin.Context) {
+1963:func ensureOpenAIPoolModeSessionHash(sessionHash string, account *service.Account) string {
+1971:func openAIWSIngressFallbackSessionSeed(userID, apiKeyID int64, groupID *int64) string {
+1979:func isOpenAIWSUpgradeRequest(r *http.Request) bool {
+1989:func closeOpenAIClientWS(conn *coderws.Conn, status coderws.StatusCode, reason string) {
+2001:func closeOpenAIWSFailoverExhausted(conn *coderws.Conn, failoverErr *service.UpstreamFailoverError) {
+2018:func writeContentModerationWSError(ctx context.Context, conn *coderws.Conn, decision *service.ContentModerationDecision) {
+2048:func writeCyberSessionBlockedWSError(ctx context.Context, conn *coderws.Conn) {
+2100:func buildCyberPolicyOpsErrorEntry(meta cyberPolicyOpsErrorMeta, mark *service.CyberPolicyMark) *service.OpsInsertErrorLogInput {
+2148:func buildCyberSessionBlockedOpsEntry(meta cyberPolicyOpsErrorMeta) *service.OpsInsertErrorLogInput {
+2202:func (h *OpenAIGatewayHandler) rejectIfCyberSessionBlocked(c *gin.Context, apiKey *service.APIKey, body []byte, model string, format cyberSessionBlockFormat) bool {
+2236:func (h *OpenAIGatewayHandler) enqueueCyberSessionBlockedOpsEntry(c *gin.Context, apiKey *service.APIKey, model string, sessionBlockKey string) {
+2269:func (h *OpenAIGatewayHandler) recordCyberPolicyIfMarked(c *gin.Context, apiKey *service.APIKey, account *service.Account, subscription *service.UserSubscription, model string, forwardErrored bool, cyberBlockKey string, channelFields service.ChannelUsageFields, requestPayloadHash string) {
+2396:func clearCyberPolicyTurnState(c *gin.Context) {
+2404:func summarizeWSCloseErrorForLog(err error) (string, string) {
+
+exec
+/bin/bash -lc 'rg -n "''^func |CheckBillingEligibility" backend/internal/handler/openai_images.go backend/internal/handler/gemini_v1beta_handler.go backend/internal/handler/openai_embeddings.go backend/internal/handler/gateway_handler_chat_completions.go backend/internal/handler/gateway_handler_responses.go backend/internal/handler/openai_chat_completions.go' in /mnt/x/project/sub2api
+ succeeded in 0ms:
+backend/internal/handler/openai_chat_completions.go:23:func (h *OpenAIGatewayHandler) ChatCompletions(c *gin.Context) {
+backend/internal/handler/openai_chat_completions.go:116:	if err := h.billingCacheService.CheckBillingEligibility(c.Request.Context(), apiKey.User, apiKey, apiKey.Group, subscription, service.QuotaPlatform(c.Request.Context(), apiKey)); err != nil {
+backend/internal/handler/openai_chat_completions.go:333:func resolveRawCCUpstreamEndpoint(c *gin.Context, account *service.Account) string {
+backend/internal/handler/gateway_handler_responses.go:23:func (h *GatewayHandler) Responses(c *gin.Context) {
+backend/internal/handler/gateway_handler_responses.go:133:	if err := h.billingCacheService.CheckBillingEligibility(requestCtx, apiKey.User, apiKey, apiKey.Group, subscription, service.QuotaPlatform(requestCtx, apiKey)); err != nil {
+backend/internal/handler/gateway_handler_responses.go:289:func (h *GatewayHandler) responsesErrorResponse(c *gin.Context, status int, code, message string) {
+backend/internal/handler/gateway_handler_responses.go:299:func (h *GatewayHandler) handleResponsesFailoverExhausted(c *gin.Context, lastErr *service.UpstreamFailoverError, streamStarted bool) {
+backend/internal/handler/gateway_handler_chat_completions.go:23:func (h *GatewayHandler) ChatCompletions(c *gin.Context) {
+backend/internal/handler/gateway_handler_chat_completions.go:124:	if err := h.billingCacheService.CheckBillingEligibility(c.Request.Context(), apiKey.User, apiKey, apiKey.Group, subscription, service.QuotaPlatform(c.Request.Context(), apiKey)); err != nil {
+backend/internal/handler/gateway_handler_chat_completions.go:310:func (h *GatewayHandler) chatCompletionsErrorResponse(c *gin.Context, status int, errType, message string) {
+backend/internal/handler/gateway_handler_chat_completions.go:320:func (h *GatewayHandler) handleCCFailoverExhausted(c *gin.Context, lastErr *service.UpstreamFailoverError, streamStarted bool) {
+backend/internal/handler/openai_images.go:23:func (h *OpenAIGatewayHandler) Images(c *gin.Context) {
+backend/internal/handler/openai_images.go:127:	if err := h.billingCacheService.CheckBillingEligibility(c.Request.Context(), apiKey.User, apiKey, apiKey.Group, subscription, service.QuotaPlatform(c.Request.Context(), apiKey)); err != nil {
+backend/internal/handler/openai_images.go:369:func isMultipartImagesContentType(contentType string) bool {
+backend/internal/handler/openai_embeddings.go:23:func (h *OpenAIGatewayHandler) Embeddings(c *gin.Context) {
+backend/internal/handler/openai_embeddings.go:90:	if err := h.billingCacheService.CheckBillingEligibility(c.Request.Context(), apiKey.User, apiKey, apiKey.Group, subscription, service.QuotaPlatform(c.Request.Context(), apiKey)); err != nil {
+backend/internal/handler/gemini_v1beta_handler.go:36:func (h *GatewayHandler) GeminiV1BetaListModels(c *gin.Context) {
+backend/internal/handler/gemini_v1beta_handler.go:83:func (h *GatewayHandler) GeminiV1BetaGetModel(c *gin.Context) {
+backend/internal/handler/gemini_v1beta_handler.go:137:func (h *GatewayHandler) GeminiV1BetaModels(c *gin.Context) {
+backend/internal/handler/gemini_v1beta_handler.go:226:	if err := h.billingCacheService.CheckBillingEligibility(c.Request.Context(), apiKey.User, apiKey, apiKey.Group, subscription, service.QuotaPlatform(c.Request.Context(), apiKey)); err != nil {
+backend/internal/handler/gemini_v1beta_handler.go:557:func parseGeminiModelAction(rest string) (model string, action string, err error) {
+backend/internal/handler/gemini_v1beta_handler.go:576:func (h *GatewayHandler) handleGeminiFailoverExhausted(c *gin.Context, failoverErr *service.UpstreamFailoverError) {
+backend/internal/handler/gemini_v1beta_handler.go:618:func mapGeminiUpstreamError(statusCode int) (int, string) {
+backend/internal/handler/gemini_v1beta_handler.go:637:func (e *pathParseError) Error() string { return e.msg }
+backend/internal/handler/gemini_v1beta_handler.go:639:func googleError(c *gin.Context, status int, message string) {
+backend/internal/handler/gemini_v1beta_handler.go:649:func writeUpstreamResponse(c *gin.Context, res *service.UpstreamHTTPResult) {
+backend/internal/handler/gemini_v1beta_handler.go:670:func shouldFallbackGeminiModels(res *service.UpstreamHTTPResult) bool {
+backend/internal/handler/gemini_v1beta_handler.go:689:func shouldFallbackGeminiModel(modelName string, res *service.UpstreamHTTPResult) bool {
+backend/internal/handler/gemini_v1beta_handler.go:711:func extractGeminiCLISessionHash(c *gin.Context, body []byte) string {
+backend/internal/handler/gemini_v1beta_handler.go:735:func truncateDigestChain(chain string) string {
+backend/internal/handler/gemini_v1beta_handler.go:744:func safeShortPrefix(value string, n int) string {
+backend/internal/handler/gemini_v1beta_handler.go:752:func derefGroupID(groupID *int64) int64 {
+
+exec
+/bin/bash -lc "grep -rn \"CheckBillingEligibility\\|billingCacheService\\|billingCache\" backend/internal/handler --include=\"*.go\" | grep -v \"_test.go\"" in /mnt/x/project/sub2api
+ succeeded in 101ms:
+andler/openai_gateway_handler.go:1668:	if h.billingCacheService == nil {
+backend/internal/handler/openai_gateway_handler.go:1669:		missing = append(missing, "billingCacheService")
+backend/internal/handler/openai_images.go:127:	if err := h.billingCacheService.CheckBillingEligibility(c.Request.Context(), apiKey.User, apiKey, apiKey.Group, subscription, service.QuotaPlatform(c.Request.Context(), apiKey)); err != nil {
+
+codex
+函数索引已确认这些调用都在网关 handler 方法里。为了避免只凭行号判断，我会读取每段调用前后的鉴权、订阅获取、错误返回逻辑。
+exec
+/bin/bash -lc "nl -ba backend/internal/handler/gateway_handler.go | sed -n '117,255p'" in /mnt/x/project/sub2api
+ succeeded in 0ms:
+   117	func (h *GatewayHandler) Messages(c *gin.Context) {
+   118		// 从context获取apiKey和user（ApiKeyAuth中间件已设置）
+   119		apiKey, ok := middleware2.GetAPIKeyFromContext(c)
+   120		if !ok {
+   121			h.errorResponse(c, http.StatusUnauthorized, "authentication_error", "Invalid API key")
+   122			return
+   123		}
+   124	
+   125		subject, ok := middleware2.GetAuthSubjectFromContext(c)
+   126		if !ok {
+   127			h.errorResponse(c, http.StatusInternalServerError, "api_error", "User context not found")
+   128			return
+   129		}
+   130		reqLog := requestLogger(
+   131			c,
+   132			"handler.gateway.messages",
+   133			zap.Int64("user_id", subject.UserID),
+   134			zap.Int64("api_key_id", apiKey.ID),
+   135			zap.Any("group_id", apiKey.GroupID),
+   136		)
+   137		defer h.maybeLogCompatibilityFallbackMetrics(reqLog)
+   138	
+   139		// 读取请求体
+   140		body, err := pkghttputil.ReadRequestBodyWithPrealloc(c.Request)
+   141		if err != nil {
+   142			if maxErr, ok := extractMaxBytesError(err); ok {
+   143				h.errorResponse(c, http.StatusRequestEntityTooLarge, "invalid_request_error", buildBodyTooLargeMessage(maxErr.Limit))
+   144				return
+   145			}
+   146			h.errorResponse(c, http.StatusBadRequest, "invalid_request_error", "Failed to read request body")
+   147			return
+   148		}
+   149	
+   150		if len(body) == 0 {
+   151			h.errorResponse(c, http.StatusBadRequest, "invalid_request_error", "Request body is empty")
+   152			return
+   153		}
+   154	
+   155		setOpsRequestContext(c, "", false)
+   156	
+   157		bodyRef := service.NewRequestBodyRef(body)
+   158		parsedReq, err := service.ParseGatewayRequest(bodyRef, domain.PlatformAnthropic)
+   159		if err != nil {
+   160			h.errorResponse(c, http.StatusBadRequest, "invalid_request_error", "Failed to parse request body")
+   161			return
+   162		}
+   163		reqModel := parsedReq.Model
+   164		reqStream := parsedReq.Stream
+   165		reqLog = reqLog.With(zap.String("model", reqModel), zap.Bool("stream", reqStream))
+   166	
+   167		// 解析渠道级模型映射
+   168		channelMapping, _ := h.gatewayService.ResolveChannelMappingAndRestrict(c.Request.Context(), apiKey.GroupID, reqModel)
+   169	
+   170		// 设置 max_tokens=1 + haiku 探测请求标识到 context 中
+   171		// 必须在 SetClaudeCodeClientContext 之前设置，因为 ClaudeCodeValidator 需要读取此标识进行绕过判断
+   172		if isMaxTokensOneHaikuRequest(reqModel, parsedReq.MaxTokens) {
+   173			ctx := service.WithIsMaxTokensOneHaikuRequest(c.Request.Context(), true, h.metadataBridgeEnabled())
+   174			c.Request = c.Request.WithContext(ctx)
+   175		}
+   176	
+   177		// 检查是否为 Claude Code 客户端，设置到 context 中（复用已解析请求，避免二次反序列化）。
+   178		SetClaudeCodeClientContext(c, body, parsedReq)
+   179		isClaudeCodeClient := service.IsClaudeCodeClient(c.Request.Context())
+   180	
+   181		// 版本检查：仅对 Claude Code 客户端，拒绝低于最低版本的请求
+   182		if !h.checkClaudeCodeVersion(c) {
+   183			return
+   184		}
+   185	
+   186		// 在请求上下文中记录 thinking 状态，供 Antigravity 最终模型 key 推导/模型维度限流使用
+   187		c.Request = c.Request.WithContext(service.WithThinkingEnabled(c.Request.Context(), parsedReq.ThinkingEnabled, h.metadataBridgeEnabled()))
+   188	
+   189		setOpsRequestContext(c, reqModel, reqStream)
+   190		setOpsEndpointContext(c, "", int16(service.RequestTypeFromLegacy(reqStream, false)))
+   191	
+   192		// 验证 model 必填
+   193		if reqModel == "" {
+   194			h.errorResponse(c, http.StatusBadRequest, "invalid_request_error", "model is required")
+   195			return
+   196		}
+   197	
+   198		if decision := h.checkContentModeration(c, reqLog, apiKey, subject, service.ContentModerationProtocolAnthropicMessages, reqModel, body); decision != nil && decision.Blocked {
+   199			h.errorResponse(c, contentModerationStatus(decision), contentModerationErrorCode(decision), decision.Message)
+   200			return
+   201		}
+   202	
+   203		// Track if we've started streaming (for error handling)
+   204		streamStarted := false
+   205	
+   206		// 绑定错误透传服务，允许 service 层在非 failover 错误场景复用规则。
+   207		if h.errorPassthroughService != nil {
+   208			service.BindErrorPassthroughService(c, h.errorPassthroughService)
+   209		}
+   210	
+   211		// 获取订阅信息（可能为nil）- 提前获取用于后续检查
+   212		subscription, _ := middleware2.GetSubscriptionFromContext(c)
+   213	
+   214		// 1. 首先获取用户并发槽位
+   215		userReleaseFunc, err := h.concurrencyHelper.AcquireUserSlotWithWait(c, subject.UserID, subject.Concurrency, reqStream, &streamStarted)
+   216		if err != nil {
+   217			reqLog.Warn("gateway.user_slot_acquire_failed", zap.Error(err))
+   218			h.handleConcurrencyError(c, err, "user", streamStarted)
+   219			return
+   220		}
+   221		// 在请求结束或 Context 取消时确保释放槽位，避免客户端断开造成泄漏
+   222		userReleaseFunc = wrapReleaseOnDone(c.Request.Context(), userReleaseFunc)
+   223		if userReleaseFunc != nil {
+   224			defer userReleaseFunc()
+   225		}
+   226	
+   227		// 2. 【新增】Wait后二次检查余额/订阅
+   228		if err := h.billingCacheService.CheckBillingEligibility(c.Request.Context(), apiKey.User, apiKey, apiKey.Group, subscription, service.QuotaPlatform(c.Request.Context(), apiKey)); err != nil {
+   229			reqLog.Info("gateway.billing_eligibility_check_failed", zap.Error(err))
+   230			status, code, message, retryAfter := billingErrorDetails(err)
+   231			if retryAfter > 0 {
+   232				c.Header("Retry-After", strconv.Itoa(retryAfter))
+   233			}
+   234			h.handleStreamingAwareError(c, status, code, message, streamStarted)
+   235			return
+   236		}
+   237	
+   238		// 设置请求所属分组 ID（用于渠道级功能判断，如 WebSearch 模拟）
+   239		parsedReq.GroupID = apiKey.GroupID
+   240	
+   241		// 计算粘性会话hash
+   242		parsedReq.SessionContext = &service.SessionContext{
+   243			ClientIP:  ip.GetClientIP(c),
+   244			UserAgent: c.GetHeader("User-Agent"),
+   245			APIKeyID:  apiKey.ID,
+   246		}
+   247		sessionHash := h.gatewayService.GenerateSessionHash(parsedReq)
+   248	
+   249		// [DEBUG-STICKY] 打印会话 hash 生成结果
+   250		reqLog.Info("sticky.session_hash_generated",
+   251			zap.String("session_hash", sessionHash),
+   252			zap.String("metadata_user_id_raw", parsedReq.MetadataUserID),
+   253		)
+   254	
+   255		// 获取平台：优先使用强制平台（/antigravity 路由，中间件已设置 request.Context），否则使用分组平台
+
+exec
+/bin/bash -lc "nl -ba backend/internal/handler/gateway_handler.go | sed -n '770,855p'" in /mnt/x/project/sub2api
+ succeeded in 0ms:
+   770				requestCtx := c.Request.Context()
+   771				if fs.SwitchCount > 0 {
+   772					requestCtx = service.WithAccountSwitchCount(requestCtx, fs.SwitchCount, h.metadataBridgeEnabled())
+   773				}
+   774				// 记录 Forward 前已写入字节数，Forward 后若增加则说明 SSE 内容已发，禁止 failover
+   775				writerSizeBeforeForward := c.Writer.Size()
+   776				if account.Platform == service.PlatformAntigravity && account.Type != service.AccountTypeAPIKey {
+   777					result, err = h.antigravityGatewayService.Forward(requestCtx, c, account, attemptBody, hasBoundSession)
+   778				} else {
+   779					result, err = h.gatewayService.Forward(requestCtx, c, account, attemptParsedReq)
+   780				}
+   781	
+   782				// 兜底释放串行锁（正常情况已通过回调提前释放）
+   783				if queueRelease != nil {
+   784					queueRelease()
+   785				}
+   786				// 清理回调引用，防止 failover 重试时旧回调被错误调用
+   787				attemptParsedReq.OnUpstreamAccepted = nil
+   788	
+   789				if accountReleaseFunc != nil {
+   790					accountReleaseFunc()
+   791				}
+   792				if err != nil {
+   793					// Beta policy block: return 400 immediately, no failover
+   794					var betaBlockedErr *service.BetaBlockedError
+   795					if errors.As(err, &betaBlockedErr) {
+   796						service.MarkOpsClientBusinessLimited(c, service.OpsClientBusinessLimitedReasonLocalPolicyDenied)
+   797						h.errorResponse(c, http.StatusBadRequest, "invalid_request_error", betaBlockedErr.Message)
+   798						return
+   799					}
+   800	
+   801					var promptTooLongErr *service.PromptTooLongError
+   802					if errors.As(err, &promptTooLongErr) {
+   803						reqLog.Warn("gateway.prompt_too_long_from_antigravity",
+   804							zap.Any("current_group_id", currentAPIKey.GroupID),
+   805							zap.Any("fallback_group_id", fallbackGroupID),
+   806							zap.Bool("fallback_used", fallbackUsed),
+   807						)
+   808						if !fallbackUsed && fallbackGroupID != nil && *fallbackGroupID > 0 {
+   809							fallbackGroup, err := h.gatewayService.ResolveGroupByID(c.Request.Context(), *fallbackGroupID)
+   810							if err != nil {
+   811								reqLog.Warn("gateway.resolve_fallback_group_failed", zap.Int64("fallback_group_id", *fallbackGroupID), zap.Error(err))
+   812								_ = h.antigravityGatewayService.WriteMappedClaudeError(c, account, promptTooLongErr.StatusCode, promptTooLongErr.RequestID, promptTooLongErr.Body)
+   813								return
+   814							}
+   815							if fallbackGroup.Platform != service.PlatformAnthropic ||
+   816								fallbackGroup.SubscriptionType == service.SubscriptionTypeSubscription ||
+   817								fallbackGroup.FallbackGroupIDOnInvalidRequest != nil {
+   818								reqLog.Warn("gateway.fallback_group_invalid",
+   819									zap.Int64("fallback_group_id", fallbackGroup.ID),
+   820									zap.String("fallback_platform", fallbackGroup.Platform),
+   821									zap.String("fallback_subscription_type", fallbackGroup.SubscriptionType),
+   822								)
+   823								_ = h.antigravityGatewayService.WriteMappedClaudeError(c, account, promptTooLongErr.StatusCode, promptTooLongErr.RequestID, promptTooLongErr.Body)
+   824								return
+   825							}
+   826							fallbackAPIKey := cloneAPIKeyWithGroup(apiKey, fallbackGroup)
+   827							if err := h.billingCacheService.CheckBillingEligibility(c.Request.Context(), fallbackAPIKey.User, fallbackAPIKey, fallbackGroup, nil, service.PlatformFromAPIKey(fallbackAPIKey)); err != nil {
+   828								status, code, message, retryAfter := billingErrorDetails(err)
+   829								if retryAfter > 0 {
+   830									c.Header("Retry-After", strconv.Itoa(retryAfter))
+   831								}
+   832								h.handleStreamingAwareError(c, status, code, message, streamStarted)
+   833								return
+   834							}
+   835							// 兜底重试按"直接请求兜底分组"处理：清除强制平台，允许按分组平台调度
+   836							ctx := context.WithValue(c.Request.Context(), ctxkey.ForcePlatform, "")
+   837							c.Request = c.Request.WithContext(ctx)
+   838							currentAPIKey = fallbackAPIKey
+   839							currentSubscription = nil
+   840							fallbackUsed = true
+   841							retryWithFallback = true
+   842							break
+   843						}
+   844						_ = h.antigravityGatewayService.WriteMappedClaudeError(c, account, promptTooLongErr.StatusCode, promptTooLongErr.RequestID, promptTooLongErr.Body)
+   845						return
+   846					}
+   847					var failoverErr *service.UpstreamFailoverError
+   848					if errors.As(err, &failoverErr) {
+   849						// 流式内容已写入客户端，无法撤销，禁止 failover 以防止流拼接腐化
+   850						if c.Writer.Size() != writerSizeBeforeForward {
+   851							h.handleFailoverExhausted(c, failoverErr, account.Platform, true)
+   852							return
+   853						}
+   854						action := fs.HandleFailoverError(c.Request.Context(), h.gatewayService, account.ID, account.Platform, failoverErr)
+   855						switch action {
+
+exec
+/bin/bash -lc "nl -ba backend/internal/handler/gateway_handler.go | sed -n '1702,1795p'" in /mnt/x/project/sub2api
+ succeeded in 0ms:
+  1702	func (h *GatewayHandler) CountTokens(c *gin.Context) {
+  1703		// 从context获取apiKey和user（ApiKeyAuth中间件已设置）
+  1704		apiKey, ok := middleware2.GetAPIKeyFromContext(c)
+  1705		if !ok {
+  1706			h.errorResponse(c, http.StatusUnauthorized, "authentication_error", "Invalid API key")
+  1707			return
+  1708		}
+  1709	
+  1710		_, ok = middleware2.GetAuthSubjectFromContext(c)
+  1711		if !ok {
+  1712			h.errorResponse(c, http.StatusInternalServerError, "api_error", "User context not found")
+  1713			return
+  1714		}
+  1715		reqLog := requestLogger(
+  1716			c,
+  1717			"handler.gateway.count_tokens",
+  1718			zap.Int64("api_key_id", apiKey.ID),
+  1719			zap.Any("group_id", apiKey.GroupID),
+  1720		)
+  1721		defer h.maybeLogCompatibilityFallbackMetrics(reqLog)
+  1722	
+  1723		// 读取请求体
+  1724		body, err := pkghttputil.ReadRequestBodyWithPrealloc(c.Request)
+  1725		if err != nil {
+  1726			if maxErr, ok := extractMaxBytesError(err); ok {
+  1727				h.errorResponse(c, http.StatusRequestEntityTooLarge, "invalid_request_error", buildBodyTooLargeMessage(maxErr.Limit))
+  1728				return
+  1729			}
+  1730			h.errorResponse(c, http.StatusBadRequest, "invalid_request_error", "Failed to read request body")
+  1731			return
+  1732		}
+  1733	
+  1734		if len(body) == 0 {
+  1735			h.errorResponse(c, http.StatusBadRequest, "invalid_request_error", "Request body is empty")
+  1736			return
+  1737		}
+  1738	
+  1739		setOpsRequestContext(c, "", false)
+  1740	
+  1741		bodyRef := service.NewRequestBodyRef(body)
+  1742		parsedReq, err := service.ParseGatewayRequest(bodyRef, domain.PlatformAnthropic)
+  1743		if err != nil {
+  1744			h.errorResponse(c, http.StatusBadRequest, "invalid_request_error", "Failed to parse request body")
+  1745			return
+  1746		}
+  1747		// count_tokens 走 messages 严格校验时，复用已解析请求，避免二次反序列化。
+  1748		SetClaudeCodeClientContext(c, body, parsedReq)
+  1749		reqLog = reqLog.With(zap.String("model", parsedReq.Model), zap.Bool("stream", parsedReq.Stream))
+  1750		// 在请求上下文中记录 thinking 状态，供 Antigravity 最终模型 key 推导/模型维度限流使用
+  1751		c.Request = c.Request.WithContext(service.WithThinkingEnabled(c.Request.Context(), parsedReq.ThinkingEnabled, h.metadataBridgeEnabled()))
+  1752	
+  1753		// 验证 model 必填
+  1754		if parsedReq.Model == "" {
+  1755			h.errorResponse(c, http.StatusBadRequest, "invalid_request_error", "model is required")
+  1756			return
+  1757		}
+  1758	
+  1759		setOpsRequestContext(c, parsedReq.Model, parsedReq.Stream)
+  1760		setOpsEndpointContext(c, "", int16(service.RequestTypeFromLegacy(parsedReq.Stream, false)))
+  1761	
+  1762		// 获取订阅信息（可能为nil）
+  1763		subscription, _ := middleware2.GetSubscriptionFromContext(c)
+  1764	
+  1765		// 校验 billing eligibility（订阅/余额）
+  1766		// 【注意】不计算并发，但需要校验订阅/余额
+  1767		if err := h.billingCacheService.CheckBillingEligibility(c.Request.Context(), apiKey.User, apiKey, apiKey.Group, subscription, service.QuotaPlatform(c.Request.Context(), apiKey)); err != nil {
+  1768			status, code, message, retryAfter := billingErrorDetails(err)
+  1769			if retryAfter > 0 {
+  1770				c.Header("Retry-After", strconv.Itoa(retryAfter))
+  1771			}
+  1772			h.errorResponse(c, status, code, message)
+  1773			return
+  1774		}
+  1775	
+  1776		// 计算粘性会话 hash
+  1777		parsedReq.SessionContext = &service.SessionContext{
+  1778			ClientIP:  ip.GetClientIP(c),
+  1779			UserAgent: c.GetHeader("User-Agent"),
+  1780			APIKeyID:  apiKey.ID,
+  1781		}
+  1782		sessionHash := h.gatewayService.GenerateSessionHash(parsedReq)
+  1783	
+  1784		// 选择支持该模型的账号
+  1785		account, err := h.gatewayService.SelectAccountForModel(c.Request.Context(), apiKey.GroupID, sessionHash, parsedReq.Model)
+  1786		if err != nil {
+  1787			reqLog.Warn("gateway.count_tokens_select_account_failed", zap.Error(err))
+  1788			markOpsRoutingCapacityLimitedIfNoAvailable(c, err)
+  1789			h.errorResponse(c, http.StatusServiceUnavailable, "api_error", "Service temporarily unavailable")
+  1790			return
+  1791		}
+  1792		setOpsSelectedAccount(c, account.ID, account.Platform)
+  1793	
+  1794		// 转发请求（不记录使用量）
+  1795		if err := h.gatewayService.ForwardCountTokens(c.Request.Context(), c, account, parsedReq); err != nil {
+
+exec
+/bin/bash -lc "nl -ba backend/internal/handler/gateway_handler_chat_completions.go | sed -n '23,155p'" in /mnt/x/project/sub2api
+ succeeded in 0ms:
+    23	func (h *GatewayHandler) ChatCompletions(c *gin.Context) {
+    24		streamStarted := false
+    25	
+    26		requestStart := time.Now()
+    27	
+    28		apiKey, ok := middleware2.GetAPIKeyFromContext(c)
+    29		if !ok {
+    30			h.chatCompletionsErrorResponse(c, http.StatusUnauthorized, "authentication_error", "Invalid API key")
+    31			return
+    32		}
+    33	
+    34		subject, ok := middleware2.GetAuthSubjectFromContext(c)
+    35		if !ok {
+    36			h.chatCompletionsErrorResponse(c, http.StatusInternalServerError, "api_error", "User context not found")
+    37			return
+    38		}
+    39		reqLog := requestLogger(
+    40			c,
+    41			"handler.gateway.chat_completions",
+    42			zap.Int64("user_id", subject.UserID),
+    43			zap.Int64("api_key_id", apiKey.ID),
+    44			zap.Any("group_id", apiKey.GroupID),
+    45		)
+    46	
+    47		// Read request body
+    48		body, err := pkghttputil.ReadRequestBodyWithPrealloc(c.Request)
+    49		if err != nil {
+    50			if maxErr, ok := extractMaxBytesError(err); ok {
+    51				h.chatCompletionsErrorResponse(c, http.StatusRequestEntityTooLarge, "invalid_request_error", buildBodyTooLargeMessage(maxErr.Limit))
+    52				return
+    53			}
+    54			h.chatCompletionsErrorResponse(c, http.StatusBadRequest, "invalid_request_error", "Failed to read request body")
+    55			return
+    56		}
+    57	
+    58		if len(body) == 0 {
+    59			h.chatCompletionsErrorResponse(c, http.StatusBadRequest, "invalid_request_error", "Request body is empty")
+    60			return
+    61		}
+    62	
+    63		setOpsRequestContext(c, "", false)
+    64	
+    65		// Validate JSON
+    66		if !gjson.ValidBytes(body) {
+    67			h.chatCompletionsErrorResponse(c, http.StatusBadRequest, "invalid_request_error", "Failed to parse request body")
+    68			return
+    69		}
+    70	
+    71		// Extract model and stream
+    72		modelResult := gjson.GetBytes(body, "model")
+    73		if !modelResult.Exists() || modelResult.Type != gjson.String || modelResult.String() == "" {
+    74			h.chatCompletionsErrorResponse(c, http.StatusBadRequest, "invalid_request_error", "model is required")
+    75			return
+    76		}
+    77		reqModel := modelResult.String()
+    78		reqStream, ok := parseOpenAICompatibleStream(body)
+    79		if !ok {
+    80			h.chatCompletionsErrorResponse(c, http.StatusBadRequest, "invalid_request_error", invalidStreamFieldTypeMessage)
+    81			return
+    82		}
+    83		reqLog = reqLog.With(zap.String("model", reqModel), zap.Bool("stream", reqStream))
+    84	
+    85		setOpsRequestContext(c, reqModel, reqStream)
+    86		setOpsEndpointContext(c, "", int16(service.RequestTypeFromLegacy(reqStream, false)))
+    87	
+    88		// 解析渠道级模型映射
+    89		channelMapping, _ := h.gatewayService.ResolveChannelMappingAndRestrict(c.Request.Context(), apiKey.GroupID, reqModel)
+    90	
+    91		// Claude Code only restriction
+    92		if apiKey.Group != nil && apiKey.Group.ClaudeCodeOnly {
+    93			h.chatCompletionsErrorResponse(c, http.StatusForbidden, "permission_error",
+    94				"This group is restricted to Claude Code clients (/v1/messages only)")
+    95			return
+    96		}
+    97	
+    98		if decision := h.checkContentModeration(c, reqLog, apiKey, subject, service.ContentModerationProtocolOpenAIChat, reqModel, body); decision != nil && decision.Blocked {
+    99			h.chatCompletionsErrorResponse(c, contentModerationStatus(decision), contentModerationErrorCode(decision), decision.Message)
+   100			return
+   101		}
+   102	
+   103		// Error passthrough binding
+   104		if h.errorPassthroughService != nil {
+   105			service.BindErrorPassthroughService(c, h.errorPassthroughService)
+   106		}
+   107	
+   108		subscription, _ := middleware2.GetSubscriptionFromContext(c)
+   109	
+   110		service.SetOpsLatencyMs(c, service.OpsAuthLatencyMsKey, time.Since(requestStart).Milliseconds())
+   111	
+   112		userReleaseFunc, err := h.concurrencyHelper.AcquireUserSlotWithWait(c, subject.UserID, subject.Concurrency, reqStream, &streamStarted)
+   113		if err != nil {
+   114			reqLog.Warn("gateway.cc.user_slot_acquire_failed", zap.Error(err))
+   115			h.handleConcurrencyError(c, err, "user", streamStarted)
+   116			return
+   117		}
+   118		userReleaseFunc = wrapReleaseOnDone(c.Request.Context(), userReleaseFunc)
+   119		if userReleaseFunc != nil {
+   120			defer userReleaseFunc()
+   121		}
+   122	
+   123		// 2. Re-check billing
+   124		if err := h.billingCacheService.CheckBillingEligibility(c.Request.Context(), apiKey.User, apiKey, apiKey.Group, subscription, service.QuotaPlatform(c.Request.Context(), apiKey)); err != nil {
+   125			reqLog.Info("gateway.cc.billing_check_failed", zap.Error(err))
+   126			status, code, message, retryAfter := billingErrorDetails(err)
+   127			if retryAfter > 0 {
+   128				c.Header("Retry-After", strconv.Itoa(retryAfter))
+   129			}
+   130			h.chatCompletionsErrorResponse(c, status, code, message)
+   131			return
+   132		}
+   133	
+   134		// Parse request for session hash
+   135		bodyRef := service.NewRequestBodyRef(body)
+   136		parsedReq, _ := service.ParseGatewayRequest(bodyRef, "chat_completions")
+   137		if parsedReq == nil {
+   138			parsedReq = &service.ParsedRequest{Model: reqModel, Stream: reqStream, Body: bodyRef}
+   139		}
+   140		parsedReq.SessionContext = &service.SessionContext{
+   141			ClientIP:  ip.GetClientIP(c),
+   142			UserAgent: c.GetHeader("User-Agent"),
+   143			APIKeyID:  apiKey.ID,
+   144		}
+   145		sessionHash := h.gatewayService.GenerateSessionHash(parsedReq)
+   146		groupPlatform := ""
+   147		if apiKey.Group != nil {
+   148			groupPlatform = apiKey.Group.Platform
+   149		}
+   150		selectionSessionHash := sessionHash
+   151		if groupPlatform == service.PlatformGemini && selectionSessionHash != "" {
+   152			selectionSessionHash = "gemini:" + selectionSessionHash
+   153		}
+   154	
+   155		// 3. Account selection + failover loop
+
+codex
+到目前为止，`Messages`、兼容 ChatCompletions、fallback 分组重试、CountTokens 都是请求链路内的拦截判断。继续读 Responses、Gemini、OpenAI 兼容端点。
+exec
+/bin/bash -lc "nl -ba backend/internal/handler/gateway_handler_responses.go | sed -n '23,165p'" in /mnt/x/project/sub2api
+ succeeded in 0ms:
+    23	func (h *GatewayHandler) Responses(c *gin.Context) {
+    24		streamStarted := false
+    25	
+    26		requestStart := time.Now()
+    27	
+    28		apiKey, ok := middleware2.GetAPIKeyFromContext(c)
+    29		if !ok {
+    30			h.responsesErrorResponse(c, http.StatusUnauthorized, "authentication_error", "Invalid API key")
+    31			return
+    32		}
+    33	
+    34		subject, ok := middleware2.GetAuthSubjectFromContext(c)
+    35		if !ok {
+    36			h.responsesErrorResponse(c, http.StatusInternalServerError, "api_error", "User context not found")
+    37			return
+    38		}
+    39		reqLog := requestLogger(
+    40			c,
+    41			"handler.gateway.responses",
+    42			zap.Int64("user_id", subject.UserID),
+    43			zap.Int64("api_key_id", apiKey.ID),
+    44			zap.Any("group_id", apiKey.GroupID),
+    45		)
+    46	
+    47		// Read request body
+    48		body, err := pkghttputil.ReadRequestBodyWithPrealloc(c.Request)
+    49		if err != nil {
+    50			if maxErr, ok := extractMaxBytesError(err); ok {
+    51				h.responsesErrorResponse(c, http.StatusRequestEntityTooLarge, "invalid_request_error", buildBodyTooLargeMessage(maxErr.Limit))
+    52				return
+    53			}
+    54			h.responsesErrorResponse(c, http.StatusBadRequest, "invalid_request_error", "Failed to read request body")
+    55			return
+    56		}
+    57	
+    58		if len(body) == 0 {
+    59			h.responsesErrorResponse(c, http.StatusBadRequest, "invalid_request_error", "Request body is empty")
+    60			return
+    61		}
+    62	
+    63		setOpsRequestContext(c, "", false)
+    64	
+    65		// Validate JSON
+    66		if !gjson.ValidBytes(body) {
+    67			h.responsesErrorResponse(c, http.StatusBadRequest, "invalid_request_error", "Failed to parse request body")
+    68			return
+    69		}
+    70	
+    71		// Extract model and stream using gjson (like OpenAI handler)
+    72		modelResult := gjson.GetBytes(body, "model")
+    73		if !modelResult.Exists() || modelResult.Type != gjson.String || modelResult.String() == "" {
+    74			h.responsesErrorResponse(c, http.StatusBadRequest, "invalid_request_error", "model is required")
+    75			return
+    76		}
+    77		reqModel := modelResult.String()
+    78		reqStream, ok := parseOpenAICompatibleStream(body)
+    79		if !ok {
+    80			h.responsesErrorResponse(c, http.StatusBadRequest, "invalid_request_error", invalidStreamFieldTypeMessage)
+    81			return
+    82		}
+    83		reqLog = reqLog.With(zap.String("model", reqModel), zap.Bool("stream", reqStream))
+    84	
+    85		setOpsRequestContext(c, reqModel, reqStream)
+    86		setOpsEndpointContext(c, "", int16(service.RequestTypeFromLegacy(reqStream, false)))
+    87		requestCtx := c.Request.Context()
+    88		if service.IsImageGenerationIntent("/v1/responses", reqModel, body) {
+    89			requestCtx = service.WithOpenAIImageGenerationIntent(requestCtx)
+    90		}
+    91	
+    92		// 解析渠道级模型映射
+    93		channelMapping, _ := h.gatewayService.ResolveChannelMappingAndRestrict(requestCtx, apiKey.GroupID, reqModel)
+    94	
+    95		// Claude Code only restriction:
+    96		// /v1/responses is never a Claude Code endpoint.
+    97		// When claude_code_only is enabled, this endpoint is rejected.
+    98		// The existing service-layer checkClaudeCodeRestriction handles degradation
+    99		// to fallback groups when the Forward path calls SelectAccountForModelWithExclusions.
+   100		// Here we just reject at handler level since /v1/responses clients can't be Claude Code.
+   101		if apiKey.Group != nil && apiKey.Group.ClaudeCodeOnly {
+   102			h.responsesErrorResponse(c, http.StatusForbidden, "permission_error",
+   103				"This group is restricted to Claude Code clients (/v1/messages only)")
+   104			return
+   105		}
+   106	
+   107		if decision := h.checkContentModeration(c, reqLog, apiKey, subject, service.ContentModerationProtocolOpenAIResponses, reqModel, body); decision != nil && decision.Blocked {
+   108			h.responsesErrorResponse(c, contentModerationStatus(decision), contentModerationErrorCode(decision), decision.Message)
+   109			return
+   110		}
+   111	
+   112		// Error passthrough binding
+   113		if h.errorPassthroughService != nil {
+   114			service.BindErrorPassthroughService(c, h.errorPassthroughService)
+   115		}
+   116	
+   117		subscription, _ := middleware2.GetSubscriptionFromContext(c)
+   118	
+   119		service.SetOpsLatencyMs(c, service.OpsAuthLatencyMsKey, time.Since(requestStart).Milliseconds())
+   120	
+   121		userReleaseFunc, err := h.concurrencyHelper.AcquireUserSlotWithWait(c, subject.UserID, subject.Concurrency, reqStream, &streamStarted)
+   122		if err != nil {
+   123			reqLog.Warn("gateway.responses.user_slot_acquire_failed", zap.Error(err))
+   124			h.handleConcurrencyError(c, err, "user", streamStarted)
+   125			return
+   126		}
+   127		userReleaseFunc = wrapReleaseOnDone(c.Request.Context(), userReleaseFunc)
+   128		if userReleaseFunc != nil {
+   129			defer userReleaseFunc()
+   130		}
+   131	
+   132		// 2. Re-check billing
+   133		if err := h.billingCacheService.CheckBillingEligibility(requestCtx, apiKey.User, apiKey, apiKey.Group, subscription, service.QuotaPlatform(requestCtx, apiKey)); err != nil {
+   134			reqLog.Info("gateway.responses.billing_check_failed", zap.Error(err))
+   135			status, code, message, retryAfter := billingErrorDetails(err)
+   136			if retryAfter > 0 {
+   137				c.Header("Retry-After", strconv.Itoa(retryAfter))
+   138			}
+   139			h.responsesErrorResponse(c, status, code, message)
+   140			return
+   141		}
+   142	
+   143		// Parse request for session hash
+   144		bodyRef := service.NewRequestBodyRef(body)
+   145		parsedReq, _ := service.ParseGatewayRequest(bodyRef, "responses")
+   146		if parsedReq == nil {
+   147			parsedReq = &service.ParsedRequest{Model: reqModel, Stream: reqStream, Body: bodyRef}
+   148		}
+   149		parsedReq.SessionContext = &service.SessionContext{
+   150			ClientIP:  ip.GetClientIP(c),
+   151			UserAgent: c.GetHeader("User-Agent"),
+   152			APIKeyID:  apiKey.ID,
+   153		}
+   154		sessionHash := h.gatewayService.GenerateSessionHash(parsedReq)
+   155	
+   156		// 3. Account selection + failover loop
+   157		fs := NewFailoverState(h.maxAccountSwitches, false)
+   158	
+   159		for {
+   160			selection, err := h.gatewayService.SelectAccountWithLoadAwareness(requestCtx, apiKey.GroupID, sessionHash, reqModel, fs.FailedAccountIDs, "", int64(0))
+   161			if err != nil {
+   162				if len(fs.FailedAccountIDs) == 0 {
+   163					markOpsRoutingCapacityLimitedIfNoAvailable(c, err)
+   164					h.responsesErrorResponse(c, http.StatusServiceUnavailable, "api_error", "No available accounts: "+err.Error())
+   165					return
+
+exec
+/bin/bash -lc "nl -ba backend/internal/handler/gemini_v1beta_handler.go | sed -n '137,255p'" in /mnt/x/project/sub2api
+ succeeded in 0ms:
+   137	func (h *GatewayHandler) GeminiV1BetaModels(c *gin.Context) {
+   138		apiKey, ok := middleware.GetAPIKeyFromContext(c)
+   139		if !ok || apiKey == nil {
+   140			googleError(c, http.StatusUnauthorized, "Invalid API key")
+   141			return
+   142		}
+   143		authSubject, ok := middleware.GetAuthSubjectFromContext(c)
+   144		if !ok {
+   145			googleError(c, http.StatusInternalServerError, "User context not found")
+   146			return
+   147		}
+   148		reqLog := requestLogger(
+   149			c,
+   150			"handler.gemini_v1beta.models",
+   151			zap.Int64("user_id", authSubject.UserID),
+   152			zap.Int64("api_key_id", apiKey.ID),
+   153			zap.Any("group_id", apiKey.GroupID),
+   154		)
+   155	
+   156		// 检查平台：优先使用强制平台（/antigravity 路由，中间件已设置 request.Context），否则要求 gemini 分组
+   157		if !middleware.HasForcePlatform(c) {
+   158			if apiKey.Group == nil || apiKey.Group.Platform != service.PlatformGemini {
+   159				googleError(c, http.StatusBadRequest, "API key group platform is not gemini")
+   160				return
+   161			}
+   162		}
+   163	
+   164		modelName, action, err := parseGeminiModelAction(strings.TrimPrefix(c.Param("modelAction"), "/"))
+   165		if err != nil {
+   166			googleError(c, http.StatusNotFound, err.Error())
+   167			return
+   168		}
+   169	
+   170		stream := action == "streamGenerateContent"
+   171		reqLog = reqLog.With(zap.String("model", modelName), zap.String("action", action), zap.Bool("stream", stream))
+   172	
+   173		body, err := pkghttputil.ReadRequestBodyWithPrealloc(c.Request)
+   174		if err != nil {
+   175			if maxErr, ok := extractMaxBytesError(err); ok {
+   176				googleError(c, http.StatusRequestEntityTooLarge, buildBodyTooLargeMessage(maxErr.Limit))
+   177				return
+   178			}
+   179			googleError(c, http.StatusBadRequest, "Failed to read request body")
+   180			return
+   181		}
+   182		if len(body) == 0 {
+   183			googleError(c, http.StatusBadRequest, "Request body is empty")
+   184			return
+   185		}
+   186	
+   187		setOpsRequestContext(c, modelName, stream)
+   188		setOpsEndpointContext(c, "", int16(service.RequestTypeFromLegacy(stream, false)))
+   189	
+   190		if decision := h.checkContentModeration(c, reqLog, apiKey, authSubject, service.ContentModerationProtocolGemini, modelName, body); decision != nil && decision.Blocked {
+   191			googleError(c, contentModerationStatus(decision), decision.Message)
+   192			return
+   193		}
+   194	
+   195		// 解析渠道级模型映射
+   196		channelMapping, _ := h.gatewayService.ResolveChannelMappingAndRestrict(c.Request.Context(), apiKey.GroupID, modelName)
+   197		reqModel := modelName // 保存映射前的原始模型名
+   198		if channelMapping.Mapped {
+   199			modelName = channelMapping.MappedModel
+   200		}
+   201	
+   202		// Get subscription (may be nil)
+   203		subscription, _ := middleware.GetSubscriptionFromContext(c)
+   204	
+   205		// For Gemini native API, do not send Claude-style ping frames.
+   206		geminiConcurrency := NewConcurrencyHelper(h.concurrencyHelper.concurrencyService, SSEPingFormatNone, 0)
+   207	
+   208		// 1) user concurrency slot
+   209		streamStarted := false
+   210		if h.errorPassthroughService != nil {
+   211			service.BindErrorPassthroughService(c, h.errorPassthroughService)
+   212		}
+   213		userReleaseFunc, err := geminiConcurrency.AcquireUserSlotWithWait(c, authSubject.UserID, authSubject.Concurrency, stream, &streamStarted)
+   214		if err != nil {
+   215			reqLog.Warn("gemini.user_slot_acquire_failed", zap.Error(err))
+   216			googleError(c, http.StatusTooManyRequests, err.Error())
+   217			return
+   218		}
+   219		// 确保请求取消时也会释放槽位，避免长连接被动中断造成泄漏
+   220		userReleaseFunc = wrapReleaseOnDone(c.Request.Context(), userReleaseFunc)
+   221		if userReleaseFunc != nil {
+   222			defer userReleaseFunc()
+   223		}
+   224	
+   225		// 2) billing eligibility check (after wait)
+   226		if err := h.billingCacheService.CheckBillingEligibility(c.Request.Context(), apiKey.User, apiKey, apiKey.Group, subscription, service.QuotaPlatform(c.Request.Context(), apiKey)); err != nil {
+   227			reqLog.Info("gemini.billing_eligibility_check_failed", zap.Error(err))
+   228			status, _, message, retryAfter := billingErrorDetails(err)
+   229			if retryAfter > 0 {
+   230				c.Header("Retry-After", strconv.Itoa(retryAfter))
+   231			}
+   232			googleError(c, status, message)
+   233			return
+   234		}
+   235	
+   236		// 3) select account (sticky session based on request body)
+   237		// 优先使用 Gemini CLI 的会话标识（privileged-user-id + tmp 目录哈希）
+   238		sessionHash := extractGeminiCLISessionHash(c, body)
+   239		if sessionHash == "" {
+   240			// Fallback: 使用通用的会话哈希生成逻辑（适用于其他客户端）
+   241			parsedReq, _ := service.ParseGatewayRequest(service.NewRequestBodyRef(body), domain.PlatformGemini)
+   242			if parsedReq != nil {
+   243				parsedReq.SessionContext = &service.SessionContext{
+   244					ClientIP:  ip.GetClientIP(c),
+   245					UserAgent: c.GetHeader("User-Agent"),
+   246					APIKeyID:  apiKey.ID,
+   247				}
+   248			}
+   249			sessionHash = h.gatewayService.GenerateSessionHash(parsedReq)
+   250		}
+   251		sessionKey := sessionHash
+   252		if sessionHash != "" {
+   253			sessionKey = "gemini:" + sessionHash
+   254		}
+   255	
+
+exec
+/bin/bash -lc "nl -ba backend/internal/handler/openai_chat_completions.go | sed -n '23,145p'" in /mnt/x/project/sub2api
+ succeeded in 0ms:
+    23	func (h *OpenAIGatewayHandler) ChatCompletions(c *gin.Context) {
+    24		streamStarted := false
+    25		defer h.recoverResponsesPanic(c, &streamStarted)
+    26	
+    27		requestStart := time.Now()
+    28	
+    29		apiKey, ok := middleware2.GetAPIKeyFromContext(c)
+    30		if !ok {
+    31			h.errorResponse(c, http.StatusUnauthorized, "authentication_error", "Invalid API key")
+    32			return
+    33		}
+    34	
+    35		subject, ok := middleware2.GetAuthSubjectFromContext(c)
+    36		if !ok {
+    37			h.errorResponse(c, http.StatusInternalServerError, "api_error", "User context not found")
+    38			return
+    39		}
+    40		reqLog := requestLogger(
+    41			c,
+    42			"handler.openai_gateway.chat_completions",
+    43			zap.Int64("user_id", subject.UserID),
+    44			zap.Int64("api_key_id", apiKey.ID),
+    45			zap.Any("group_id", apiKey.GroupID),
+    46		)
+    47	
+    48		if !h.ensureResponsesDependencies(c, reqLog) {
+    49			return
+    50		}
+    51	
+    52		body, err := pkghttputil.ReadRequestBodyWithPrealloc(c.Request)
+    53		if err != nil {
+    54			if maxErr, ok := extractMaxBytesError(err); ok {
+    55				h.errorResponse(c, http.StatusRequestEntityTooLarge, "invalid_request_error", buildBodyTooLargeMessage(maxErr.Limit))
+    56				return
+    57			}
+    58			h.errorResponse(c, http.StatusBadRequest, "invalid_request_error", "Failed to read request body")
+    59			return
+    60		}
+    61		if len(body) == 0 {
+    62			h.errorResponse(c, http.StatusBadRequest, "invalid_request_error", "Request body is empty")
+    63			return
+    64		}
+    65	
+    66		if !gjson.ValidBytes(body) {
+    67			h.errorResponse(c, http.StatusBadRequest, "invalid_request_error", "Failed to parse request body")
+    68			return
+    69		}
+    70	
+    71		modelResult := gjson.GetBytes(body, "model")
+    72		if !modelResult.Exists() || modelResult.Type != gjson.String || modelResult.String() == "" {
+    73			h.errorResponse(c, http.StatusBadRequest, "invalid_request_error", "model is required")
+    74			return
+    75		}
+    76		reqModel := modelResult.String()
+    77		reqStream, ok := parseOpenAICompatibleStream(body)
+    78		if !ok {
+    79			h.errorResponse(c, http.StatusBadRequest, "invalid_request_error", invalidStreamFieldTypeMessage)
+    80			return
+    81		}
+    82	
+    83		reqLog = reqLog.With(zap.String("model", reqModel), zap.Bool("stream", reqStream))
+    84	
+    85		setOpsRequestContext(c, reqModel, reqStream)
+    86		setOpsEndpointContext(c, "", int16(service.RequestTypeFromLegacy(reqStream, false)))
+    87	
+    88		if decision := h.checkContentModeration(c, reqLog, apiKey, subject, service.ContentModerationProtocolOpenAIChat, reqModel, body); decision != nil && decision.Blocked {
+    89			h.errorResponse(c, contentModerationStatus(decision), contentModerationErrorCode(decision), decision.Message)
+    90			return
+    91		}
+    92		if h.rejectIfCyberSessionBlocked(c, apiKey, body, reqModel, cyberBlockFormatChat) {
+    93			return
+    94		}
+    95	
+    96		// 解析渠道级模型映射
+    97		channelMapping, _ := h.gatewayService.ResolveChannelMappingAndRestrict(c.Request.Context(), apiKey.GroupID, reqModel)
+    98	
+    99		if h.errorPassthroughService != nil {
+   100			service.BindErrorPassthroughService(c, h.errorPassthroughService)
+   101		}
+   102	
+   103		subscription, _ := middleware2.GetSubscriptionFromContext(c)
+   104	
+   105		service.SetOpsLatencyMs(c, service.OpsAuthLatencyMsKey, time.Since(requestStart).Milliseconds())
+   106		routingStart := time.Now()
+   107	
+   108		userReleaseFunc, acquired := h.acquireResponsesUserSlot(c, subject.UserID, subject.Concurrency, reqStream, &streamStarted, reqLog)
+   109		if !acquired {
+   110			return
+   111		}
+   112		if userReleaseFunc != nil {
+   113			defer userReleaseFunc()
+   114		}
+   115	
+   116		if err := h.billingCacheService.CheckBillingEligibility(c.Request.Context(), apiKey.User, apiKey, apiKey.Group, subscription, service.QuotaPlatform(c.Request.Context(), apiKey)); err != nil {
+   117			reqLog.Info("openai_chat_completions.billing_eligibility_check_failed", zap.Error(err))
+   118			status, code, message, retryAfter := billingErrorDetails(err)
+   119			if retryAfter > 0 {
+   120				c.Header("Retry-After", strconv.Itoa(retryAfter))
+   121			}
+   122			h.handleStreamingAwareError(c, status, code, message, streamStarted)
+   123			return
+   124		}
+   125	
+   126		sessionHash := h.gatewayService.GenerateSessionHash(c, body)
+   127		promptCacheKey := h.gatewayService.ExtractSessionID(c, body)
+   128	
+   129		maxAccountSwitches := h.maxAccountSwitches
+   130		switchCount := 0
+   131		failedAccountIDs := make(map[int64]struct{})
+   132		sameAccountRetryCount := make(map[int64]int)
+   133		var lastFailoverErr *service.UpstreamFailoverError
+   134	
+   135		for {
+   136			reqLog.Debug("openai_chat_completions.account_selecting", zap.Int("excluded_account_count", len(failedAccountIDs)))
+   137			selection, scheduleDecision, err := h.gatewayService.SelectAccountWithSchedulerForCapability(
+   138				c.Request.Context(),
+   139				apiKey.GroupID,
+   140				"",
+   141				sessionHash,
+   142				reqModel,
+   143				failedAccountIDs,
+   144				service.OpenAIUpstreamTransportAny,
+   145				service.OpenAIEndpointCapabilityChatCompletions,
+
+exec
+/bin/bash -lc "nl -ba backend/internal/handler/openai_embeddings.go | sed -n '23,115p'" in /mnt/x/project/sub2api
+ succeeded in 0ms:
+    23	func (h *OpenAIGatewayHandler) Embeddings(c *gin.Context) {
+    24		streamStarted := false
+    25		requestStart := time.Now()
+    26	
+    27		apiKey, ok := middleware2.GetAPIKeyFromContext(c)
+    28		if !ok {
+    29			h.errorResponse(c, http.StatusUnauthorized, "authentication_error", "Invalid API key")
+    30			return
+    31		}
+    32	
+    33		subject, ok := middleware2.GetAuthSubjectFromContext(c)
+    34		if !ok {
+    35			h.errorResponse(c, http.StatusInternalServerError, "api_error", "User context not found")
+    36			return
+    37		}
+    38		reqLog := requestLogger(
+    39			c,
+    40			"handler.openai_gateway.embeddings",
+    41			zap.Int64("user_id", subject.UserID),
+    42			zap.Int64("api_key_id", apiKey.ID),
+    43			zap.Any("group_id", apiKey.GroupID),
+    44		)
+    45		if !h.ensureResponsesDependencies(c, reqLog) {
+    46			return
+    47		}
+    48	
+    49		body, err := pkghttputil.ReadRequestBodyWithPrealloc(c.Request)
+    50		if err != nil {
+    51			if maxErr, ok := extractMaxBytesError(err); ok {
+    52				h.errorResponse(c, http.StatusRequestEntityTooLarge, "invalid_request_error", buildBodyTooLargeMessage(maxErr.Limit))
+    53				return
+    54			}
+    55			h.errorResponse(c, http.StatusBadRequest, "invalid_request_error", "Failed to read request body")
+    56			return
+    57		}
+    58		if len(body) == 0 {
+    59			h.errorResponse(c, http.StatusBadRequest, "invalid_request_error", "Request body is empty")
+    60			return
+    61		}
+    62		if !gjson.ValidBytes(body) {
+    63			h.errorResponse(c, http.StatusBadRequest, "invalid_request_error", "Failed to parse request body")
+    64			return
+    65		}
+    66	
+    67		modelResult := gjson.GetBytes(body, "model")
+    68		if !modelResult.Exists() || modelResult.Type != gjson.String || strings.TrimSpace(modelResult.String()) == "" {
+    69			h.errorResponse(c, http.StatusBadRequest, "invalid_request_error", "model is required")
+    70			return
+    71		}
+    72		reqModel := modelResult.String()
+    73		reqLog = reqLog.With(zap.String("model", reqModel))
+    74		setOpsRequestContext(c, reqModel, false)
+    75		setOpsEndpointContext(c, "", int16(service.RequestTypeSync))
+    76	
+    77		channelMapping, _ := h.gatewayService.ResolveChannelMappingAndRestrict(c.Request.Context(), apiKey.GroupID, reqModel)
+    78	
+    79		subscription, _ := middleware2.GetSubscriptionFromContext(c)
+    80		service.SetOpsLatencyMs(c, service.OpsAuthLatencyMsKey, time.Since(requestStart).Milliseconds())
+    81	
+    82		userReleaseFunc, acquired := h.acquireResponsesUserSlot(c, subject.UserID, subject.Concurrency, false, &streamStarted, reqLog)
+    83		if !acquired {
+    84			return
+    85		}
+    86		if userReleaseFunc != nil {
+    87			defer userReleaseFunc()
+    88		}
+    89	
+    90		if err := h.billingCacheService.CheckBillingEligibility(c.Request.Context(), apiKey.User, apiKey, apiKey.Group, subscription, service.QuotaPlatform(c.Request.Context(), apiKey)); err != nil {
+    91			reqLog.Info("openai_embeddings.billing_check_failed", zap.Error(err))
+    92			status, code, message, retryAfter := billingErrorDetails(err)
+    93			if retryAfter > 0 {
+    94				c.Header("Retry-After", strconv.Itoa(retryAfter))
+    95			}
+    96			h.errorResponse(c, status, code, message)
+    97			return
+    98		}
+    99	
+   100		failedAccountIDs := make(map[int64]struct{})
+   101		var lastFailoverErr *service.UpstreamFailoverError
+   102		switchCount := 0
+   103		maxAccountSwitches := h.maxAccountSwitches
+   104		if maxAccountSwitches <= 0 {
+   105			maxAccountSwitches = 3
+   106		}
+   107		routingStart := time.Now()
+   108	
+   109		for {
+   110			selection, _, err := h.gatewayService.SelectAccountWithSchedulerForCapability(
+   111				c.Request.Context(),
+   112				apiKey.GroupID,
+   113				"",
+   114				"",
+   115				reqModel,
+
+codex
+这些同样都是客户端请求处理函数，调用发生在取 API key、订阅、并发槽位之后、选择账号/转发之前。还剩 OpenAI Responses、Messages、WebSocket、Images 四段需要确认。
+exec
+/bin/bash -lc "nl -ba backend/internal/handler/openai_images.go | sed -n '23,155p'" in /mnt/x/project/sub2api
+ succeeded in 0ms:
+    23	func (h *OpenAIGatewayHandler) Images(c *gin.Context) {
+    24		streamStarted := false
+    25		defer h.recoverResponsesPanic(c, &streamStarted)
+    26	
+    27		requestStart := time.Now()
+    28	
+    29		apiKey, ok := middleware2.GetAPIKeyFromContext(c)
+    30		if !ok {
+    31			h.errorResponse(c, http.StatusUnauthorized, "authentication_error", "Invalid API key")
+    32			return
+    33		}
+    34	
+    35		subject, ok := middleware2.GetAuthSubjectFromContext(c)
+    36		if !ok {
+    37			h.errorResponse(c, http.StatusInternalServerError, "api_error", "User context not found")
+    38			return
+    39		}
+    40		reqLog := requestLogger(
+    41			c,
+    42			"handler.openai_gateway.images",
+    43			zap.Int64("user_id", subject.UserID),
+    44			zap.Int64("api_key_id", apiKey.ID),
+    45			zap.Any("group_id", apiKey.GroupID),
+    46		)
+    47		if !h.ensureResponsesDependencies(c, reqLog) {
+    48			return
+    49		}
+    50	
+    51		body, err := pkghttputil.ReadRequestBodyWithPrealloc(c.Request)
+    52		if err != nil {
+    53			if maxErr, ok := extractMaxBytesError(err); ok {
+    54				h.errorResponse(c, http.StatusRequestEntityTooLarge, "invalid_request_error", buildBodyTooLargeMessage(maxErr.Limit))
+    55				return
+    56			}
+    57			h.errorResponse(c, http.StatusBadRequest, "invalid_request_error", "Failed to read request body")
+    58			return
+    59		}
+    60		if len(body) == 0 {
+    61			h.errorResponse(c, http.StatusBadRequest, "invalid_request_error", "Request body is empty")
+    62			return
+    63		}
+    64	
+    65		if isMultipartImagesContentType(c.GetHeader("Content-Type")) {
+    66			setOpsRequestContext(c, "", false)
+    67		} else {
+    68			setOpsRequestContext(c, "", false)
+    69		}
+    70	
+    71		parsed, err := h.gatewayService.ParseOpenAIImagesRequest(c, body)
+    72		if err != nil {
+    73			h.errorResponse(c, http.StatusBadRequest, "invalid_request_error", err.Error())
+    74			return
+    75		}
+    76		requestModel := parsed.Model
+    77	
+    78		reqLog = reqLog.With(
+    79			zap.String("model", requestModel),
+    80			zap.Bool("stream", parsed.Stream),
+    81			zap.Bool("multipart", parsed.Multipart),
+    82			zap.String("capability", string(parsed.RequiredCapability)),
+    83		)
+    84	
+    85		if !service.GroupAllowsImageGeneration(apiKey.Group) {
+    86			h.errorResponse(c, http.StatusForbidden, "permission_error", service.ImageGenerationPermissionMessage())
+    87			return
+    88		}
+    89		if decision := h.checkContentModeration(c, reqLog, apiKey, subject, service.ContentModerationProtocolOpenAIImages, requestModel, parsed.ModerationBody()); decision != nil && decision.Blocked {
+    90			h.errorResponse(c, contentModerationStatus(decision), contentModerationErrorCode(decision), decision.Message)
+    91			return
+    92		}
+    93		imageReleaseFunc, acquired := h.acquireImageGenerationSlot(c, streamStarted)
+    94		if !acquired {
+    95			return
+    96		}
+    97		if imageReleaseFunc != nil {
+    98			defer imageReleaseFunc()
+    99		}
+   100	
+   101		if parsed.Multipart {
+   102			setOpsRequestContext(c, requestModel, parsed.Stream)
+   103		} else {
+   104			setOpsRequestContext(c, requestModel, parsed.Stream)
+   105		}
+   106		setOpsEndpointContext(c, "", int16(service.RequestTypeFromLegacy(parsed.Stream, false)))
+   107	
+   108		channelMapping, _ := h.gatewayService.ResolveChannelMappingAndRestrict(c.Request.Context(), apiKey.GroupID, requestModel)
+   109	
+   110		if h.errorPassthroughService != nil {
+   111			service.BindErrorPassthroughService(c, h.errorPassthroughService)
+   112		}
+   113	
+   114		subscription, _ := middleware2.GetSubscriptionFromContext(c)
+   115	
+   116		service.SetOpsLatencyMs(c, service.OpsAuthLatencyMsKey, time.Since(requestStart).Milliseconds())
+   117		routingStart := time.Now()
+   118	
+   119		userReleaseFunc, acquired := h.acquireResponsesUserSlot(c, subject.UserID, subject.Concurrency, parsed.Stream, &streamStarted, reqLog)
+   120		if !acquired {
+   121			return
+   122		}
+   123		if userReleaseFunc != nil {
+   124			defer userReleaseFunc()
+   125		}
+   126	
+   127		if err := h.billingCacheService.CheckBillingEligibility(c.Request.Context(), apiKey.User, apiKey, apiKey.Group, subscription, service.QuotaPlatform(c.Request.Context(), apiKey)); err != nil {
+   128			reqLog.Info("openai.images.billing_eligibility_check_failed", zap.Error(err))
+   129			status, code, message, retryAfter := billingErrorDetails(err)
+   130			if retryAfter > 0 {
+   131				c.Header("Retry-After", strconv.Itoa(retryAfter))
+   132			}
+   133			h.handleStreamingAwareError(c, status, code, message, streamStarted)
+   134			return
+   135		}
+   136	
+   137		sessionHash := h.gatewayService.GenerateExplicitSessionHash(c, body)
+   138		requestCtx := service.WithOpenAIImageGenerationIntent(c.Request.Context())
+   139	
+   140		maxAccountSwitches := h.maxAccountSwitches
+   141		switchCount := 0
+   142		failedAccountIDs := make(map[int64]struct{})
+   143		sameAccountRetryCount := make(map[int64]int)
+   144		var lastFailoverErr *service.UpstreamFailoverError
+   145	
+   146		for {
+   147			reqLog.Debug("openai.images.account_selecting", zap.Int("excluded_account_count", len(failedAccountIDs)))
+   148			selection, scheduleDecision, err := h.gatewayService.SelectAccountWithSchedulerForImages(
+   149				requestCtx,
+   150				apiKey.GroupID,
+   151				sessionHash,
+   152				requestModel,
+   153				failedAccountIDs,
+   154				parsed.RequiredCapability,
+   155			)
+
+exec
+/bin/bash -lc "nl -ba backend/internal/handler/openai_gateway_handler.go | sed -n '137,325p'" in /mnt/x/project/sub2api
+ succeeded in 0ms:
+   137	func (h *OpenAIGatewayHandler) Responses(c *gin.Context) {
+   138		// 局部兜底：确保该 handler 内部任何 panic 都不会击穿到进程级。
+   139		streamStarted := false
+   140		defer h.recoverResponsesPanic(c, &streamStarted)
+   141		compactStartedAt := time.Now()
+   142		defer h.logOpenAIRemoteCompactOutcome(c, compactStartedAt)
+   143		setOpenAIClientTransportHTTP(c)
+   144	
+   145		requestStart := time.Now()
+   146	
+   147		// Get apiKey and user from context (set by ApiKeyAuth middleware)
+   148		apiKey, ok := middleware2.GetAPIKeyFromContext(c)
+   149		if !ok {
+   150			h.errorResponse(c, http.StatusUnauthorized, "authentication_error", "Invalid API key")
+   151			return
+   152		}
+   153	
+   154		subject, ok := middleware2.GetAuthSubjectFromContext(c)
+   155		if !ok {
+   156			h.errorResponse(c, http.StatusInternalServerError, "api_error", "User context not found")
+   157			return
+   158		}
+   159		reqLog := requestLogger(
+   160			c,
+   161			"handler.openai_gateway.responses",
+   162			zap.Int64("user_id", subject.UserID),
+   163			zap.Int64("api_key_id", apiKey.ID),
+   164			zap.Any("group_id", apiKey.GroupID),
+   165		)
+   166		if !h.ensureResponsesDependencies(c, reqLog) {
+   167			return
+   168		}
+   169	
+   170		// Read request body
+   171		body, err := pkghttputil.ReadRequestBodyWithPrealloc(c.Request)
+   172		if err != nil {
+   173			if maxErr, ok := extractMaxBytesError(err); ok {
+   174				h.errorResponse(c, http.StatusRequestEntityTooLarge, "invalid_request_error", buildBodyTooLargeMessage(maxErr.Limit))
+   175				return
+   176			}
+   177			h.errorResponse(c, http.StatusBadRequest, "invalid_request_error", "Failed to read request body")
+   178			return
+   179		}
+   180	
+   181		if len(body) == 0 {
+   182			h.errorResponse(c, http.StatusBadRequest, "invalid_request_error", "Request body is empty")
+   183			return
+   184		}
+   185	
+   186		setOpsRequestContext(c, "", false)
+   187		sessionHashBody := body
+   188		if service.IsOpenAIResponsesCompactPathForTest(c) {
+   189			if compactSeed := strings.TrimSpace(gjson.GetBytes(body, "prompt_cache_key").String()); compactSeed != "" {
+   190				c.Set(service.OpenAICompactSessionSeedKeyForTest(), compactSeed)
+   191			}
+   192			normalizedCompactBody, normalizedCompact, compactErr := service.NormalizeOpenAICompactRequestBodyForTest(body)
+   193			if compactErr != nil {
+   194				h.errorResponse(c, http.StatusBadRequest, "invalid_request_error", "Failed to normalize compact request body")
+   195				return
+   196			}
+   197			if normalizedCompact {
+   198				body = normalizedCompactBody
+   199			}
+   200		}
+   201	
+   202		// 校验请求体 JSON 合法性
+   203		if !gjson.ValidBytes(body) {
+   204			h.errorResponse(c, http.StatusBadRequest, "invalid_request_error", "Failed to parse request body")
+   205			return
+   206		}
+   207	
+   208		// 使用 gjson 只读提取字段做校验，避免完整 Unmarshal
+   209		modelResult := gjson.GetBytes(body, "model")
+   210		if !modelResult.Exists() || modelResult.Type != gjson.String || modelResult.String() == "" {
+   211			h.errorResponse(c, http.StatusBadRequest, "invalid_request_error", "model is required")
+   212			return
+   213		}
+   214		reqModel := modelResult.String()
+   215	
+   216		reqStream, ok := parseOpenAICompatibleStream(body)
+   217		if !ok {
+   218			h.errorResponse(c, http.StatusBadRequest, "invalid_request_error", invalidStreamFieldTypeMessage)
+   219			return
+   220		}
+   221		reqLog = reqLog.With(zap.String("model", reqModel), zap.Bool("stream", reqStream))
+   222		previousResponseID := strings.TrimSpace(gjson.GetBytes(body, "previous_response_id").String())
+   223		if previousResponseID != "" {
+   224			previousResponseIDKind := service.ClassifyOpenAIPreviousResponseIDKind(previousResponseID)
+   225			reqLog = reqLog.With(
+   226				zap.Bool("has_previous_response_id", true),
+   227				zap.String("previous_response_id_kind", previousResponseIDKind),
+   228				zap.Int("previous_response_id_len", len(previousResponseID)),
+   229			)
+   230			if previousResponseIDKind == service.OpenAIPreviousResponseIDKindMessageID {
+   231				reqLog.Warn("openai.request_validation_failed",
+   232					zap.String("reason", "previous_response_id_looks_like_message_id"),
+   233				)
+   234				h.errorResponse(c, http.StatusBadRequest, "invalid_request_error", "previous_response_id must be a response.id (resp_*), not a message id")
+   235				return
+   236			}
+   237			reqLog.Warn("openai.request_validation_failed",
+   238				zap.String("reason", "previous_response_id_requires_wsv2"),
+   239			)
+   240			h.errorResponse(c, http.StatusBadRequest, "invalid_request_error", "previous_response_id is only supported on Responses WebSocket v2")
+   241			return
+   242		}
+   243	
+   244		setOpsRequestContext(c, reqModel, reqStream)
+   245		setOpsEndpointContext(c, "", int16(service.RequestTypeFromLegacy(reqStream, false)))
+   246	
+   247		if decision := h.checkContentModeration(c, reqLog, apiKey, subject, service.ContentModerationProtocolOpenAIResponses, reqModel, body); decision != nil && decision.Blocked {
+   248			h.errorResponse(c, contentModerationStatus(decision), contentModerationErrorCode(decision), decision.Message)
+   249			return
+   250		}
+   251	
+   252		imageIntent := service.IsImageGenerationIntent("/v1/responses", reqModel, body)
+   253		if imageIntent && !service.GroupAllowsImageGeneration(apiKey.Group) {
+   254			h.errorResponse(c, http.StatusForbidden, "permission_error", service.ImageGenerationPermissionMessage())
+   255			return
+   256		}
+   257		var imageReleaseFunc func()
+   258		if imageIntent {
+   259			var imageAcquired bool
+   260			imageReleaseFunc, imageAcquired = h.acquireImageGenerationSlot(c, streamStarted)
+   261			if !imageAcquired {
+   262				return
+   263			}
+   264			if imageReleaseFunc != nil {
+   265				defer imageReleaseFunc()
+   266			}
+   267		}
+   268	
+   269		// 解析渠道级模型映射
+   270		channelMapping, _ := h.gatewayService.ResolveChannelMappingAndRestrict(c.Request.Context(), apiKey.GroupID, reqModel)
+   271		forwardBody := openAIModelMappedBody(body, channelMapping.Mapped, channelMapping.MappedModel, h.gatewayService.ReplaceModelInBody)
+   272	
+   273		// 提前校验 function_call_output 是否具备可关联上下文，避免上游 400。
+   274		if !h.validateFunctionCallOutputRequest(c, body, reqLog) {
+   275			return
+   276		}
+   277	
+   278		// 绑定错误透传服务，允许 service 层在非 failover 错误场景复用规则。
+   279		if h.errorPassthroughService != nil {
+   280			service.BindErrorPassthroughService(c, h.errorPassthroughService)
+   281		}
+   282	
+   283		// Get subscription info (may be nil)
+   284		subscription, _ := middleware2.GetSubscriptionFromContext(c)
+   285	
+   286		service.SetOpsLatencyMs(c, service.OpsAuthLatencyMsKey, time.Since(requestStart).Milliseconds())
+   287		routingStart := time.Now()
+   288	
+   289		userReleaseFunc, acquired := h.acquireResponsesUserSlot(c, subject.UserID, subject.Concurrency, reqStream, &streamStarted, reqLog)
+   290		if !acquired {
+   291			return
+   292		}
+   293		// 确保请求取消时也会释放槽位，避免长连接被动中断造成泄漏
+   294		if userReleaseFunc != nil {
+   295			defer userReleaseFunc()
+   296		}
+   297	
+   298		// 2. Re-check billing eligibility after wait
+   299		if err := h.billingCacheService.CheckBillingEligibility(c.Request.Context(), apiKey.User, apiKey, apiKey.Group, subscription, service.QuotaPlatform(c.Request.Context(), apiKey)); err != nil {
+   300			reqLog.Info("openai.billing_eligibility_check_failed", zap.Error(err))
+   301			status, code, message, retryAfter := billingErrorDetails(err)
+   302			if retryAfter > 0 {
+   303				c.Header("Retry-After", strconv.Itoa(retryAfter))
+   304			}
+   305			h.handleStreamingAwareError(c, status, code, message, streamStarted)
+   306			return
+   307		}
+   308	
+   309		// Generate session hash (header first; fallback to prompt_cache_key)
+   310		sessionHash := h.gatewayService.GenerateSessionHash(c, sessionHashBody)
+   311		if h.rejectIfCyberSessionBlocked(c, apiKey, sessionHashBody, reqModel, cyberBlockFormatResponses) {
+   312			return
+   313		}
+   314		requireCompact := isOpenAIRemoteCompactPath(c)
+   315	
+   316		maxAccountSwitches := h.maxAccountSwitches
+   317		switchCount := 0
+   318		failedAccountIDs := make(map[int64]struct{})
+   319		sameAccountRetryCount := make(map[int64]int)
+   320		var lastFailoverErr *service.UpstreamFailoverError
+   321	
+   322		for {
+   323			// Select account supporting the requested model
+   324			reqLog.Debug("openai.account_selecting", zap.Int("excluded_account_count", len(failedAccountIDs)))
+   325			selection, scheduleDecision, err := h.gatewayService.SelectAccountWithSchedulerForCapability(
+
+exec
+/bin/bash -lc "nl -ba backend/internal/handler/openai_gateway_handler.go | sed -n '619,745p'" in /mnt/x/project/sub2api
+exec
+/bin/bash -lc "nl -ba backend/internal/handler/openai_gateway_handler.go | sed -n '1141,1335p'" in /mnt/x/project/sub2api
+ succeeded in 0ms:
+   619	func (h *OpenAIGatewayHandler) Messages(c *gin.Context) {
+   620		streamStarted := false
+   621		defer h.recoverAnthropicMessagesPanic(c, &streamStarted)
+   622	
+   623		requestStart := time.Now()
+   624	
+   625		apiKey, ok := middleware2.GetAPIKeyFromContext(c)
+   626		if !ok {
+   627			h.anthropicErrorResponse(c, http.StatusUnauthorized, "authentication_error", "Invalid API key")
+   628			return
+   629		}
+   630	
+   631		subject, ok := middleware2.GetAuthSubjectFromContext(c)
+   632		if !ok {
+   633			h.anthropicErrorResponse(c, http.StatusInternalServerError, "api_error", "User context not found")
+   634			return
+   635		}
+   636		reqLog := requestLogger(
+   637			c,
+   638			"handler.openai_gateway.messages",
+   639			zap.Int64("user_id", subject.UserID),
+   640			zap.Int64("api_key_id", apiKey.ID),
+   641			zap.Any("group_id", apiKey.GroupID),
+   642		)
+   643	
+   644		// 检查分组是否允许 /v1/messages 调度
+   645		if apiKey.Group != nil && !apiKey.Group.AllowMessagesDispatch {
+   646			h.anthropicErrorResponse(c, http.StatusForbidden, "permission_error",
+   647				"This group does not allow /v1/messages dispatch")
+   648			return
+   649		}
+   650	
+   651		if !h.ensureResponsesDependencies(c, reqLog) {
+   652			return
+   653		}
+   654	
+   655		body, err := pkghttputil.ReadRequestBodyWithPrealloc(c.Request)
+   656		if err != nil {
+   657			if maxErr, ok := extractMaxBytesError(err); ok {
+   658				h.anthropicErrorResponse(c, http.StatusRequestEntityTooLarge, "invalid_request_error", buildBodyTooLargeMessage(maxErr.Limit))
+   659				return
+   660			}
+   661			h.anthropicErrorResponse(c, http.StatusBadRequest, "invalid_request_error", "Failed to read request body")
+   662			return
+   663		}
+   664		if len(body) == 0 {
+   665			h.anthropicErrorResponse(c, http.StatusBadRequest, "invalid_request_error", "Request body is empty")
+   666			return
+   667		}
+   668	
+   669		if !gjson.ValidBytes(body) {
+   670			h.anthropicErrorResponse(c, http.StatusBadRequest, "invalid_request_error", "Failed to parse request body")
+   671			return
+   672		}
+   673	
+   674		modelResult := gjson.GetBytes(body, "model")
+   675		if !modelResult.Exists() || modelResult.Type != gjson.String || modelResult.String() == "" {
+   676			h.anthropicErrorResponse(c, http.StatusBadRequest, "invalid_request_error", "model is required")
+   677			return
+   678		}
+   679		reqModel := modelResult.String()
+   680		routingModel := service.NormalizeOpenAICompatRequestedModel(reqModel)
+   681		preferredMappedModel := resolveOpenAIMessagesDispatchMappedModel(apiKey, reqModel)
+   682		reqStream := gjson.GetBytes(body, "stream").Bool()
+   683	
+   684		reqLog = reqLog.With(zap.String("model", reqModel), zap.Bool("stream", reqStream))
+   685	
+   686		setOpsRequestContext(c, reqModel, reqStream)
+   687		setOpsEndpointContext(c, "", int16(service.RequestTypeFromLegacy(reqStream, false)))
+   688	
+   689		if decision := h.checkContentModeration(c, reqLog, apiKey, subject, service.ContentModerationProtocolAnthropicMessages, reqModel, body); decision != nil && decision.Blocked {
+   690			h.anthropicErrorResponse(c, contentModerationStatus(decision), contentModerationErrorCode(decision), decision.Message)
+   691			return
+   692		}
+   693	
+   694		// 解析渠道级模型映射
+   695		channelMappingMsg, _ := h.gatewayService.ResolveChannelMappingAndRestrict(c.Request.Context(), apiKey.GroupID, reqModel)
+   696		mappedBodyForMessages := newOpenAIModelMappedBodyCache(body, h.gatewayService.ReplaceModelInBody)
+   697	
+   698		// 绑定错误透传服务，允许 service 层在非 failover 错误场景复用规则。
+   699		if h.errorPassthroughService != nil {
+   700			service.BindErrorPassthroughService(c, h.errorPassthroughService)
+   701		}
+   702	
+   703		subscription, _ := middleware2.GetSubscriptionFromContext(c)
+   704	
+   705		service.SetOpsLatencyMs(c, service.OpsAuthLatencyMsKey, time.Since(requestStart).Milliseconds())
+   706		routingStart := time.Now()
+   707	
+   708		userReleaseFunc, acquired := h.acquireResponsesUserSlot(c, subject.UserID, subject.Concurrency, reqStream, &streamStarted, reqLog)
+   709		if !acquired {
+   710			return
+   711		}
+   712		if userReleaseFunc != nil {
+   713			defer userReleaseFunc()
+   714		}
+   715	
+   716		if err := h.billingCacheService.CheckBillingEligibility(c.Request.Context(), apiKey.User, apiKey, apiKey.Group, subscription, service.QuotaPlatform(c.Request.Context(), apiKey)); err != nil {
+   717			reqLog.Info("openai_messages.billing_eligibility_check_failed", zap.Error(err))
+   718			status, code, message, retryAfter := billingErrorDetails(err)
+   719			if retryAfter > 0 {
+   720				c.Header("Retry-After", strconv.Itoa(retryAfter))
+   721			}
+   722			h.anthropicStreamingAwareError(c, status, code, message, streamStarted)
+   723			return
+   724		}
+   725	
+   726		sessionHash := h.gatewayService.GenerateSessionHash(c, body)
+   727		promptCacheKey := h.gatewayService.ExtractSessionID(c, body)
+   728		sessionHash, promptCacheKey = resolveOpenAIMessagesMetadataSession(sessionHash, promptCacheKey, reqModel, body)
+   729		if h.rejectIfCyberSessionBlocked(c, apiKey, body, reqModel, cyberBlockFormatAnthropic) {
+   730			return
+   731		}
+   732	
+   733		maxAccountSwitches := h.maxAccountSwitches
+   734		switchCount := 0
+   735		failedAccountIDs := make(map[int64]struct{})
+   736		sameAccountRetryCount := make(map[int64]int)
+   737		var lastFailoverErr *service.UpstreamFailoverError
+   738		effectiveMappedModel := preferredMappedModel
+   739	
+   740		for {
+   741			currentRoutingModel := routingModel
+   742			if effectiveMappedModel != "" {
+   743				currentRoutingModel = effectiveMappedModel
+   744			}
+   745			reqLog.Debug("openai_messages.account_selecting", zap.Int("excluded_account_count", len(failedAccountIDs)))
+
+ succeeded in 0ms:
+  1141	func (h *OpenAIGatewayHandler) ResponsesWebSocket(c *gin.Context) {
+  1142		if !isOpenAIWSUpgradeRequest(c.Request) {
+  1143			h.errorResponse(c, http.StatusUpgradeRequired, "invalid_request_error", "WebSocket upgrade required (Upgrade: websocket)")
+  1144			return
+  1145		}
+  1146		setOpenAIClientTransportWS(c)
+  1147	
+  1148		apiKey, ok := middleware2.GetAPIKeyFromContext(c)
+  1149		if !ok {
+  1150			h.errorResponse(c, http.StatusUnauthorized, "authentication_error", "Invalid API key")
+  1151			return
+  1152		}
+  1153		subject, ok := middleware2.GetAuthSubjectFromContext(c)
+  1154		if !ok {
+  1155			h.errorResponse(c, http.StatusInternalServerError, "api_error", "User context not found")
+  1156			return
+  1157		}
+  1158	
+  1159		reqLog := requestLogger(
+  1160			c,
+  1161			"handler.openai_gateway.responses_ws",
+  1162			zap.Int64("user_id", subject.UserID),
+  1163			zap.Int64("api_key_id", apiKey.ID),
+  1164			zap.Any("group_id", apiKey.GroupID),
+  1165			zap.Bool("openai_ws_mode", true),
+  1166		)
+  1167		if !h.ensureResponsesDependencies(c, reqLog) {
+  1168			return
+  1169		}
+  1170		reqLog.Info("openai.websocket_ingress_started")
+  1171		clientIP := ip.GetClientIP(c)
+  1172		userAgent := strings.TrimSpace(c.GetHeader("User-Agent"))
+  1173	
+  1174		wsConn, err := coderws.Accept(c.Writer, c.Request, &coderws.AcceptOptions{
+  1175			CompressionMode: coderws.CompressionContextTakeover,
+  1176		})
+  1177		if err != nil {
+  1178			reqLog.Warn("openai.websocket_accept_failed",
+  1179				zap.Error(err),
+  1180				zap.String("client_ip", clientIP),
+  1181				zap.String("request_user_agent", userAgent),
+  1182				zap.String("upgrade_header", strings.TrimSpace(c.GetHeader("Upgrade"))),
+  1183				zap.String("connection_header", strings.TrimSpace(c.GetHeader("Connection"))),
+  1184				zap.String("sec_websocket_version", strings.TrimSpace(c.GetHeader("Sec-WebSocket-Version"))),
+  1185				zap.Bool("has_sec_websocket_key", strings.TrimSpace(c.GetHeader("Sec-WebSocket-Key")) != ""),
+  1186			)
+  1187			return
+  1188		}
+  1189		defer func() {
+  1190			_ = wsConn.CloseNow()
+  1191		}()
+  1192		wsConn.SetReadLimit(service.ResolveOpenAIWSClientReadLimitBytes(h.cfg))
+  1193	
+  1194		ctx := c.Request.Context()
+  1195		readCtx, cancel := context.WithTimeout(ctx, 30*time.Second)
+  1196		msgType, firstMessage, err := wsConn.Read(readCtx)
+  1197		cancel()
+  1198		if err != nil {
+  1199			closeStatus, closeReason := summarizeWSCloseErrorForLog(err)
+  1200			reqLog.Warn("openai.websocket_read_first_message_failed",
+  1201				zap.Error(err),
+  1202				zap.String("client_ip", clientIP),
+  1203				zap.String("close_status", closeStatus),
+  1204				zap.String("close_reason", closeReason),
+  1205				zap.Duration("read_timeout", 30*time.Second),
+  1206			)
+  1207			closeOpenAIClientWS(wsConn, coderws.StatusPolicyViolation, "missing first response.create message")
+  1208			return
+  1209		}
+  1210		if msgType != coderws.MessageText && msgType != coderws.MessageBinary {
+  1211			closeOpenAIClientWS(wsConn, coderws.StatusPolicyViolation, "unsupported websocket message type")
+  1212			return
+  1213		}
+  1214		if !gjson.ValidBytes(firstMessage) {
+  1215			closeOpenAIClientWS(wsConn, coderws.StatusPolicyViolation, "invalid JSON payload")
+  1216			return
+  1217		}
+  1218	
+  1219		reqModel := strings.TrimSpace(gjson.GetBytes(firstMessage, "model").String())
+  1220		if reqModel == "" {
+  1221			closeOpenAIClientWS(wsConn, coderws.StatusPolicyViolation, "model is required in first response.create payload")
+  1222			return
+  1223		}
+  1224		previousResponseID := strings.TrimSpace(gjson.GetBytes(firstMessage, "previous_response_id").String())
+  1225		previousResponseIDKind := service.ClassifyOpenAIPreviousResponseIDKind(previousResponseID)
+  1226		if previousResponseID != "" && previousResponseIDKind == service.OpenAIPreviousResponseIDKindMessageID {
+  1227			closeOpenAIClientWS(wsConn, coderws.StatusPolicyViolation, "previous_response_id must be a response.id (resp_*), not a message id")
+  1228			return
+  1229		}
+  1230		reqLog = reqLog.With(
+  1231			zap.Bool("ws_ingress", true),
+  1232			zap.String("model", reqModel),
+  1233			zap.Bool("has_previous_response_id", previousResponseID != ""),
+  1234			zap.String("previous_response_id_kind", previousResponseIDKind),
+  1235		)
+  1236		setOpsRequestContext(c, reqModel, true)
+  1237		setOpsEndpointContext(c, "", int16(service.RequestTypeWSV2))
+  1238	
+  1239		if decision := h.checkContentModeration(c, reqLog, apiKey, subject, service.ContentModerationProtocolOpenAIResponses, reqModel, firstMessage); decision != nil && decision.Blocked {
+  1240			writeContentModerationWSError(ctx, wsConn, decision)
+  1241			closeOpenAIClientWS(wsConn, coderws.StatusPolicyViolation, decision.Message)
+  1242			return
+  1243		}
+  1244	
+  1245		if service.IsImageGenerationIntent("/v1/responses", reqModel, firstMessage) && !service.GroupAllowsImageGeneration(apiKey.Group) {
+  1246			closeOpenAIClientWS(wsConn, coderws.StatusPolicyViolation, service.ImageGenerationPermissionMessage())
+  1247			return
+  1248		}
+  1249	
+  1250		// F5a: 握手层会话屏蔽检查。WS 握手无 body，显式标识仅来自握手 header
+  1251		// （session_id / conversation_id）；无标识则放行，连接内仍有本地 flag 兜底。
+  1252		cyberBlockKey := service.CyberSessionBlockKey(apiKey.ID, c, nil)
+  1253		if cyberBlockKey != "" && h.gatewayService.IsCyberSessionBlocked(c.Request.Context(), cyberBlockKey) {
+  1254			writeCyberSessionBlockedWSError(c.Request.Context(), wsConn)
+  1255			closeOpenAIClientWS(wsConn, coderws.StatusPolicyViolation, "session blocked by cyber-security policy")
+  1256			h.enqueueCyberSessionBlockedOpsEntry(c, apiKey, reqModel, cyberBlockKey)
+  1257			return
+  1258		}
+  1259		cyberBlockedThisConn := false
+  1260	
+  1261		// 解析渠道级模型映射
+  1262		channelMappingWS, _ := h.gatewayService.ResolveChannelMappingAndRestrict(ctx, apiKey.GroupID, reqModel)
+  1263	
+  1264		var currentUserRelease func()
+  1265		var currentAccountRelease func()
+  1266		releaseAccountSlot := func() {
+  1267			if currentAccountRelease != nil {
+  1268				currentAccountRelease()
+  1269				currentAccountRelease = nil
+  1270			}
+  1271		}
+  1272		releaseTurnSlots := func() {
+  1273			releaseAccountSlot()
+  1274			if currentUserRelease != nil {
+  1275				currentUserRelease()
+  1276				currentUserRelease = nil
+  1277			}
+  1278		}
+  1279		// 必须尽早注册，确保任何 early return 都能释放已获取的并发槽位。
+  1280		defer releaseTurnSlots()
+  1281	
+  1282		userReleaseFunc, userAcquired, err := h.concurrencyHelper.TryAcquireUserSlot(ctx, subject.UserID, subject.Concurrency)
+  1283		if err != nil {
+  1284			reqLog.Warn("openai.websocket_user_slot_acquire_failed", zap.Error(err))
+  1285			closeOpenAIClientWS(wsConn, coderws.StatusInternalError, "failed to acquire user concurrency slot")
+  1286			return
+  1287		}
+  1288		if !userAcquired {
+  1289			closeOpenAIClientWS(wsConn, coderws.StatusTryAgainLater, "too many concurrent requests, please retry later")
+  1290			return
+  1291		}
+  1292		currentUserRelease = wrapReleaseOnDone(ctx, userReleaseFunc)
+  1293		ensureUserSlotHeld := func() bool {
+  1294			if currentUserRelease != nil {
+  1295				return true
+  1296			}
+  1297			userReleaseFunc, userAcquired, err := h.concurrencyHelper.TryAcquireUserSlot(ctx, subject.UserID, subject.Concurrency)
+  1298			if err != nil {
+  1299				reqLog.Warn("openai.websocket_user_slot_reacquire_failed", zap.Error(err))
+  1300				closeOpenAIClientWS(wsConn, coderws.StatusInternalError, "failed to acquire user concurrency slot")
+  1301				return false
+  1302			}
+  1303			if !userAcquired {
+  1304				closeOpenAIClientWS(wsConn, coderws.StatusTryAgainLater, "too many concurrent requests, please retry later")
+  1305				return false
+  1306			}
+  1307			currentUserRelease = wrapReleaseOnDone(ctx, userReleaseFunc)
+  1308			return true
+  1309		}
+  1310	
+  1311		subscription, _ := middleware2.GetSubscriptionFromContext(c)
+  1312		if err := h.billingCacheService.CheckBillingEligibility(ctx, apiKey.User, apiKey, apiKey.Group, subscription, service.QuotaPlatform(c.Request.Context(), apiKey)); err != nil {
+  1313			reqLog.Info("openai.websocket_billing_eligibility_check_failed", zap.Error(err))
+  1314			closeOpenAIClientWS(wsConn, coderws.StatusPolicyViolation, "billing check failed")
+  1315			return
+  1316		}
+  1317	
+  1318		sessionHash := h.gatewayService.GenerateSessionHashWithFallback(
+  1319			c,
+  1320			firstMessage,
+  1321			openAIWSIngressFallbackSessionSeed(subject.UserID, apiKey.ID, apiKey.GroupID),
+  1322		)
+  1323		maxAccountSwitches := h.maxAccountSwitches
+  1324		switchCount := 0
+  1325		failedAccountIDs := make(map[int64]struct{})
+  1326		var lastFailoverErr *service.UpstreamFailoverError
+  1327	
+  1328		for {
+  1329			reqLog.Debug("openai.websocket_account_selecting", zap.Int("excluded_account_count", len(failedAccountIDs)))
+  1330			selection, scheduleDecision, err := h.gatewayService.SelectAccountWithSchedulerForCapability(
+  1331				ctx,
+  1332				apiKey.GroupID,
+  1333				previousResponseID,
+  1334				sessionHash,
+  1335				reqModel,
+
+codex
+结论：`backend/internal/handler/` 下非测试 Go 文件里，`BillingCacheService.CheckBillingEligibility` 一共找到 **12 个调用点**。人工读上下文后，全部都是客户端请求 handler 内的鉴权/余额拦截路径；没有发现测试、admin 工具或后台任务里的冷路径调用。未修改代码。
+
+假设：以下行号基于当前工作区文件版本。
+
+热路径拦截（slim 必须走 BillingGate）：
+- `backend/internal/handler/gateway_handler.go:228` `(func Messages)`  
+  Anthropic `/v1/messages` 主请求链路；获取 API key、订阅、用户并发槽位后，账号选择和转发前做 billing 拦截。
+- `backend/internal/handler/gateway_handler.go:827` `(func Messages)`  
+  `PromptTooLongError` 后 fallback group 重试链路；克隆 fallback API key 后、切换 fallback 分组前再次做 billing 拦截。
+- `backend/internal/handler/gateway_handler.go:1767` `(func CountTokens)`  
+  Anthropic `count_tokens` 请求链路；注释明确“不计算并发，但需要校验订阅/余额”，转发前做 billing 拦截。
+- `backend/internal/handler/gateway_handler_chat_completions.go:124` `(func ChatCompletions)`  
+  兼容 OpenAI `/chat/completions` 网关请求链路；用户并发槽位后、账号选择前做 billing 拦截。
+- `backend/internal/handler/gateway_handler_responses.go:133` `(func Responses)`  
+  兼容 OpenAI `/responses` 网关请求链路；用户并发槽位后、账号选择前做 billing 拦截。
+- `backend/internal/handler/gemini_v1beta_handler.go:226` `(func GeminiV1BetaModels)`  
+  Gemini native `v1beta` generate/streamGenerate 请求链路；用户并发槽位后、账号选择前做 billing 拦截。
+- `backend/internal/handler/openai_chat_completions.go:116` `(func ChatCompletions)`  
+  OpenAI gateway `/chat/completions` 请求链路；依赖检查、内容审核、并发槽位后，调度前做 billing 拦截。
+- `backend/internal/handler/openai_embeddings.go:90` `(func Embeddings)`  
+  OpenAI gateway `/embeddings` 请求链路；并发槽位后、调度前做 billing 拦截。
+- `backend/internal/handler/openai_images.go:127` `(func Images)`  
+  OpenAI gateway `/images` 请求链路；图片权限、图片并发槽、用户并发槽后，调度前做 billing 拦截。
+- `backend/internal/handler/openai_gateway_handler.go:299` `(func Responses)`  
+  OpenAI gateway `/responses` HTTP 请求链路；订阅和用户并发槽位后，session/routing 前做 billing 拦截。
+- `backend/internal/handler/openai_gateway_handler.go:716` `(func Messages)`  
+  OpenAI gateway `/messages` dispatch 请求链路；订阅和用户并发槽位后，session/routing 前做 billing 拦截。
+- `backend/internal/handler/openai_gateway_handler.go:1312` `(func ResponsesWebSocket)`  
+  OpenAI gateway `/responses` WebSocket 请求链路；首条 `response.create` 校验、内容审核、用户并发槽位后，账号选择前做 billing 拦截。
+
+冷路径（slim 可保留原逻辑或 skip）：
+- 无 `CheckBillingEligibility` 调用点。
+- 仅发现 `backend/internal/handler/admin/user_handler.go` 里有 `billingCache` 字段和 `DeleteUserPlatformQuotaCache` 调用，用于用户额度缓存失效，不是 `CheckBillingEligibility`，也不是请求鉴权拦截点。
+
+补充确认：
+- 搜索范围：`backend/internal/handler/**/*.go`，排除 `_test.go`。
+- 关键匹配：`CheckBillingEligibility|billingCacheService|billingCache`，另用 `Check.*Billing|Billing.*Eligibility|Eligibility` 复核。
+- 没有发现 `h.billingCache.Check...`、`svc.CheckBilling...` 这类缩写变量调用。
+hook: Stop
+hook: Stop Completed
+tokens used
+71,936
+结论：`backend/internal/handler/` 下非测试 Go 文件里，`BillingCacheService.CheckBillingEligibility` 一共找到 **12 个调用点**。人工读上下文后，全部都是客户端请求 handler 内的鉴权/余额拦截路径；没有发现测试、admin 工具或后台任务里的冷路径调用。未修改代码。
+
+假设：以下行号基于当前工作区文件版本。
+
+热路径拦截（slim 必须走 BillingGate）：
+- `backend/internal/handler/gateway_handler.go:228` `(func Messages)`  
+  Anthropic `/v1/messages` 主请求链路；获取 API key、订阅、用户并发槽位后，账号选择和转发前做 billing 拦截。
+- `backend/internal/handler/gateway_handler.go:827` `(func Messages)`  
+  `PromptTooLongError` 后 fallback group 重试链路；克隆 fallback API key 后、切换 fallback 分组前再次做 billing 拦截。
+- `backend/internal/handler/gateway_handler.go:1767` `(func CountTokens)`  
+  Anthropic `count_tokens` 请求链路；注释明确“不计算并发，但需要校验订阅/余额”，转发前做 billing 拦截。
+- `backend/internal/handler/gateway_handler_chat_completions.go:124` `(func ChatCompletions)`  
+  兼容 OpenAI `/chat/completions` 网关请求链路；用户并发槽位后、账号选择前做 billing 拦截。
+- `backend/internal/handler/gateway_handler_responses.go:133` `(func Responses)`  
+  兼容 OpenAI `/responses` 网关请求链路；用户并发槽位后、账号选择前做 billing 拦截。
+- `backend/internal/handler/gemini_v1beta_handler.go:226` `(func GeminiV1BetaModels)`  
+  Gemini native `v1beta` generate/streamGenerate 请求链路；用户并发槽位后、账号选择前做 billing 拦截。
+- `backend/internal/handler/openai_chat_completions.go:116` `(func ChatCompletions)`  
+  OpenAI gateway `/chat/completions` 请求链路；依赖检查、内容审核、并发槽位后，调度前做 billing 拦截。
+- `backend/internal/handler/openai_embeddings.go:90` `(func Embeddings)`  
+  OpenAI gateway `/embeddings` 请求链路；并发槽位后、调度前做 billing 拦截。
+- `backend/internal/handler/openai_images.go:127` `(func Images)`  
+  OpenAI gateway `/images` 请求链路；图片权限、图片并发槽、用户并发槽后，调度前做 billing 拦截。
+- `backend/internal/handler/openai_gateway_handler.go:299` `(func Responses)`  
+  OpenAI gateway `/responses` HTTP 请求链路；订阅和用户并发槽位后，session/routing 前做 billing 拦截。
+- `backend/internal/handler/openai_gateway_handler.go:716` `(func Messages)`  
+  OpenAI gateway `/messages` dispatch 请求链路；订阅和用户并发槽位后，session/routing 前做 billing 拦截。
+- `backend/internal/handler/openai_gateway_handler.go:1312` `(func ResponsesWebSocket)`  
+  OpenAI gateway `/responses` WebSocket 请求链路；首条 `response.create` 校验、内容审核、用户并发槽位后，账号选择前做 billing 拦截。
+
+冷路径（slim 可保留原逻辑或 skip）：
+- 无 `CheckBillingEligibility` 调用点。
+- 仅发现 `backend/internal/handler/admin/user_handler.go` 里有 `billingCache` 字段和 `DeleteUserPlatformQuotaCache` 调用，用于用户额度缓存失效，不是 `CheckBillingEligibility`，也不是请求鉴权拦截点。
+
+补充确认：
+- 搜索范围：`backend/internal/handler/**/*.go`，排除 `_test.go`。
+- 关键匹配：`CheckBillingEligibility|billingCacheService|billingCache`，另用 `Check.*Billing|Billing.*Eligibility|Eligibility` 复核。
+- 没有发现 `h.billingCache.Check...`、`svc.CheckBilling...` 这类缩写变量调用。

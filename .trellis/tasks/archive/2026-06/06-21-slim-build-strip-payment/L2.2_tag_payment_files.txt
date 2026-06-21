@@ -1,0 +1,86 @@
+Active task: .trellis/tasks/06-21-slim-build-strip-payment
+
+你是 Go 后端工程师，为 sub2api 执行 **L2.2 service/handler 包内 payment 文件打 tag**（依赖剥离最后一步）。
+
+## 上下文
+- 仓库根 `/mnt/x/project/sub2api`，后端 `backend/`，分支 `feat/slim-build`。
+- L2.1 已完成 wire 分版，slim 装配链路不含 `internal/payment` 引用。
+- 但 `go list -deps -tags slim ./cmd/server` 仍含 payment/stripe/alipay，因为 **service/handler 包内 payment 源码文件本身未打 tag**。
+
+## 背景（codex 审查关键点）
+Go 会编译被导入 package 的**所有非测试文件**（无论是否用到）。只要 `service` 包里 payment 相关文件不打 tag，导入 `service` 就会把 payment 代码带进 slim 二进制。
+
+## 任务
+
+### 1. 定位需要打 tag 的文件
+在以下目录找出所有 payment/subscription 相关源码文件（非测试）：
+- `backend/internal/service/`
+- `backend/internal/handler/`
+- `backend/internal/handler/admin/`
+
+文件名模式（非穷举，需实际检查）：
+- `*payment*.go`
+- `*subscription*.go`
+- `*redeem*.go`（如果只服务于 payment）
+- `*affiliate*.go`（如果只服务于 payment）
+
+检查方法：
+```bash
+cd backend
+# 列出所有可疑文件
+find internal/service internal/handler -name "*payment*.go" -o -name "*subscription*.go" | grep -v _test.go
+# 逐个检查是否 import payment provider / 是否只服务 payment 功能
+```
+
+### 2. 给文件打 tag
+每个需要剥离的文件，在**文件首行**加 `//go:build !slim`（在 package 声明之前）。
+
+例如：
+```go
+//go:build !slim
+
+package service
+
+import (
+	...
+```
+
+### 3. 已知必须打 tag 的文件（根据 design 与 codex 审查）
+- `internal/service/payment_config_service.go`
+- `internal/service/payment_service.go`
+- `internal/service/payment_order_expiry_service.go`
+- `internal/service/subscription_service.go`
+- `internal/service/subscription_expiry_service.go`
+- `internal/service/subscription_assigner.go`（如有）
+- `internal/handler/payment_handler.go`
+- `internal/handler/payment_webhook_handler.go`
+- `internal/handler/admin/payment_handler.go`
+- `internal/handler/admin/subscription_handler.go`
+
+**注意**：不要给以下文件打 tag（它们被 slim 复用或已有 slim 版本）：
+- `wire.go` / `wire_slim.go`（已分版）
+- 任何 `*_test.go`
+- 核心 service/handler（如 `gateway_service.go`、`api_key_service.go`）
+
+### 4. 验收命令
+```bash
+cd backend
+go build -tags slim ./cmd/server
+go list -deps -tags slim ./cmd/server | grep -E 'internal/payment|stripe|alipay|wechatpay|airwallex'
+```
+第二条命令应**无输出**（或只含 go.mod 占位符，但不含实际代码路径）。
+
+### 5. 补充检查
+```bash
+# 确认 slim 编译时真的不编译这些文件
+go list -tags slim -f '{{.GoFiles}}' ./internal/service | tr ' ' '\n' | grep -E 'payment|subscription'
+```
+应无输出或只含 `*_slim.go` 文件。
+
+## 输出
+完成后报告：
+1. 打了 `//go:build !slim` tag 的文件清单（含路径）
+2. 验收命令输出（`go list -deps` 是否还含 payment）
+3. slim 编译后二进制大小变化（与 L1 冒烟的 113M 对比）
+
+开始执行。先用 find/grep 定位所有可疑文件，逐个检查 import 与功能，确认需要打 tag 再加。不要漏文件，也不要误伤核心文件。

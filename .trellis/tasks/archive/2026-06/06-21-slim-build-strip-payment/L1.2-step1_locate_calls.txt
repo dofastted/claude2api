@@ -1,0 +1,37 @@
+Active task: .trellis/tasks/06-21-slim-build-strip-payment
+
+你是 Go 后端工程师，为 sub2api L1.2（网关鉴权退化）做前置准备：**精确定位所有 BillingCacheService.CheckBillingEligibility 调用点**。
+
+## 背景（codex 审查发现的关键风险）
+- 真正拦截请求的不是 `SubscriptionService`，而是 `BillingCacheService.CheckBillingEligibility`。
+- handler 多处**直接调用且无 nil guard** → slim 传 nil 会 panic。
+- codex 已给出几处调用点：`gateway_handler.go:227`、`openai_gateway_handler.go:716/1311`，但可能不全。
+
+## 任务
+用 grep 找出 `backend/internal/handler/` 下**所有** `CheckBillingEligibility` 调用点（含间接调用、方法接收者、变量名缩写），输出：
+1. **调用清单**：文件路径:行号 + 上下文（调用所在函数名）
+2. **人工确认**：读每个调用点上下文，判断是否真的在鉴权拦截路径（非测试、非后台任务）
+3. **分类**：
+   - **热路径拦截**（slim 必须改造，否则 panic）
+   - **冷路径/可选**（测试、admin 工具、后台统计等）
+4. **输出格式**：
+   ```
+   热路径拦截（slim 必须走 BillingGate）：
+   - backend/internal/handler/gateway_handler.go:227 (func handleClaudeMessages)
+   - backend/internal/handler/openai_gateway_handler.go:716 (func handleOpenAIResponses)
+   - ...
+
+   冷路径（slim 可保留原逻辑或 skip）：
+   - ...
+   ```
+
+## 检索策略
+- `grep -rn "CheckBillingEligibility\|billingCacheService\|billingCache" backend/internal/handler --include="*.go" | grep -v "_test.go"`
+- 再人工读每个匹配的文件相关段落，确认调用上下文。
+- 注意方法调用可能缩写（如 `h.billingCache.Check...`、`svc.CheckBilling...`）。
+
+## 注意
+- **只定位调用点，不要修改代码**。这步是为下一步（抽 BillingGate）做准备。
+- 输出要精确到行号与函数名，方便下一步逐点改造。
+
+开始执行。

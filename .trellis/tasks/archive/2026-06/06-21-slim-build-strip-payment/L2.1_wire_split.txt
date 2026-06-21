@@ -1,0 +1,84 @@
+Active task: .trellis/tasks/06-21-slim-build-strip-payment
+
+你是 Go 后端工程师，为 sub2api 执行 **L2.1 wire 分版**（依赖剥离第一步）。
+
+## 上下文
+- 仓库根 `/mnt/x/project/sub2api`，后端 `backend/`，分支 `feat/slim-build`。
+- L1 功能剥离已完成（路由 no-op + BillingGate + 中间件分版）。
+- 现在处理 wire 依赖注入：完整版注入 payment/subscription provider，精简版不注入。
+
+## 背景（codex 审查关键点）
+- `cmd/server/wire.go:13` 直接 import `internal/payment` 并注入 `payment.ProviderSet`。
+- `handler/wire.go:139` 注册 payment/subscription handler。
+- `cmd/server/wire.go:72` 的 `provideCleanup` 接收 `SubscriptionExpiryService`/`SubscriptionService`/`PaymentOrderExpiryService`。
+- wireinject 文件与生成文件必须带**组合 tag**，否则重复 `initializeApplication` 或 slim 仍 import payment。
+
+## 任务步骤
+
+### 1. wireinject 文件组合 tag
+修改现有 `cmd/server/wire.go`：
+- 在文件头部加 `//go:build wireinject && !slim`（现有只有 `//go:build wireinject`）。
+
+创建新文件 `cmd/server/wire_slim.go`：
+- `//go:build wireinject && slim`
+- 复制 `wire.go` 结构，但：
+  - **不** import `internal/payment`
+  - **不** 在 wire.Build 中包含 `payment.ProviderSet`
+  - `provideCleanup` 签名改为不接收 payment/subscription 相关 service（或接收但用 `_` 忽略）
+
+### 2. 生成文件互斥 tag
+修改现有 `cmd/server/wire_gen.go`：
+- 在文件头部加 `//go:build !wireinject && !slim`（现有只有 `//go:build !wireinject`）。
+
+创建新文件 `cmd/server/wire_gen_slim.go`：
+- `//go:build !wireinject && slim`
+- 执行 `wire gen -tags slim ./cmd/server` 生成（需先完成步骤 1）。
+- 或手动从 `wire_gen.go` 复制结构，删掉 payment 相关注入点。
+
+### 3. handler/service ProviderSet 分版
+修改 `internal/handler/wire.go`：
+- 在文件头部加 `//go:build !slim`。
+
+创建 `internal/handler/wire_slim.go`：
+- `//go:build slim`
+- 复制 `ProviderSet`，删掉 payment/subscription handler 注入（如 `NewPaymentHandler`、`NewSubscriptionHandler` 等）。
+
+同样处理 `internal/service` 如有 ProviderSet 包含 payment service。
+
+### 4. provideCleanup 分版
+`cmd/server/wire.go` 的 `provideCleanup` 现在接收：
+- `subscriptionExpiryService *service.SubscriptionExpiryService`
+- `subscriptionService *service.SubscriptionService`
+- `paymentOrderExpiryService *service.PaymentOrderExpiryService`
+
+在 `wire_slim.go` 中，`provideCleanup` 应：
+- 不接收这些参数，或接收但用 `_` 忽略。
+- cleanup 逻辑中不调用它们的 `Stop()` 方法。
+
+### 5. 验证
+```bash
+cd backend
+# 生成 slim wire（需先修改 wire.go 加 tag）
+go install github.com/google/wire/cmd/wire@latest
+wire gen -tags slim ./cmd/server
+# 编译
+go build ./cmd/server
+go build -tags slim ./cmd/server
+```
+两版均通过，且 `wire_gen.go` 与 `wire_gen_slim.go` 互斥（不会同时编译）。
+
+## 注意
+- **组合 tag** `wireinject && !slim` / `wireinject && slim` 确保 wire 输入文件分版。
+- **互斥 tag** `!wireinject && !slim` / `!wireinject && slim` 确保生成文件分版。
+- wire 生成文件很长，手动编辑易错。优先用 `wire gen -tags slim` 自动生成 `wire_gen_slim.go`，但需先把 `wire_slim.go` 写对。
+- `handler.Handlers` 结构体的 `Payment`/`Subscription` 字段保留（不分版结构体），slim 下置 nil 即可。
+
+## 输出
+完成后报告：
+1. 修改的 wire.go（加组合 tag）与新建的 wire_slim.go
+2. 修改的 wire_gen.go（加互斥 tag）与生成的 wire_gen_slim.go
+3. handler/service ProviderSet 分版情况
+4. provideCleanup 分版处理
+5. 验证结果
+
+开始执行。先读懂现有 wire.go 的完整结构，再小心分版，确保 slim 真的不 import payment。
