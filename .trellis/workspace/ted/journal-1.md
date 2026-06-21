@@ -81,3 +81,36 @@
 ### Next Steps
 
 - None - task complete
+
+
+## Session 3: Phase 1: Claude 429 细分类实现 (R4.3)
+
+**Date**: 2026-06-21
+**Task**: Phase 1: Claude 429 细分类实现 (R4.3)
+**Branch**: `main`
+
+### Summary
+
+实现 Claude 429 限流状态细分类器，区分 Extra Usage、Opus 周限、5h 窗口、普通 429 四类状态，集成到 RateLimitService.handle429()，新增 12 个单元测试全部通过
+
+### Main Changes
+
+(Add details)
+
+### Git Commits
+
+| Hash | Message |
+|------|---------|
+| `702a36dc` | (see git log) |
+
+### Testing
+
+- [OK] (Add test results)
+
+### Status
+
+[OK] **Completed**
+
+### Next Steps
+
+- None - task complete
