@@ -19,6 +19,7 @@ import (
 
 	"github.com/Wei-Shaw/sub2api/internal/config"
 	"github.com/Wei-Shaw/sub2api/internal/pkg/claude"
+	"github.com/Wei-Shaw/sub2api/internal/pkg/clientidentity"
 	"github.com/Wei-Shaw/sub2api/internal/pkg/geminicli"
 	"github.com/Wei-Shaw/sub2api/internal/pkg/openai"
 	"github.com/Wei-Shaw/sub2api/internal/pkg/openai_compat"
@@ -70,6 +71,7 @@ type AccountTestService struct {
 	httpUpstream              HTTPUpstream
 	cfg                       *config.Config
 	tlsFPProfileService       *TLSFingerprintProfileService
+	identityRegistry          *clientidentity.Registry
 }
 
 // NewAccountTestService creates a new AccountTestService
@@ -81,7 +83,11 @@ func NewAccountTestService(
 	httpUpstream HTTPUpstream,
 	cfg *config.Config,
 	tlsFPProfileService *TLSFingerprintProfileService,
+	identityRegistry *clientidentity.Registry,
 ) *AccountTestService {
+	if identityRegistry == nil {
+		identityRegistry = clientidentity.NewRegistry()
+	}
 	return &AccountTestService{
 		accountRepo:               accountRepo,
 		geminiTokenProvider:       geminiTokenProvider,
@@ -90,7 +96,38 @@ func NewAccountTestService(
 		httpUpstream:              httpUpstream,
 		cfg:                       cfg,
 		tlsFPProfileService:       tlsFPProfileService,
+		identityRegistry:          identityRegistry,
 	}
+}
+
+func (s *AccountTestService) codexSnapshot() clientidentity.CodexSnapshot {
+	if s != nil && s.identityRegistry != nil {
+		if snapshots := s.identityRegistry.Get(); snapshots != nil {
+			return snapshots.Codex
+		}
+	}
+	return clientidentity.NewRegistry().Get().Codex
+}
+
+func (s *AccountTestService) codexOriginator() string {
+	if originator := strings.TrimSpace(s.codexSnapshot().Headers["originator"]); originator != "" {
+		return originator
+	}
+	return "codex_cli_rs"
+}
+
+func (s *AccountTestService) codexCLIUserAgent() string {
+	if ua := strings.TrimSpace(s.codexSnapshot().Headers["User-Agent"]); ua != "" {
+		return ua
+	}
+	return strings.TrimSpace(clientidentity.NewRegistry().Get().Codex.Headers["User-Agent"])
+}
+
+func (s *AccountTestService) codexCLIVersion() string {
+	if version := strings.TrimSpace(s.codexSnapshot().VersionFields.CLIVersion); version != "" {
+		return version
+	}
+	return strings.TrimSpace(clientidentity.NewRegistry().Get().Codex.VersionFields.CLIVersion)
 }
 
 func (s *AccountTestService) validateUpstreamBaseURL(raw string) (string, error) {
@@ -747,9 +784,9 @@ func (s *AccountTestService) testOpenAICompactConnection(c *gin.Context, account
 	req.Header.Set("Accept", "application/json")
 	req.Header.Set("Authorization", "Bearer "+authToken)
 	req.Header.Set("OpenAI-Beta", "responses=experimental")
-	req.Header.Set("Originator", "codex_cli_rs")
-	req.Header.Set("User-Agent", codexCLIUserAgent)
-	req.Header.Set("Version", codexCLIVersion)
+	req.Header.Set("Originator", s.codexOriginator())
+	req.Header.Set("User-Agent", s.codexCLIUserAgent())
+	req.Header.Set("Version", s.codexCLIVersion())
 	probeSessionID := compactProbeSessionID(account.ID)
 	req.Header.Set("Session_ID", probeSessionID)
 	req.Header.Set("Conversation_ID", probeSessionID)
@@ -1603,11 +1640,11 @@ func (s *AccountTestService) testOpenAIImageOAuth(c *gin.Context, ctx context.Co
 	req.Header.Set("Content-Type", "application/json")
 	req.Header.Set("Accept", "text/event-stream")
 	req.Header.Set("OpenAI-Beta", "responses=experimental")
-	req.Header.Set("originator", "opencode")
+	req.Header.Set("originator", s.codexOriginator())
 	if customUA := strings.TrimSpace(account.GetOpenAIUserAgent()); customUA != "" {
 		req.Header.Set("User-Agent", customUA)
 	} else {
-		req.Header.Set("User-Agent", codexCLIUserAgent)
+		req.Header.Set("User-Agent", s.codexCLIUserAgent())
 	}
 	if chatgptAccountID := strings.TrimSpace(account.GetChatGPTAccountID()); chatgptAccountID != "" {
 		req.Header.Set("chatgpt-account-id", chatgptAccountID)
