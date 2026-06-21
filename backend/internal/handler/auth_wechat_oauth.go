@@ -15,7 +15,6 @@ import (
 	dbent "github.com/Wei-Shaw/sub2api/ent"
 	"github.com/Wei-Shaw/sub2api/ent/authidentity"
 	"github.com/Wei-Shaw/sub2api/ent/authidentitychannel"
-	"github.com/Wei-Shaw/sub2api/internal/payment"
 	infraerrors "github.com/Wei-Shaw/sub2api/internal/pkg/errors"
 	"github.com/Wei-Shaw/sub2api/internal/pkg/oauth"
 	"github.com/Wei-Shaw/sub2api/internal/pkg/response"
@@ -43,6 +42,8 @@ const (
 	wechatPaymentOAuthScope       = "wechat_payment_oauth_scope"
 	wechatPaymentOAuthDefaultTo   = "/purchase"
 	wechatPaymentOAuthFrontendCB  = "/auth/wechat/payment/callback"
+	wechatPaymentTypeWxpay        = "wxpay"
+	wechatPaymentTypeWxpayDirect  = "wxpay_direct"
 
 	wechatOAuthIntentLogin      = "login"
 	wechatOAuthIntentBind       = "bind_current_user"
@@ -425,7 +426,7 @@ func (h *AuthHandler) WeChatPaymentOAuthCallback(c *gin.Context) {
 		return
 	}
 	if paymentContext.PaymentType == "" {
-		paymentContext.PaymentType = payment.TypeWxpay
+		paymentContext.PaymentType = wechatPaymentTypeWxpay
 	}
 
 	scope, _ := readCookieDecoded(c, wechatPaymentOAuthScope)
@@ -473,12 +474,7 @@ func (h *AuthHandler) WeChatPaymentOAuthCallback(c *gin.Context) {
 }
 
 func (h *AuthHandler) wechatPaymentResumeService() *service.PaymentResumeService {
-	var legacyKey []byte
-	key, err := payment.ProvideEncryptionKey(h.cfg)
-	if err == nil {
-		legacyKey = []byte(key)
-	}
-	return service.NewLegacyAwarePaymentResumeService(legacyKey)
+	return service.NewLegacyAwarePaymentResumeService(wechatPaymentLegacyKey(h.cfg))
 }
 
 type completeWeChatOAuthRequest struct {
@@ -1265,7 +1261,7 @@ func wechatClearCookie(c *gin.Context, name string, secure bool) {
 
 func normalizeWeChatPaymentType(raw string) string {
 	switch strings.TrimSpace(raw) {
-	case payment.TypeWxpay, payment.TypeWxpayDirect:
+	case wechatPaymentTypeWxpay, wechatPaymentTypeWxpayDirect:
 		return strings.TrimSpace(raw)
 	default:
 		return ""

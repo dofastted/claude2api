@@ -1,3 +1,5 @@
+//go:build !slim
+
 package admin
 
 import (
@@ -7,7 +9,6 @@ import (
 	"github.com/Wei-Shaw/sub2api/internal/handler/dto"
 	"github.com/Wei-Shaw/sub2api/internal/pkg/pagination"
 	"github.com/Wei-Shaw/sub2api/internal/pkg/response"
-	middleware2 "github.com/Wei-Shaw/sub2api/internal/server/middleware"
 	"github.com/Wei-Shaw/sub2api/internal/service"
 
 	"github.com/gin-gonic/gin"
@@ -311,13 +312,4 @@ func (h *SubscriptionHandler) ListByUser(c *gin.Context) {
 		out = append(out, *dto.UserSubscriptionFromServiceAdmin(&subscriptions[i]))
 	}
 	response.Success(c, out)
-}
-
-// Helper function to get admin ID from context
-func getAdminIDFromContext(c *gin.Context) int64 {
-	subject, ok := middleware2.GetAuthSubjectFromContext(c)
-	if !ok {
-		return 0
-	}
-	return subject.UserID
 }
