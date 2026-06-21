@@ -1,0 +1,293 @@
+Active task: .trellis/tasks/06-21-proxy-realism-enhancement
+
+你是 Go 后端工程师，为 sub2api 实施 **R1 第一步：IdentityRegistry 与版本 fetcher 框架**。
+
+## 上下文
+- 仓库根 `/mnt/x/project/sub2api`，后端 `backend/`，分支 `feat/proxy-realism`。
+- R2（ws 一键全开）✓、R3（TLS 家族化框架）✓ 已完成。
+- 目标：建立 IdentityRegistry（atomic.Pointer 持有 claude+codex snapshot）+ VersionFetcher 周期任务框架，暂不真联网。
+
+## 关键设计点（来自 design.md，codex 审查已修正）
+
+- **atomic 一致性**：一次更新 = 一个完整一致 snapshot（claude + codex 两族基线）；任一字段缺失则整体丢弃保留旧值。
+- **联动落点全集**（暂不改造，只预留接口）：
+  - Claude：`pkg/claude.DefaultHeaders` + `service/gateway_billing_block.go:73`(cc_version) + `service/identity_service.go:28` + `service/gateway_service.go:4322`
+  - Codex：`service/openai_gateway_service.go:45/1268/71`(UA/originator/x-codex)
+- **不在请求热路径联网**：fetch 在后台 goroutine，带超时/重试/频率限制。
+- **开关与回滚**：config `gateway.ua_auto_fetch.{enabled(默认false),interval,sources}`；关闭=回退硬编码常量（今日行为）。
+
+## 任务步骤
+
+### C1. IdentityRegistry（已有 clientidentity，扩展之）
+在 `backend/internal/pkg/clientidentity/registry.go`：
+
+```go
+package clientidentity
+
+import "sync/atomic"
+
+// Registry 持有当前生效的 claude + codex 两族完整 snapshot
+type Registry struct {
+	snapshotPtr atomic.Pointer[Snapshots]
+}
+
+// Snapshots 是两族的完整基线
+type Snapshots struct {
+	Claude ClaudeSnapshot
+	Codex  CodexSnapshot
+}
+
+type ClaudeSnapshot struct {
+	Headers       map[string]string  // UA, X-Stainless-*, X-App, anthropic-beta
+	VersionFields VersionFields      // cli/sdk/cc_version/fp
+	TLSProfileName string
+}
+
+type CodexSnapshot struct {
+	Headers       map[string]string  // UA, originator, x-codex-*
+	VersionFields VersionFields
+	TLSProfileName string
+}
+
+func NewRegistry() *Registry {
+	r := &Registry{}
+	// 初始化为内置兜底（现有硬编码常量）
+	r.snapshotPtr.Store(&Snapshots{
+		Claude: r.defaultClaudeSnapshot(),
+		Codex:  r.defaultCodexSnapshot(),
+	})
+	return r
+}
+
+// Get 只读 getter（原子）
+func (r *Registry) Get() *Snapshots {
+	return r.snapshotPtr.Load()
+}
+
+// Swap 原子更新（仅 VersionFetcher 调用）
+func (r *Registry) Swap(snapshots *Snapshots) {
+	r.snapshotPtr.Store(snapshots)
+}
+
+func (r *Registry) defaultClaudeSnapshot() ClaudeSnapshot {
+	// TODO: 从 pkg/claude.DefaultHeaders / CLICurrentVersion 读取
+	return ClaudeSnapshot{
+		Headers: map[string]string{
+			"User-Agent": "claude-code/...", // 占位
+		},
+		VersionFields: VersionFields{
+			CLIVersion: "0.x.x",
+			SDKVersion: "0.y.y",
+		},
+		TLSProfileName: "claude-cli-default",
+	}
+}
+
+func (r *Registry) defaultCodexSnapshot() CodexSnapshot {
+	// TODO: 从 service/openai_gateway_service.go:45 读取
+	return CodexSnapshot{
+		Headers: map[string]string{
+			"User-Agent": "codex_cli_rs/...", // 占位
+		},
+		VersionFields: VersionFields{
+			CLIVersion: "0.x.x",
+		},
+		TLSProfileName: "codex-cli-default",
+	}
+}
+```
+
+### C2. VersionFetcher service（框架，不真联网）
+在 `backend/internal/service/version_fetcher_service.go`：
+
+```go
+package service
+
+import (
+	"context"
+	"time"
+	"github.com/Wei-Shaw/sub2api/internal/pkg/clientidentity"
+)
+
+type VersionFetcherService struct {
+	registry *clientidentity.Registry
+	cfg      *config.Config
+	stopCh   chan struct{}
+}
+
+func NewVersionFetcherService(registry *clientidentity.Registry, cfg *config.Config) *VersionFetcherService {
+	return &VersionFetcherService{
+		registry: registry,
+		cfg:      cfg,
+		stopCh:   make(chan struct{}),
+	}
+}
+
+// Start 后台周期任务（仅当 cfg.Gateway.UAAutoFetch.Enabled 时）
+func (s *VersionFetcherService) Start() {
+	if !s.cfg.Gateway.UAAutoFetch.Enabled {
+		return // 关闭开关 = 不启动，registry 保持内置兜底
+	}
+
+	interval := s.cfg.Gateway.UAAutoFetch.Interval
+	if interval == 0 {
+		interval = 1 * time.Hour // 默认间隔
+	}
+
+	go func() {
+		ticker := time.NewTicker(interval)
+		defer ticker.Stop()
+
+		for {
+			select {
+			case <-ticker.C:
+				s.fetchAndUpdate()
+			case <-s.stopCh:
+				return
+			}
+		}
+	}()
+}
+
+func (s *VersionFetcherService) Stop() {
+	close(s.stopCh)
+}
+
+func (s *VersionFetcherService) fetchAndUpdate() {
+	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+	defer cancel()
+
+	// TODO: 真实拉取逻辑（npm @anthropic-ai/claude-code、github openai/codex）
+	// 现在只是框架，不真联网
+	claudeVersion, claudeSDKVersion, codexVersion := s.fetchVersions(ctx)
+
+	if claudeVersion == "" || codexVersion == "" {
+		// 失败丢弃保留旧值
+		return
+	}
+
+	// 组装完整一致 snapshot（任一字段缺失则整体丢弃）
+	snapshots := &clientidentity.Snapshots{
+		Claude: clientidentity.ClaudeSnapshot{
+			Headers: s.buildClaudeHeaders(claudeVersion, claudeSDKVersion),
+			VersionFields: clientidentity.VersionFields{
+				CLIVersion: claudeVersion,
+				SDKVersion: claudeSDKVersion,
+			},
+			TLSProfileName: "claude-cli-default",
+		},
+		Codex: clientidentity.CodexSnapshot{
+			Headers: s.buildCodexHeaders(codexVersion),
+			VersionFields: clientidentity.VersionFields{
+				CLIVersion: codexVersion,
+			},
+			TLSProfileName: "codex-cli-default",
+		},
+	}
+
+	// 原子 swap
+	s.registry.Swap(snapshots)
+}
+
+func (s *VersionFetcherService) fetchVersions(ctx context.Context) (claudeVersion, claudeSDKVersion, codexVersion string) {
+	// TODO: 实际 npm/github API 调用
+	// 占位：直接返回空（触发丢弃）
+	return "", "", ""
+}
+
+func (s *VersionFetcherService) buildClaudeHeaders(cliVer, sdkVer string) map[string]string {
+	// TODO: 按 design 完整构造 UA / X-Stainless-* / X-App / anthropic-beta
+	return map[string]string{
+		"User-Agent": "claude-code/" + cliVer,
+	}
+}
+
+func (s *VersionFetcherService) buildCodexHeaders(cliVer string) map[string]string {
+	// TODO: 按 design 完整构造 UA / originator / x-codex-*
+	return map[string]string{
+		"User-Agent": "codex_cli_rs/" + cliVer,
+	}
+}
+```
+
+### C3. 配置（config.yaml / config.go）
+在 `backend/internal/config/config.go` 扩展 `Gateway` 结构：
+
+```go
+type Gateway struct {
+	// ... 现有字段
+	UAAutoFetch UAAutoFetchConfig `mapstructure:"ua_auto_fetch"`
+}
+
+type UAAutoFetchConfig struct {
+	Enabled  bool          `mapstructure:"enabled"`
+	Interval time.Duration `mapstructure:"interval"`
+	// Sources map[string]string  // 预留：可配置 npm registry / github API
+}
+```
+
+### C4. Wire 注入
+在 `backend/internal/service/wire.go` 的 `ProviderSet` 追加：
+
+```go
+clientidentity.NewRegistry,
+NewVersionFetcherService,
+```
+
+在 `backend/cmd/server/wire.go` 的 `initializeApplication` 参数列表追加 `versionFetcherService *service.VersionFetcherService`，并在启动后调用 `versionFetcherService.Start()`。
+
+### C5. 单测
+`backend/internal/pkg/clientidentity/registry_test.go`：
+
+```go
+func TestRegistryAtomicSwap(t *testing.T) {
+	registry := NewRegistry()
+	initial := registry.Get()
+
+	newSnapshots := &Snapshots{
+		Claude: ClaudeSnapshot{VersionFields: VersionFields{CLIVersion: "1.0.0"}},
+	}
+	registry.Swap(newSnapshots)
+
+	assert.Equal(t, "1.0.0", registry.Get().Claude.VersionFields.CLIVersion)
+	assert.NotEqual(t, initial, registry.Get()) // 指针已变
+}
+```
+
+`backend/internal/service/version_fetcher_service_test.go`：
+
+```go
+func TestVersionFetcherDisabledDoesNotStart(t *testing.T) {
+	cfg := &config.Config{Gateway: config.Gateway{UAAutoFetch: config.UAAutoFetchConfig{Enabled: false}}}
+	registry := clientidentity.NewRegistry()
+	svc := NewVersionFetcherService(registry, cfg)
+
+	svc.Start()
+	time.Sleep(50 * time.Millisecond)
+	// 验证 registry 未被更新（仍是初始值）
+}
+```
+
+## 验证
+```bash
+cd backend
+go build ./internal/pkg/clientidentity
+go build ./internal/service
+go test ./internal/pkg/clientidentity -run TestRegistryAtomicSwap -v
+go test ./internal/service -run TestVersionFetcherDisabledDoesNotStart -v
+```
+
+## 输出
+完成后报告：
+1. IdentityRegistry 结构（文件 + 关键方法）
+2. VersionFetcherService 框架（Start/Stop/fetchAndUpdate，但 fetchVersions 占位）
+3. 配置扩展（UAAutoFetchConfig）
+4. Wire 注入点
+5. 验证结果
+
+## 注意
+- **这步只搭框架**，不真联网（`fetchVersions` 返回空触发丢弃）。
+- **不改全落点**（DefaultHeaders / billing block / identity_service / codex headers）—— 那是下一步的事。
+- **开关默认 false**：现有行为不变，registry 保持内置兜底。
+
+开始执行。

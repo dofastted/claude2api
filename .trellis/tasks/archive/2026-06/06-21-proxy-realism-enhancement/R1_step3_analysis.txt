@@ -1,0 +1,138 @@
+Active task: .trellis/tasks/06-21-proxy-realism-enhancement
+
+你是 Go 后端工程师，为 sub2api R1 step3 做**前置分析：全落点现状调查**。
+
+## 上下文
+- 仓库根 `/mnt/x/project/sub2api`，后端 `backend/`，分支 `feat/proxy-realism`。
+- R1 step1（IdentityRegistry）+ step2（fetchVersions）已完成，registry 现在能周期拉取最新版本。
+- 目标：调查现有 4 个注入点的代码结构，为下一步改造提供精确改造方案。
+
+## 任务：只调查不改代码
+
+### 调查点 1：Claude DefaultHeaders
+**文件**：`backend/internal/pkg/claude/constants.go` 或 `headers.go`
+
+**现状**：
+- `DefaultHeaders` 是 `map[string]string` 还是函数？
+- 硬编码了哪些字段（User-Agent / X-Stainless-* / X-App / anthropic-beta）？
+- 版本号从哪里来（`CLICurrentVersion` 常量？）
+- 被谁调用（`gateway_service.go` / `identity_service.go`）？
+
+**输出**：
+```
+# 调查点 1: Claude DefaultHeaders
+文件: backend/internal/pkg/claude/constants.go:42
+现状: DefaultHeaders 是 map[string]string 常量
+硬编码字段:
+- User-Agent: claude-code/2.1.161 (...)
+- X-Stainless-Lang: node
+- X-Stainless-Package-Version: 0.62.0
+- ...
+版本来源: CLICurrentVersion = "2.1.161" (第38行)
+调用者:
+- backend/internal/service/identity_service.go:28
+- backend/internal/service/gateway_service.go:4322
+```
+
+### 调查点 2：billing block cc_version
+**文件**：`backend/internal/service/gateway_billing_block.go`
+
+**现状**：
+- 在哪个函数、哪一行注入 `cc_version`？
+- 格式是 `2.1.161.{fp}` 还是 `2.1.161`？
+- `fp` 从哪里来（`claude.CCFP` 常量？`account.extra.client_family` 后缀？）
+- 是否已经读 account.extra？
+
+**输出**：
+```
+# 调查点 2: billing block cc_version
+文件: backend/internal/service/gateway_billing_block.go:73
+函数: buildBillingBlock
+注入行: block["cc_version"] = "2.1.161.abc123"
+格式: <cli_version>.{fp}，fp 是固定常量 claude.CCFP = "abc123"
+是否读 account: 否，直接用全局常量
+```
+
+### 调查点 3：identity_service
+**文件**：`backend/internal/service/identity_service.go`
+
+**现状**：
+- `GetIdentity` 函数在哪一行返回什么结构？
+- headers 从哪里来（`claude.DefaultHeaders` map？）
+- 是否已有 account 参数？是否读 account.extra？
+- 是否区分 claude / codex 两族？
+
+**输出**：
+```
+# 调查点 3: identity_service
+文件: backend/internal/service/identity_service.go:28
+函数: GetIdentity(ctx, accountID)
+返回: {headers: map[string]string, ...}
+headers 来源: 直接返回 claude.DefaultHeaders（全局 map）
+account 参数: 有，但只用于查账号，不读 extra
+族区分: 无，只返回 claude headers
+```
+
+### 调查点 4：codex headers（3 处）
+**文件**：`backend/internal/service/openai_gateway_service.go`
+
+**现状**：
+- 行 45：`codexCLIUserAgent` 常量定义
+- 行 1268：哪个函数在哪一行注入 `originator` header？
+- 行 71：哪个函数在哪一行注入 `X-Codex-*` headers？
+- 三处是否读 account？是否统一从一个地方取值？
+
+**输出**：
+```
+# 调查点 4: codex headers
+文件: backend/internal/service/openai_gateway_service.go
+常量定义（行45）: codexCLIUserAgent = "codex_cli_rs/0.125.0 (...)"
+
+注入点1（行1268）:
+- 函数: buildCodexOriginatorHeader
+- 代码: headers["originator"] = "codex_cli_rs"
+- 是否读 account: 否
+
+注入点2（行71）:
+- 函数: buildCodexXHeaders
+- 代码: headers["User-Agent"] = codexCLIUserAgent
+- 是否读 account: 否
+
+注入点3（行xxx）:
+- ...
+```
+
+## 输出格式
+
+完成后输出一个**改造方案汇总**：
+
+```markdown
+# R1 step3 全落点改造方案
+
+## 落点1: Claude DefaultHeaders
+**改造策略**: 改为函数 `GetDefaultHeaders(registry *clientidentity.Registry) map[string]string`，读 `registry.Get().Claude.Headers`
+**影响文件**: pkg/claude/constants.go + 2个调用点
+**破坏性**: 低（函数签名变化，但调用点只需传 registry）
+
+## 落点2: billing block cc_version
+**改造策略**: `buildBillingBlock` 增加 `registry` 参数，读 `registry.Get().Claude.VersionFields.CCVersion`
+**影响文件**: gateway_billing_block.go + 调用点
+**破坏性**: 低（内部函数，调用链短）
+
+## 落点3: identity_service
+**改造策略**: `GetIdentity` 增加 `registry` 参数，根据 account platform 返回 claude/codex headers
+**影响文件**: identity_service.go + 调用点
+**破坏性**: 中（公开接口，多个调用点）
+
+## 落点4: codex headers（3处）
+**改造策略**: 统一从 `registry.Get().Codex.Headers` 读取，改造 3 个注入点
+**影响文件**: openai_gateway_service.go（3处）+ 常量定义
+**破坏性**: 低（内部代码，影响面小）
+```
+
+## 注意
+- **只调查不改代码**，这步产出是改造方案，不是代码改动。
+- **精确到行号**，方便下一步逐点改造。
+- **识别破坏性**，判断影响面（调用点数量、是否公开接口）。
+
+开始执行。

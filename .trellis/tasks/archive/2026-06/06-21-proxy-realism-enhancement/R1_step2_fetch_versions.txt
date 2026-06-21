@@ -1,0 +1,225 @@
+Active task: .trellis/tasks/06-21-proxy-realism-enhancement
+
+你是 Go 后端工程师，为 sub2api 实施 **R1 step2: fetchVersions 真实实现（联网拉取版本）**。
+
+## 上下文
+- 仓库根 `/mnt/x/project/sub2api`，后端 `backend/`，分支 `feat/proxy-realism`。
+- R1 step1 已完成 IdentityRegistry + VersionFetcherService 框架，`fetchVersions` 当前占位返回空。
+- 目标：实现真实 npm/github API 调用，拉取 claude-code/SDK/codex 版本号。
+
+## 数据源（来自 design.md，codex 审查已修正）
+
+| 目标 | 来源 | 注意 |
+|------|------|------|
+| claude-cli 版本 | npm `@anthropic-ai/claude-code` dist-tags.latest | 仅作版本提示 |
+| claude SDK 版本 | **优先**解析 claude-code 发布包内实际依赖的 `@anthropic-ai/sdk` 版本；npm sdk@latest 仅兜底 | CLI 未必用 sdk latest |
+| codex 版本 | github releases `openai/codex` latest | 真实伪装对象是 `codex_cli_rs/<ver>`（见 `openai_gateway_service.go:45`） |
+
+## 解析陷阱（必须处理）
+- release tag 带 `v` 前缀（需 trim）
+- 预发布版本（beta/rc）需过滤
+- npm latest 与 github latest 不同步（可能出现时间窗口不一致）
+- UA 需 OS/arch/terminal 后缀（非纯 semver）—— 但版本号部分只取纯数字版本
+- `originator` 与 UA 前缀须同族（codex）
+
+## 任务步骤
+
+### 实现 fetchVersions
+在 `backend/internal/service/version_fetcher_service.go` 的 `fetchVersions` 方法：
+
+```go
+func (s *VersionFetcherService) fetchVersions(ctx context.Context) (claudeVersion, claudeSDKVersion, codexVersion string) {
+	var wg sync.WaitGroup
+	var claudeVer, claudeSDKVer, codexVer string
+	var claudeErr, sdkErr, codexErr error
+
+	// 并行拉取三个版本
+	wg.Add(3)
+
+	go func() {
+		defer wg.Done()
+		claudeVer, claudeSDKVer, claudeErr = s.fetchClaudeVersions(ctx)
+	}()
+
+	go func() {
+		defer wg.Done()
+		codexVer, codexErr = s.fetchCodexVersion(ctx)
+	}()
+
+	wg.Wait()
+
+	// 任一失败则整体丢弃
+	if claudeErr != nil || sdkErr != nil || codexErr != nil {
+		// 记录日志（可选）
+		return "", "", ""
+	}
+
+	return claudeVer, claudeSDKVer, codexVer
+}
+
+func (s *VersionFetcherService) fetchClaudeVersions(ctx context.Context) (cliVersion, sdkVersion string, err error) {
+	// 1. 拉取 claude-code latest 版本
+	cliVersion, err = s.fetchNPMLatest(ctx, "@anthropic-ai/claude-code")
+	if err != nil {
+		return "", "", err
+	}
+
+	// 2. 优先：从 claude-code package.json 解析其实际依赖的 @anthropic-ai/sdk 版本
+	sdkVersion, err = s.fetchClaudeCodeSDKDependency(ctx, cliVersion)
+	if err != nil {
+		// 兜底：直接拉 sdk@latest
+		sdkVersion, err = s.fetchNPMLatest(ctx, "@anthropic-ai/sdk")
+		if err != nil {
+			return "", "", err
+		}
+	}
+
+	return cliVersion, sdkVersion, nil
+}
+
+func (s *VersionFetcherService) fetchCodexVersion(ctx context.Context) (string, error) {
+	// github API: GET /repos/openai/codex/releases/latest
+	// 返回 {"tag_name": "v0.125.0", ...}
+	// 需 trim "v" 前缀，过滤预发布
+	url := "https://api.github.com/repos/openai/codex/releases/latest"
+	req, _ := http.NewRequestWithContext(ctx, "GET", url, nil)
+	req.Header.Set("Accept", "application/vnd.github.v3+json")
+	req.Header.Set("User-Agent", "sub2api-version-fetcher") // github 要求 UA
+
+	resp, err := http.DefaultClient.Do(req)
+	if err != nil {
+		return "", err
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode != 200 {
+		return "", fmt.Errorf("github API status %d", resp.StatusCode)
+	}
+
+	var release struct {
+		TagName    string `json:"tag_name"`
+		Prerelease bool   `json:"prerelease"`
+	}
+	if err := json.NewDecoder(resp.Body).Decode(&release); err != nil {
+		return "", err
+	}
+
+	if release.Prerelease {
+		return "", fmt.Errorf("latest is prerelease")
+	}
+
+	// trim "v" 前缀
+	version := strings.TrimPrefix(release.TagName, "v")
+	return version, nil
+}
+
+func (s *VersionFetcherService) fetchNPMLatest(ctx context.Context, pkg string) (string, error) {
+	// npm registry: GET /<pkg>
+	// 返回 {"dist-tags": {"latest": "0.x.y"}, ...}
+	url := "https://registry.npmjs.org/" + pkg
+	req, _ := http.NewRequestWithContext(ctx, "GET", url, nil)
+	req.Header.Set("Accept", "application/json")
+
+	resp, err := http.DefaultClient.Do(req)
+	if err != nil {
+		return "", err
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode != 200 {
+		return "", fmt.Errorf("npm registry status %d", resp.StatusCode)
+	}
+
+	var data struct {
+		DistTags map[string]string `json:"dist-tags"`
+	}
+	if err := json.NewDecoder(resp.Body).Decode(&data); err != nil {
+		return "", err
+	}
+
+	latest, ok := data.DistTags["latest"]
+	if !ok || latest == "" {
+		return "", fmt.Errorf("no latest tag")
+	}
+
+	return latest, nil
+}
+
+func (s *VersionFetcherService) fetchClaudeCodeSDKDependency(ctx context.Context, cliVersion string) (string, error) {
+	// npm registry: GET /@anthropic-ai/claude-code/<version>
+	// 返回 {"dependencies": {"@anthropic-ai/sdk": "^0.y.y"}, ...}
+	url := fmt.Sprintf("https://registry.npmjs.org/@anthropic-ai/claude-code/%s", cliVersion)
+	req, _ := http.NewRequestWithContext(ctx, "GET", url, nil)
+	req.Header.Set("Accept", "application/json")
+
+	resp, err := http.DefaultClient.Do(req)
+	if err != nil {
+		return "", err
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode != 200 {
+		return "", err
+	}
+
+	var data struct {
+		Dependencies map[string]string `json:"dependencies"`
+	}
+	if err := json.NewDecoder(resp.Body).Decode(&data); err != nil {
+		return "", err
+	}
+
+	sdkVer, ok := data.Dependencies["@anthropic-ai/sdk"]
+	if !ok || sdkVer == "" {
+		return "", fmt.Errorf("no sdk dependency")
+	}
+
+	// sdkVer 可能是 "^0.y.y" 或 "~0.y.y"，需 trim 前缀
+	sdkVer = strings.TrimPrefix(sdkVer, "^")
+	sdkVer = strings.TrimPrefix(sdkVer, "~")
+
+	return sdkVer, nil
+}
+```
+
+### 单测（mock HTTP）
+在 `backend/internal/service/version_fetcher_service_test.go`：
+
+```go
+func TestFetchNPMLatest(t *testing.T) {
+	// 可用 httptest.NewServer mock npm registry 响应
+	// 验证：正常返回、404、无 latest tag、超时
+}
+
+func TestFetchCodexVersion(t *testing.T) {
+	// mock github API
+	// 验证：正常返回、trim v 前缀、prerelease 过滤、404
+}
+
+func TestFetchClaudeCodeSDKDependency(t *testing.T) {
+	// mock npm package API
+	// 验证：正常返回、trim ^ 前缀、无 sdk dependency
+}
+```
+
+## 验证
+```bash
+cd backend
+go test ./internal/service -run TestFetch -v
+# 集成测试（可选，需真联网）
+go test ./internal/service -run TestVersionFetcherIntegration -v -tags integration
+```
+
+## 输出
+完成后报告：
+1. fetchVersions 实现（fetchClaudeVersions / fetchCodexVersion / fetchNPMLatest / fetchClaudeCodeSDKDependency）
+2. 错误处理（任一失败丢弃、超时、非 200、无 latest）
+3. 单测覆盖情况
+4. 验证结果（至少 mock 测试通过）
+
+## 注意
+- **超时已在 step1 设置**（ctx 30s），这里只需正确传递 ctx。
+- **npm registry 与 github API 都是公开的**，无需认证（但 github 建议带 UA）。
+- **解析陷阱处理**：trim v/^/~、过滤 prerelease、处理无 latest tag。
+
+开始执行。
