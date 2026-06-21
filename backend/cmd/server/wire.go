@@ -24,8 +24,9 @@ import (
 )
 
 type Application struct {
-	Server  *http.Server
-	Cleanup func()
+	Server                *http.Server
+	VersionFetcherService *service.VersionFetcherService
+	Cleanup               func()
 }
 
 func initializeApplication(buildInfo handler.BuildInfo) (*Application, error) {

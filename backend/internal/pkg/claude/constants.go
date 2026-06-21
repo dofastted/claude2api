@@ -1,6 +1,8 @@
 // Package claude provides constants and helpers for Claude API integration.
 package claude
 
+import "github.com/Wei-Shaw/sub2api/internal/pkg/clientidentity"
+
 // Claude Code 客户端相关常量
 
 // Beta header 常量
@@ -104,6 +106,31 @@ var DefaultHeaders = map[string]string{
 	"X-Stainless-Timeout":                       "600",
 	"X-App":                                     "cli",
 	"Anthropic-Dangerous-Direct-Browser-Access": "true",
+}
+
+// GetHeaders returns the active Claude Code headers from the identity registry.
+// A clone is always returned so callers can mutate request headers without
+// changing the registry snapshot. Nil or incomplete registry snapshots fall
+// back to the built-in defaults.
+func GetHeaders(registry *clientidentity.Registry) map[string]string {
+	if registry == nil {
+		return cloneHeaders(DefaultHeaders)
+	}
+
+	snapshots := registry.Get()
+	if snapshots == nil || len(snapshots.Claude.Headers) == 0 {
+		return cloneHeaders(DefaultHeaders)
+	}
+
+	return cloneHeaders(snapshots.Claude.Headers)
+}
+
+func cloneHeaders(headers map[string]string) map[string]string {
+	cloned := make(map[string]string, len(headers))
+	for key, value := range headers {
+		cloned[key] = value
+	}
+	return cloned
 }
 
 // Model 表示一个 Claude 模型

@@ -13,6 +13,7 @@ import (
 	"sync"
 	"time"
 
+	"github.com/Wei-Shaw/sub2api/internal/pkg/clientidentity"
 	httppool "github.com/Wei-Shaw/sub2api/internal/pkg/httpclient"
 	openaipkg "github.com/Wei-Shaw/sub2api/internal/pkg/openai"
 	"github.com/Wei-Shaw/sub2api/internal/pkg/pagination"
@@ -104,13 +105,12 @@ type antigravityUsageCache struct {
 }
 
 const (
-	apiCacheTTL             = 3 * time.Minute
-	apiErrorCacheTTL        = 1 * time.Minute        // 负缓存 TTL：429 等错误缓存 1 分钟
-	antigravityErrorTTL     = 1 * time.Minute        // Antigravity 错误缓存 TTL（可恢复错误）
-	apiQueryMaxJitter       = 800 * time.Millisecond // 用量查询最大随机延迟
-	windowStatsCacheTTL     = 1 * time.Minute
-	openAIProbeCacheTTL     = 10 * time.Minute
-	openAICodexProbeVersion = "0.125.0"
+	apiCacheTTL         = 3 * time.Minute
+	apiErrorCacheTTL    = 1 * time.Minute        // 负缓存 TTL：429 等错误缓存 1 分钟
+	antigravityErrorTTL = 1 * time.Minute        // Antigravity 错误缓存 TTL（可恢复错误）
+	apiQueryMaxJitter   = 800 * time.Millisecond // 用量查询最大随机延迟
+	windowStatsCacheTTL = 1 * time.Minute
+	openAIProbeCacheTTL = 10 * time.Minute
 )
 
 // UsageCache 封装账户使用量相关的缓存
@@ -266,6 +266,7 @@ type AccountUsageService struct {
 	cache                   *UsageCache
 	identityCache           IdentityCache
 	tlsFPProfileService     *TLSFingerprintProfileService
+	identityRegistry        *clientidentity.Registry
 }
 
 // NewAccountUsageService 创建AccountUsageService实例
@@ -278,7 +279,11 @@ func NewAccountUsageService(
 	cache *UsageCache,
 	identityCache IdentityCache,
 	tlsFPProfileService *TLSFingerprintProfileService,
+	identityRegistry *clientidentity.Registry,
 ) *AccountUsageService {
+	if identityRegistry == nil {
+		identityRegistry = clientidentity.NewRegistry()
+	}
 	return &AccountUsageService{
 		accountRepo:             accountRepo,
 		usageLogRepo:            usageLogRepo,
@@ -288,7 +293,38 @@ func NewAccountUsageService(
 		cache:                   cache,
 		identityCache:           identityCache,
 		tlsFPProfileService:     tlsFPProfileService,
+		identityRegistry:        identityRegistry,
 	}
+}
+
+func (s *AccountUsageService) codexSnapshot() clientidentity.CodexSnapshot {
+	if s != nil && s.identityRegistry != nil {
+		if snapshots := s.identityRegistry.Get(); snapshots != nil {
+			return snapshots.Codex
+		}
+	}
+	return clientidentity.NewRegistry().Get().Codex
+}
+
+func (s *AccountUsageService) codexOriginator() string {
+	if originator := strings.TrimSpace(s.codexSnapshot().Headers["originator"]); originator != "" {
+		return originator
+	}
+	return "codex_cli_rs"
+}
+
+func (s *AccountUsageService) codexCLIUserAgent() string {
+	if ua := strings.TrimSpace(s.codexSnapshot().Headers["User-Agent"]); ua != "" {
+		return ua
+	}
+	return strings.TrimSpace(clientidentity.NewRegistry().Get().Codex.Headers["User-Agent"])
+}
+
+func (s *AccountUsageService) codexCLIVersion() string {
+	if version := strings.TrimSpace(s.codexSnapshot().VersionFields.CLIVersion); version != "" {
+		return version
+	}
+	return strings.TrimSpace(clientidentity.NewRegistry().Get().Codex.VersionFields.CLIVersion)
 }
 
 // GetUsage 获取账号使用量
@@ -629,9 +665,9 @@ func (s *AccountUsageService) probeOpenAICodexSnapshot(ctx context.Context, acco
 	req.Header.Set("Authorization", "Bearer "+accessToken)
 	req.Header.Set("Accept", "text/event-stream")
 	req.Header.Set("OpenAI-Beta", "responses=experimental")
-	req.Header.Set("Originator", "codex_cli_rs")
-	req.Header.Set("Version", openAICodexProbeVersion)
-	req.Header.Set("User-Agent", codexCLIUserAgent)
+	req.Header.Set("Originator", s.codexOriginator())
+	req.Header.Set("Version", s.codexCLIVersion())
+	req.Header.Set("User-Agent", s.codexCLIUserAgent())
 	if s.identityCache != nil {
 		if fp, fpErr := s.identityCache.GetFingerprint(reqCtx, account.ID); fpErr == nil && fp != nil && strings.TrimSpace(fp.UserAgent) != "" {
 			req.Header.Set("User-Agent", strings.TrimSpace(fp.UserAgent))
@@ -1162,7 +1198,7 @@ func (s *AccountUsageService) fetchOAuthUsageRaw(ctx context.Context, account *A
 		AccessToken: accessToken,
 		ProxyURL:    proxyURL,
 		AccountID:   account.ID,
-		TLSProfile:  s.tlsFPProfileService.ResolveTLSProfile(account),
+		TLSProfile:  s.resolveUsageTLSProfile(account),
 	}
 
 	// 尝试获取缓存的 Fingerprint（包含 User-Agent 等信息）
@@ -1173,6 +1209,18 @@ func (s *AccountUsageService) fetchOAuthUsageRaw(ctx context.Context, account *A
 	}
 
 	return s.usageFetcher.FetchUsageWithOptions(ctx, opts)
+}
+
+func (s *AccountUsageService) resolveUsageTLSProfile(account *Account) *tlsfingerprint.Profile {
+	if snapshot := clientidentity.NewResolver().Resolve(account); snapshot != nil {
+		if profile := tlsfingerprint.BuiltInProfileByName(snapshot.TLSProfileName); profile != nil {
+			return profile
+		}
+	}
+	if s.tlsFPProfileService == nil {
+		return nil
+	}
+	return s.tlsFPProfileService.ResolveTLSProfile(account)
 }
 
 // parseTime 尝试多种格式解析时间

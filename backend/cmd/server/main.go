@@ -154,6 +154,11 @@ func runMainServer() {
 	}
 	defer app.Cleanup()
 
+	if app.VersionFetcherService != nil {
+		app.VersionFetcherService.Start()
+		defer app.VersionFetcherService.Stop()
+	}
+
 	// 启动服务器
 	go func() {
 		if err := app.Server.ListenAndServe(); err != nil && !errors.Is(err, http.ErrServerClosed) {

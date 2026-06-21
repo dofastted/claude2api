@@ -1437,6 +1437,41 @@ func (r *accountRepository) UpdateExtra(ctx context.Context, id int64, updates m
 	return nil
 }
 
+func (r *accountRepository) DeleteExtraKeys(ctx context.Context, id int64, keys []string) error {
+	if len(keys) == 0 {
+		return nil
+	}
+
+	client := clientFromContext(ctx, r.client)
+	args := make([]any, 0, len(keys)+1)
+	expr := "COALESCE(extra, '{}'::jsonb)"
+	for i, key := range keys {
+		expr += " - $" + strconv.Itoa(i+1)
+		args = append(args, key)
+	}
+	args = append(args, id)
+
+	result, err := client.ExecContext(
+		ctx,
+		"UPDATE accounts SET extra = "+expr+", updated_at = NOW() WHERE id = $"+strconv.Itoa(len(keys)+1)+" AND deleted_at IS NULL",
+		args...,
+	)
+	if err != nil {
+		return err
+	}
+	affected, err := result.RowsAffected()
+	if err != nil {
+		return err
+	}
+	if affected == 0 {
+		return service.ErrAccountNotFound
+	}
+	if err := enqueueSchedulerOutbox(ctx, r.sql, service.SchedulerOutboxEventAccountChanged, &id, nil, nil); err != nil {
+		logger.LegacyPrintf("repository.account", "[SchedulerOutbox] enqueue extra delete failed: account=%d err=%v", id, err)
+	}
+	return nil
+}
+
 func shouldEnqueueSchedulerOutboxForExtraUpdates(updates map[string]any) bool {
 	if len(updates) == 0 {
 		return false
