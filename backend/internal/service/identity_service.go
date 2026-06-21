@@ -14,6 +14,7 @@ import (
 	"time"
 
 	"github.com/Wei-Shaw/sub2api/internal/pkg/claude"
+	"github.com/Wei-Shaw/sub2api/internal/pkg/clientidentity"
 	"github.com/Wei-Shaw/sub2api/internal/pkg/logger"
 	"github.com/tidwall/gjson"
 	"github.com/tidwall/sjson"
@@ -24,17 +25,6 @@ var (
 	// 匹配 User-Agent 版本号: xxx/x.y.z
 	userAgentVersionRegex = regexp.MustCompile(`/(\d+)\.(\d+)\.(\d+)`)
 )
-
-// 默认指纹值（当客户端未提供时使用）
-var defaultFingerprint = Fingerprint{
-	UserAgent:               "claude-cli/" + claude.CLICurrentVersion + " (external, cli)",
-	StainlessLang:           "js",
-	StainlessPackageVersion: "0.94.0",
-	StainlessOS:             "Linux",
-	StainlessArch:           "arm64",
-	StainlessRuntime:        "node",
-	StainlessRuntimeVersion: "v24.3.0",
-}
 
 // Fingerprint represents account fingerprint data
 type Fingerprint struct {
@@ -64,12 +54,16 @@ type IdentityCache interface {
 
 // IdentityService 管理OAuth账号的请求身份指纹
 type IdentityService struct {
-	cache IdentityCache
+	cache            IdentityCache
+	identityRegistry *clientidentity.Registry
 }
 
 // NewIdentityService 创建新的IdentityService
-func NewIdentityService(cache IdentityCache) *IdentityService {
-	return &IdentityService{cache: cache}
+func NewIdentityService(cache IdentityCache, identityRegistry *clientidentity.Registry) *IdentityService {
+	return &IdentityService{
+		cache:            cache,
+		identityRegistry: identityRegistry,
+	}
 }
 
 // GetOrCreateFingerprint 获取或创建账号的指纹
@@ -121,6 +115,7 @@ func (s *IdentityService) GetOrCreateFingerprint(ctx context.Context, accountID 
 
 // createFingerprintFromHeaders 从请求头创建指纹
 func (s *IdentityService) createFingerprintFromHeaders(headers http.Header) *Fingerprint {
+	defaultFingerprint := s.getDefaultFingerprint()
 	fp := &Fingerprint{}
 
 	// 获取User-Agent
@@ -139,6 +134,23 @@ func (s *IdentityService) createFingerprintFromHeaders(headers http.Header) *Fin
 	fp.StainlessRuntimeVersion = getHeaderOrDefault(headers, "X-Stainless-Runtime-Version", defaultFingerprint.StainlessRuntimeVersion)
 
 	return fp
+}
+
+func (s *IdentityService) getDefaultFingerprint() *Fingerprint {
+	headers := claude.GetHeaders(nil)
+	if s != nil && s.identityRegistry != nil {
+		headers = claude.GetHeaders(s.identityRegistry)
+	}
+
+	return &Fingerprint{
+		UserAgent:               headers["User-Agent"],
+		StainlessLang:           headers["X-Stainless-Lang"],
+		StainlessPackageVersion: headers["X-Stainless-Package-Version"],
+		StainlessOS:             headers["X-Stainless-OS"],
+		StainlessArch:           headers["X-Stainless-Arch"],
+		StainlessRuntime:        headers["X-Stainless-Runtime"],
+		StainlessRuntimeVersion: headers["X-Stainless-Runtime-Version"],
+	}
 }
 
 // mergeHeadersIntoFingerprint 将请求头中实际存在的字段合并到现有指纹中（用于版本升级场景）

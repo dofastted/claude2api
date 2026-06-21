@@ -3,7 +3,6 @@ package clientidentity
 import (
 	"strings"
 
-	"github.com/Wei-Shaw/sub2api/internal/pkg/claude"
 	"github.com/Wei-Shaw/sub2api/internal/pkg/tlsfingerprint"
 )
 
@@ -52,8 +51,8 @@ func (r *Resolver) Resolve(account Account) *IdentitySnapshot {
 func (r *Resolver) claudeCLISnapshot() *IdentitySnapshot {
 	// TODO(R1): read dynamic versions from IdentityRegistry atomic.Pointer.
 	return &IdentitySnapshot{
-		Headers:        cloneHeaders(claude.DefaultHeaders),
-		VersionFields:  VersionFields{CLIVersion: claude.CLICurrentVersion, SDKVersion: claude.DefaultHeaders["X-Stainless-Package-Version"]},
+		Headers:        cloneHeaders(defaultClaudeHeaders),
+		VersionFields:  VersionFields{CLIVersion: defaultClaudeCLIVersion, SDKVersion: defaultClaudeSDKVersion},
 		TLSProfileName: TLSProfileClaudeCLIDefault,
 	}
 }
@@ -63,7 +62,6 @@ func (r *Resolver) claudeDesktopSnapshot() *IdentitySnapshot {
 	return &IdentitySnapshot{
 		Headers: map[string]string{
 			"User-Agent":       "claude-desktop/0.0.0",
-			"anthropic-beta":   claude.DefaultBetaHeader,
 			"X-App":            "desktop",
 			"X-Stainless-Lang": "js",
 		},

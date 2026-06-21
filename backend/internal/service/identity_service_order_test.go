@@ -28,7 +28,7 @@ func (s *identityCacheStub) SetMaskedSessionID(_ context.Context, _ int64, sessi
 
 func TestIdentityService_RewriteUserID_PreservesTopLevelFieldOrder(t *testing.T) {
 	cache := &identityCacheStub{}
-	svc := NewIdentityService(cache)
+	svc := NewIdentityService(cache, nil)
 
 	originalUserID := FormatMetadataUserID(
 		"d61f76d0730d2b920763648949bad5c79742155c27037fc77ac3f9805cb90169",
@@ -49,7 +49,7 @@ func TestIdentityService_RewriteUserID_PreservesTopLevelFieldOrder(t *testing.T)
 
 func TestIdentityService_RewriteUserIDWithMasking_PreservesTopLevelFieldOrder(t *testing.T) {
 	cache := &identityCacheStub{maskedSessionID: "11111111-2222-4333-8444-555555555555"}
-	svc := NewIdentityService(cache)
+	svc := NewIdentityService(cache, nil)
 
 	originalUserID := FormatMetadataUserID(
 		"d61f76d0730d2b920763648949bad5c79742155c27037fc77ac3f9805cb90169",

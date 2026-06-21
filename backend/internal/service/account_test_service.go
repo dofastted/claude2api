@@ -316,7 +316,7 @@ func (s *AccountTestService) testClaudeAccountConnection(c *gin.Context, account
 	req.Header.Set("anthropic-version", "2023-06-01")
 
 	// Apply Claude Code client headers
-	for key, value := range claude.DefaultHeaders {
+	for key, value := range claude.GetHeaders(s.identityRegistry) {
 		req.Header.Set(key, value)
 	}
 

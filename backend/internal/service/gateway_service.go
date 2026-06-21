@@ -6809,13 +6809,13 @@ func (s *GatewayService) buildUpstreamRequest(ctx context.Context, c *gin.Contex
 		setHeaderRaw(req.Header, "anthropic-version", "2023-06-01")
 	}
 	if tokenType == "oauth" {
-		applyClaudeOAuthHeaderDefaults(req)
+		applyClaudeOAuthHeaderDefaults(req, s.identityRegistry)
 	}
 
 	// OAuth + mimic Claude Code：强制注入 CLI 指纹相关 header
 	// （user-agent/x-stainless-*/x-app/Accept/x-stainless-helper-method/x-client-request-id）
 	if tokenType == "oauth" && mimicClaudeCode {
-		applyClaudeCodeMimicHeaders(req, reqStream)
+		applyClaudeCodeMimicHeaders(req, reqStream, s.identityRegistry)
 	}
 
 	// 写入最终 anthropic-beta header
@@ -6987,14 +6987,14 @@ func defaultAPIKeyBetaHeader(body []byte) string {
 	return claude.APIKeyBetaHeader
 }
 
-func applyClaudeOAuthHeaderDefaults(req *http.Request) {
+func applyClaudeOAuthHeaderDefaults(req *http.Request, identityRegistry *clientidentity.Registry) {
 	if req == nil {
 		return
 	}
 	if getHeaderRaw(req.Header, "Accept") == "" {
 		setHeaderRaw(req.Header, "Accept", "application/json")
 	}
-	for key, value := range claude.DefaultHeaders {
+	for key, value := range claude.GetHeaders(identityRegistry) {
 		if value == "" {
 			continue
 		}
@@ -7435,15 +7435,15 @@ var defaultDroppedBetasSet = buildBetaTokenSet(claude.DroppedBetas)
 // applyClaudeCodeMimicHeaders forces "Claude Code-like" request headers.
 // This mirrors opencode-anthropic-auth behavior: do not trust downstream
 // headers when using Claude Code-scoped OAuth credentials.
-func applyClaudeCodeMimicHeaders(req *http.Request, isStream bool) {
+func applyClaudeCodeMimicHeaders(req *http.Request, isStream bool, identityRegistry *clientidentity.Registry) {
 	if req == nil {
 		return
 	}
 	// Start with the standard defaults (fill missing).
-	applyClaudeOAuthHeaderDefaults(req)
+	applyClaudeOAuthHeaderDefaults(req, identityRegistry)
 	// Then force key headers to match Claude Code fingerprint regardless of what the client sent.
 	// 使用 resolveWireCasing 确保 key 与真实 wire format 一致（如 "x-app" 而非 "X-App"）
-	for key, value := range claude.DefaultHeaders {
+	for key, value := range claude.GetHeaders(identityRegistry) {
 		if value == "" {
 			continue
 		}
@@ -10286,12 +10286,12 @@ func (s *GatewayService) buildCountTokensRequest(ctx context.Context, c *gin.Con
 		setHeaderRaw(req.Header, "anthropic-version", "2023-06-01")
 	}
 	if tokenType == "oauth" {
-		applyClaudeOAuthHeaderDefaults(req)
+		applyClaudeOAuthHeaderDefaults(req, s.identityRegistry)
 	}
 
 	// OAuth + mimic Claude Code：强制注入 CLI 指纹 header
 	if tokenType == "oauth" && mimicClaudeCode {
-		applyClaudeCodeMimicHeaders(req, false)
+		applyClaudeCodeMimicHeaders(req, false, s.identityRegistry)
 	}
 
 	// 写入最终 anthropic-beta header（Del 一次避免白名单透传值残留）

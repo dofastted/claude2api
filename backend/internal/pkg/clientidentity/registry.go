@@ -2,14 +2,29 @@ package clientidentity
 
 import (
 	"sync/atomic"
-
-	"github.com/Wei-Shaw/sub2api/internal/pkg/claude"
 )
 
 const (
 	defaultCodexCLIVersion = "0.125.0"
 	defaultCodexCLIUA      = "codex_cli_rs/0.125.0 (Ubuntu 22.4.0; x86_64) xterm-256color"
+
+	defaultClaudeCLIVersion = "2.1.161"
+	defaultClaudeSDKVersion = "0.94.0"
 )
+
+var defaultClaudeHeaders = map[string]string{
+	"User-Agent":                                "claude-cli/" + defaultClaudeCLIVersion + " (external, cli)",
+	"X-Stainless-Lang":                          "js",
+	"X-Stainless-Package-Version":               defaultClaudeSDKVersion,
+	"X-Stainless-OS":                            "Linux",
+	"X-Stainless-Arch":                          "arm64",
+	"X-Stainless-Runtime":                       "node",
+	"X-Stainless-Runtime-Version":               "v24.3.0",
+	"X-Stainless-Retry-Count":                   "0",
+	"X-Stainless-Timeout":                       "600",
+	"X-App":                                     "cli",
+	"Anthropic-Dangerous-Direct-Browser-Access": "true",
+}
 
 // Registry holds the active complete Claude and Codex identity snapshots.
 type Registry struct {
@@ -59,13 +74,13 @@ func (r *Registry) Swap(snapshots *Snapshots) {
 }
 
 func (r *Registry) defaultClaudeSnapshot() ClaudeSnapshot {
-	headers := cloneHeaders(claude.DefaultHeaders)
+	headers := cloneHeaders(defaultClaudeHeaders)
 	return ClaudeSnapshot{
 		Headers: headers,
 		VersionFields: VersionFields{
-			CLIVersion: claude.CLICurrentVersion,
+			CLIVersion: defaultClaudeCLIVersion,
 			SDKVersion: headers["X-Stainless-Package-Version"],
-			CCVersion:  claude.CLICurrentVersion,
+			CCVersion:  defaultClaudeCLIVersion,
 		},
 		TLSProfileName: TLSProfileClaudeCLIDefault,
 	}
