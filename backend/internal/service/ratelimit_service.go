@@ -80,6 +80,22 @@ const (
 	openAI403CounterWindowMinutes   = 180
 )
 
+// ClaudeRateLimitType 表示 Claude 429 限流类型
+// 来源：参考 claude-relay-service 的 _classifyClaudeRateLimit 实现
+type ClaudeRateLimitType string
+
+const (
+	ClaudeRateLimitTypeUnknown     ClaudeRateLimitType = "unknown"     // 未识别（回退到 retry-after 解析）
+	ClaudeRateLimitTypeExtraUsage  ClaudeRateLimitType = "extra_usage" // Extra Usage required（24h）
+	ClaudeRateLimitTypeOpusWeekly  ClaudeRateLimitType = "opus_weekly" // Opus 周限（168h）
+	ClaudeRateLimitType5HourWindow ClaudeRateLimitType = "5h_window"   // 5h 窗口限流（5h）
+	ClaudeRateLimitTypeGeneric     ClaudeRateLimitType = "generic"     // 普通 429（1h）
+)
+
+// claudeOpusWeeklyPattern 匹配 Opus 周限错误消息
+// 关键字：claude-opus.*models per week（大小写不敏感）
+var claudeOpusWeeklyPattern = regexp.MustCompile(`(?i)claude-opus.*models per week`)
+
 // NewRateLimitService 创建RateLimitService实例
 func NewRateLimitService(accountRepo AccountRepository, usageRepo UsageLogRepository, cfg *config.Config, geminiQuotaService *GeminiQuotaService, tempUnschedCache TempUnschedCache) *RateLimitService {
 	return &RateLimitService{
@@ -950,13 +966,56 @@ func (s *RateLimitService) handle429(ctx context.Context, account *Account, head
 			}
 		}
 
-		// Anthropic 平台：没有限流重置时间的 429 可能是非真实限流（如 Extra usage required），
-		// 不标记账号限流状态，直接透传错误给客户端
+		// Anthropic 平台：使用细分类器处理没有 header 重置时间的 429
+		// 区分 Extra Usage required、Opus 周限、5h 窗口、普通 429
 		if account.Platform == PlatformAnthropic {
+			rateLimitType, cooldownDuration := s.classifyClaudeRateLimit(429, headers, responseBody)
+
+			// 记录分类结果
+			bodySnippet := truncateForLog(responseBody, 256)
+			slog.Info("claude_429_classified",
+				"account_id", account.ID,
+				"account_name", account.Name,
+				"type", rateLimitType,
+				"cooldown_duration", cooldownDuration,
+				"body_snippet", string(bodySnippet))
+
+			// 根据分类结果设置冷却时间
+			if cooldownDuration > 0 {
+				until := time.Now().Add(cooldownDuration)
+				reason := fmt.Sprintf("Claude rate limit: %s", rateLimitType)
+
+				s.notifyAccountSchedulingBlocked(account, until, "claude_429_classified")
+				if err := s.accountRepo.SetTempUnschedulable(ctx, account.ID, until, reason); err != nil {
+					slog.Error("failed_to_set_temp_unschedulable", "account_id", account.ID, "error", err)
+					return
+				}
+
+				// 缓存更新（如果存在）
+				if s.tempUnschedCache != nil {
+					state := &TempUnschedState{
+						UntilUnix:    until.Unix(),
+						ErrorMessage: reason,
+					}
+					if err := s.tempUnschedCache.SetTempUnsched(ctx, account.ID, state); err != nil {
+						slog.Warn("failed_to_set_temp_unsched_cache", "account_id", account.ID, "error", err)
+					}
+				}
+
+				slog.Info("claude_429_cooldown_applied",
+					"account_id", account.ID,
+					"type", rateLimitType,
+					"until", until,
+					"duration", cooldownDuration)
+				return
+			}
+
+			// 分类器返回 0 表示应回退到默认处理（未识别类型）
 			slog.Warn("rate_limit_429_no_reset_time_skipped",
 				"account_id", account.ID,
 				"platform", account.Platform,
-				"reason", "no rate limit reset time in headers, likely not a real rate limit")
+				"classified_type", rateLimitType,
+				"reason", "no rate limit reset time in headers and classifier returned unknown")
 			return
 		}
 
@@ -990,6 +1049,49 @@ func (s *RateLimitService) handle429(ctx context.Context, account *Account, head
 	}
 
 	slog.Info("account_rate_limited", "account_id", account.ID, "reset_at", resetAt)
+}
+
+// classifyClaudeRateLimit 分类 Claude 429 响应
+// 参考 CRS 的 _classifyClaudeRateLimit 实现
+// 来源：claude-relay-service/src/services/claude-relay.ts
+//
+// 返回值：
+//   - ClaudeRateLimitType: 分类结果
+//   - time.Duration: 建议冷却时长（0 表示应回退到 retry-after 解析）
+func (s *RateLimitService) classifyClaudeRateLimit(statusCode int, headers http.Header, body []byte) (ClaudeRateLimitType, time.Duration) {
+	if statusCode != 429 {
+		return ClaudeRateLimitTypeUnknown, 0
+	}
+
+	bodyStr := strings.ToLower(string(body))
+
+	// 类型 B：Extra Usage required（优先级最高）
+	// 关键字：extra usage required（大小写不敏感）
+	if strings.Contains(bodyStr, "extra usage required") {
+		return ClaudeRateLimitTypeExtraUsage, 24 * time.Hour
+	}
+
+	// 类型 C：Opus 周限
+	// 关键字：claude-opus.*models per week（正则，大小写不敏感）
+	if claudeOpusWeeklyPattern.MatchString(bodyStr) {
+		return ClaudeRateLimitTypeOpusWeekly, 168 * time.Hour
+	}
+
+	// 类型 D：5h 窗口限流
+	// 关键字：5 hour window（大小写不敏感）
+	if strings.Contains(bodyStr, "5 hour window") {
+		return ClaudeRateLimitType5HourWindow, 5 * time.Hour
+	}
+
+	// 类型 A：无 retry-after / x-ratelimit-reset header 的普通 429
+	retryAfter := headers.Get("retry-after")
+	rateLimitReset := headers.Get("x-ratelimit-reset")
+	if retryAfter == "" && rateLimitReset == "" {
+		return ClaudeRateLimitTypeGeneric, 1 * time.Hour
+	}
+
+	// 其他：未识别（回退到解析 retry-after）
+	return ClaudeRateLimitTypeUnknown, 0
 }
 
 func (s *RateLimitService) apply429FallbackRateLimit(ctx context.Context, account *Account, reason string) {
