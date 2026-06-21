@@ -5,6 +5,8 @@ import (
 	"net/http"
 	"testing"
 	"time"
+
+	"github.com/Wei-Shaw/sub2api/internal/pkg/tlsfingerprint"
 )
 
 type accountUsageCodexProbeRepo struct {
@@ -154,6 +156,32 @@ func TestAccountUsageService_GetOpenAIUsage_DoesNotPromoteCodexExtraToRateLimit(
 	case got := <-repo.rateLimitCh:
 		t.Fatalf("不应将已耗尽的 codex extra 持久化为运行时限流状态: %v", got)
 	case <-time.After(200 * time.Millisecond):
+	}
+}
+
+func TestAccountUsageServiceResolveUsageTLSProfileUsesClientFamily(t *testing.T) {
+	t.Parallel()
+
+	svc := &AccountUsageService{}
+	account := &Account{Extra: map[string]any{"client_family": "codex-cli"}}
+
+	profile := svc.resolveUsageTLSProfile(account)
+	if profile == nil {
+		t.Fatal("expected client family TLS profile")
+	}
+	if profile.Name != tlsfingerprint.ProfileNameCodexCLIDefault {
+		t.Fatalf("profile.Name = %q, want %q", profile.Name, tlsfingerprint.ProfileNameCodexCLIDefault)
+	}
+}
+
+func TestAccountUsageServiceResolveUsageTLSProfileFallsBackWithoutClientFamily(t *testing.T) {
+	t.Parallel()
+
+	svc := &AccountUsageService{}
+	account := &Account{Extra: map[string]any{}}
+
+	if profile := svc.resolveUsageTLSProfile(account); profile != nil {
+		t.Fatalf("expected nil fallback profile without TLS service, got %#v", profile)
 	}
 }
 

@@ -13,6 +13,7 @@ import (
 	"sync"
 	"time"
 
+	"github.com/Wei-Shaw/sub2api/internal/pkg/clientidentity"
 	httppool "github.com/Wei-Shaw/sub2api/internal/pkg/httpclient"
 	openaipkg "github.com/Wei-Shaw/sub2api/internal/pkg/openai"
 	"github.com/Wei-Shaw/sub2api/internal/pkg/pagination"
@@ -1162,7 +1163,7 @@ func (s *AccountUsageService) fetchOAuthUsageRaw(ctx context.Context, account *A
 		AccessToken: accessToken,
 		ProxyURL:    proxyURL,
 		AccountID:   account.ID,
-		TLSProfile:  s.tlsFPProfileService.ResolveTLSProfile(account),
+		TLSProfile:  s.resolveUsageTLSProfile(account),
 	}
 
 	// 尝试获取缓存的 Fingerprint（包含 User-Agent 等信息）
@@ -1173,6 +1174,18 @@ func (s *AccountUsageService) fetchOAuthUsageRaw(ctx context.Context, account *A
 	}
 
 	return s.usageFetcher.FetchUsageWithOptions(ctx, opts)
+}
+
+func (s *AccountUsageService) resolveUsageTLSProfile(account *Account) *tlsfingerprint.Profile {
+	if snapshot := clientidentity.NewResolver().Resolve(account); snapshot != nil {
+		if profile := tlsfingerprint.BuiltInProfileByName(snapshot.TLSProfileName); profile != nil {
+			return profile
+		}
+	}
+	if s.tlsFPProfileService == nil {
+		return nil
+	}
+	return s.tlsFPProfileService.ResolveTLSProfile(account)
 }
 
 // parseTime 尝试多种格式解析时间
