@@ -162,6 +162,7 @@ func TestOpenAIGatewayHandlerResponses_ImageIntentRejectedByImageConcurrency(t *
 	h := &OpenAIGatewayHandler{
 		gatewayService:          &service.OpenAIGatewayService{},
 		billingCacheService:     &service.BillingCacheService{},
+		billingGate:             newTestBillingGate(),
 		apiKeyService:           &service.APIKeyService{},
 		concurrencyHelper:       &ConcurrencyHelper{concurrencyService: service.NewConcurrencyService(&helperConcurrencyCacheStub{userSeq: []bool{true}})},
 		errorPassthroughService: nil,
@@ -207,6 +208,7 @@ func TestOpenAIGatewayHandlerResponses_TextOnlyNotRejectedByImageConcurrency(t *
 	h := &OpenAIGatewayHandler{
 		gatewayService:      &service.OpenAIGatewayService{},
 		billingCacheService: service.NewBillingCacheService(nil, nil, nil, nil, nil, nil, &config.Config{RunMode: config.RunModeSimple}, nil),
+		billingGate:         newTestBillingGate(),
 		apiKeyService:       &service.APIKeyService{},
 		concurrencyHelper:   &ConcurrencyHelper{concurrencyService: service.NewConcurrencyService(&helperConcurrencyCacheStub{userSeq: []bool{true}})},
 		cfg: &config.Config{Gateway: config.GatewayConfig{ImageConcurrency: config.ImageConcurrencyConfig{

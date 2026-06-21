@@ -185,6 +185,7 @@ func newTestGatewayHandler(t *testing.T, group *service.Group, accounts []*servi
 	h := &GatewayHandler{
 		gatewayService:      gwSvc,
 		billingCacheService: billingCacheSvc,
+		billingGate:         newTestBillingGate(),
 		concurrencyHelper:   concurrencyHelper,
 		// 这些字段对本测试不敏感，保持较小即可
 		maxAccountSwitches:       1,

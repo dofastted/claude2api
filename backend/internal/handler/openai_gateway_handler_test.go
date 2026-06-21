@@ -330,7 +330,7 @@ func TestOpenAIMissingResponsesDependencies(t *testing.T) {
 	t.Run("all_dependencies_missing", func(t *testing.T) {
 		h := &OpenAIGatewayHandler{}
 		require.Equal(t,
-			[]string{"gatewayService", "billingCacheService", "apiKeyService", "concurrencyHelper"},
+			[]string{"gatewayService", "billingGate", "apiKeyService", "concurrencyHelper"},
 			h.missingResponsesDependencies(),
 		)
 	})
@@ -339,6 +339,7 @@ func TestOpenAIMissingResponsesDependencies(t *testing.T) {
 		h := &OpenAIGatewayHandler{
 			gatewayService:      &service.OpenAIGatewayService{},
 			billingCacheService: &service.BillingCacheService{},
+			billingGate:         newTestBillingGate(),
 			apiKeyService:       &service.APIKeyService{},
 			concurrencyHelper: &ConcurrencyHelper{
 				concurrencyService: &service.ConcurrencyService{},
@@ -393,6 +394,7 @@ func TestOpenAIEnsureResponsesDependencies(t *testing.T) {
 		h := &OpenAIGatewayHandler{
 			gatewayService:      &service.OpenAIGatewayService{},
 			billingCacheService: &service.BillingCacheService{},
+			billingGate:         newTestBillingGate(),
 			apiKeyService:       &service.APIKeyService{},
 			concurrencyHelper: &ConcurrencyHelper{
 				concurrencyService: &service.ConcurrencyService{},
@@ -870,6 +872,7 @@ func TestOpenAIResponsesWebSocket_ContentModerationBlocksFirstFrame(t *testing.T
 	h := &OpenAIGatewayHandler{
 		gatewayService:           &service.OpenAIGatewayService{},
 		billingCacheService:      &service.BillingCacheService{},
+		billingGate:              newTestBillingGate(),
 		apiKeyService:            &service.APIKeyService{},
 		contentModerationService: moderationSvc,
 		concurrencyHelper:        NewConcurrencyHelper(service.NewConcurrencyService(&concurrencyCacheMock{}), SSEPingFormatNone, time.Second),
@@ -1079,6 +1082,7 @@ func newOpenAIHandlerForPreviousResponseIDValidation(t *testing.T, cache *concur
 	return &OpenAIGatewayHandler{
 		gatewayService:      &service.OpenAIGatewayService{},
 		billingCacheService: &service.BillingCacheService{},
+		billingGate:         newTestBillingGate(),
 		apiKeyService:       &service.APIKeyService{},
 		concurrencyHelper:   NewConcurrencyHelper(service.NewConcurrencyService(cache), SSEPingFormatNone, time.Second),
 	}
@@ -1354,6 +1358,7 @@ func TestOpenAIResponsesWebSocket_FailoverOnUpstreamUsageLimitEvent(t *testing.T
 	h := &OpenAIGatewayHandler{
 		gatewayService:      gatewaySvc,
 		billingCacheService: billingCacheSvc,
+		billingGate:         newTestBillingGate(),
 		apiKeyService:       &service.APIKeyService{},
 		concurrencyHelper:   NewConcurrencyHelper(service.NewConcurrencyService(cache), SSEPingFormatNone, time.Second),
 		maxAccountSwitches:  3,
@@ -1540,6 +1545,7 @@ func runOpenAIResponsesWebSocketUsageLogCase(t *testing.T, tc openAIResponsesWSU
 	h := &OpenAIGatewayHandler{
 		gatewayService:      gatewaySvc,
 		billingCacheService: billingCacheSvc,
+		billingGate:         newTestBillingGate(),
 		apiKeyService:       &service.APIKeyService{},
 		concurrencyHelper:   NewConcurrencyHelper(service.NewConcurrencyService(cache), SSEPingFormatNone, time.Second),
 	}
