@@ -25,6 +25,10 @@ const cchSeed uint64 = 0x6E52736AC806831E
 // Only touches system array blocks whose text starts with "x-anthropic-billing-header".
 func syncBillingHeaderVersion(body []byte, userAgent string) []byte {
 	version := ExtractCLIVersion(userAgent)
+	return syncBillingHeaderCLIVersion(body, version)
+}
+
+func syncBillingHeaderCLIVersion(body []byte, version string) []byte {
 	if version == "" {
 		return body
 	}

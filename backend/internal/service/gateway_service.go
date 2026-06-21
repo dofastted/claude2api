@@ -27,6 +27,7 @@ import (
 
 	"github.com/Wei-Shaw/sub2api/internal/config"
 	"github.com/Wei-Shaw/sub2api/internal/pkg/claude"
+	"github.com/Wei-Shaw/sub2api/internal/pkg/clientidentity"
 	"github.com/Wei-Shaw/sub2api/internal/pkg/ctxkey"
 	infraerrors "github.com/Wei-Shaw/sub2api/internal/pkg/errors"
 	"github.com/Wei-Shaw/sub2api/internal/pkg/logger"
@@ -650,6 +651,7 @@ type GatewayService struct {
 	tlsFPProfileService   *TLSFingerprintProfileService
 	balanceNotifyService  *BalanceNotifyService
 	userPlatformQuotaRepo UserPlatformQuotaRepository
+	identityRegistry      *clientidentity.Registry
 }
 
 // NewGatewayService creates a new GatewayService
@@ -681,9 +683,13 @@ func NewGatewayService(
 	resolver *ModelPricingResolver,
 	balanceNotifyService *BalanceNotifyService,
 	userPlatformQuotaRepo UserPlatformQuotaRepository,
+	identityRegistry *clientidentity.Registry,
 ) *GatewayService {
 	userGroupRateTTL := resolveUserGroupRateCacheTTL(cfg)
 	modelsListTTL := resolveModelsListCacheTTL(cfg)
+	if identityRegistry == nil {
+		identityRegistry = clientidentity.NewRegistry()
+	}
 
 	svc := &GatewayService{
 		accountRepo:           accountRepo,
@@ -717,6 +723,7 @@ func NewGatewayService(
 		resolver:              resolver,
 		balanceNotifyService:  balanceNotifyService,
 		userPlatformQuotaRepo: userPlatformQuotaRepo,
+		identityRegistry:      identityRegistry,
 	}
 	svc.userGroupRateResolver = newUserGroupRateResolver(
 		userGroupRateRepo,
@@ -731,6 +738,26 @@ func NewGatewayService(
 		svc.initDebugGatewayBodyFile(path)
 	}
 	return svc
+}
+
+func (s *GatewayService) claudeCLIVersion() string {
+	if s != nil && s.identityRegistry != nil {
+		if snapshots := s.identityRegistry.Get(); snapshots != nil {
+			if cliVersion := strings.TrimSpace(snapshots.Claude.VersionFields.CLIVersion); cliVersion != "" {
+				return cliVersion
+			}
+		}
+	}
+	return defaultClaudeCLIVersion()
+}
+
+func defaultClaudeCLIVersion() string {
+	if snapshots := clientidentity.NewRegistry().Get(); snapshots != nil {
+		if cliVersion := strings.TrimSpace(snapshots.Claude.VersionFields.CLIVersion); cliVersion != "" {
+			return cliVersion
+		}
+	}
+	return claude.CLICurrentVersion
 }
 
 // GenerateSessionHash 从预解析请求计算粘性会话 hash
@@ -1425,7 +1452,7 @@ func (s *GatewayService) applyClaudeCodeOAuthMimicryToBody(
 	systemPromptInjectionEnabled, systemPrompt, systemPromptBlocks := s.claudeOAuthSystemPromptInjectionSettings(ctx)
 	systemRewritten := false
 	if systemPromptInjectionEnabled && !strings.Contains(strings.ToLower(model), "haiku") {
-		body = rewriteSystemForNonClaudeCodeWithPromptBlocks(body, normalizeSystemParam(systemRaw), systemPrompt, systemPromptBlocks)
+		body = rewriteSystemForNonClaudeCodeWithPromptBlocks(body, normalizeSystemParam(systemRaw), systemPrompt, systemPromptBlocks, s.claudeCLIVersion())
 		systemRewritten = true
 	}
 
@@ -4248,11 +4275,11 @@ func injectClaudeCodePrompt(body []byte, system any) []byte {
 // 无法通过检测，因为后续内容仍为非 Claude Code 格式。
 // 策略：将原始 system prompt 提取并注入为 user/assistant 消息对，system 仅保留 Claude Code 标识。
 func rewriteSystemForNonClaudeCode(body []byte, system any) []byte {
-	return rewriteSystemForNonClaudeCodeWithPromptBlocks(body, system, "", "")
+	return rewriteSystemForNonClaudeCodeWithPromptBlocks(body, system, "", "", defaultClaudeCLIVersion())
 }
 
 func rewriteSystemForNonClaudeCodeWithPrompt(body []byte, system any, expansionPrompt string) []byte {
-	return rewriteSystemForNonClaudeCodeWithPromptBlocks(body, system, expansionPrompt, "")
+	return rewriteSystemForNonClaudeCodeWithPromptBlocks(body, system, expansionPrompt, "", defaultClaudeCLIVersion())
 }
 
 type claudeOAuthSystemPromptBlockConfig struct {
@@ -4314,19 +4341,19 @@ func decodeClaudeOAuthSystemPromptCacheControl(raw json.RawMessage) (any, error)
 	return value, nil
 }
 
-func expandClaudeOAuthSystemPromptTextTemplate(body []byte, text string, expansionPrompt string) (string, error) {
+func expandClaudeOAuthSystemPromptTextTemplate(body []byte, text string, expansionPrompt string, cliVersion string) (string, error) {
 	if text == "" {
 		return "", nil
 	}
 	expansionPrompt = defaultClaudeOAuthExpansionPrompt(expansionPrompt)
-	billingText, err := buildBillingAttributionText(body, claude.CLICurrentVersion)
+	billingText, err := buildBillingAttributionText(body, cliVersion)
 	if err != nil {
 		return "", err
 	}
-	fp := computeClaudeCodeFingerprint(body, claude.CLICurrentVersion)
+	fp := computeClaudeCodeFingerprint(body, cliVersion)
 	replacer := strings.NewReplacer(
 		"{billing_header}", billingText,
-		"{cc_version}", claude.CLICurrentVersion,
+		"{cc_version}", cliVersion,
 		"{fp}", fp,
 		"{claude_code_system_prompt}", claudeCodeSystemPrompt,
 		"{claude_code_expansion_prompt}", expansionPrompt,
@@ -4358,7 +4385,7 @@ func defaultClaudeOAuthSystemPromptBlockConfig() []claudeOAuthSystemPromptBlockC
 	}
 }
 
-func buildClaudeOAuthSystemPromptBlocksJSON(body []byte, expansionPrompt string, blocksConfig string) ([][]byte, error) {
+func buildClaudeOAuthSystemPromptBlocksJSON(body []byte, expansionPrompt string, blocksConfig string, cliVersion string) ([][]byte, error) {
 	blocks, err := parseClaudeOAuthSystemPromptBlocksConfig(blocksConfig)
 	if err != nil {
 		return nil, err
@@ -4379,7 +4406,7 @@ func buildClaudeOAuthSystemPromptBlocksJSON(body []byte, expansionPrompt string,
 		if blockType != "text" {
 			return nil, fmt.Errorf("system block %d type %q is not supported", i, block.Type)
 		}
-		text, err := expandClaudeOAuthSystemPromptTextTemplate(body, block.Text, expansionPrompt)
+		text, err := expandClaudeOAuthSystemPromptTextTemplate(body, block.Text, expansionPrompt, cliVersion)
 		if err != nil {
 			return nil, err
 		}
@@ -4422,7 +4449,7 @@ func ValidateClaudeOAuthSystemPromptBlocksConfig(raw string) error {
 	return nil
 }
 
-func rewriteSystemForNonClaudeCodeWithPromptBlocks(body []byte, system any, expansionPrompt string, blocksConfig string) []byte {
+func rewriteSystemForNonClaudeCodeWithPromptBlocks(body []byte, system any, expansionPrompt string, blocksConfig string, cliVersion string) []byte {
 	system = normalizeSystemParam(system)
 	expansionPrompt = defaultClaudeOAuthExpansionPrompt(expansionPrompt)
 
@@ -4455,10 +4482,10 @@ func rewriteSystemForNonClaudeCodeWithPromptBlocks(body []byte, system any, expa
 	//    billing block 的 cch=00000 是占位符，会被 buildUpstreamRequest 里的
 	//    signBillingHeaderCCH 替换成 xxhash64 签名。缺失 billing block 的系统 payload
 	//    是 Anthropic 判定第三方的关键信号之一（真实 CLI 每个请求都带）。
-	systemBlocks, blockErr := buildClaudeOAuthSystemPromptBlocksJSON(body, expansionPrompt, blocksConfig)
+	systemBlocks, blockErr := buildClaudeOAuthSystemPromptBlocksJSON(body, expansionPrompt, blocksConfig, cliVersion)
 	if blockErr != nil {
 		logger.LegacyPrintf("service.gateway", "Warning: failed to build configured Claude OAuth system blocks: %v", blockErr)
-		systemBlocks, blockErr = buildClaudeOAuthSystemPromptBlocksJSON(body, expansionPrompt, "")
+		systemBlocks, blockErr = buildClaudeOAuthSystemPromptBlocksJSON(body, expansionPrompt, "", cliVersion)
 	}
 	if blockErr != nil {
 		logger.LegacyPrintf("service.gateway", "Warning: failed to build default Claude OAuth system blocks: %v", blockErr)
@@ -4844,7 +4871,7 @@ func (s *GatewayService) Forward(ctx context.Context, c *gin.Context, account *A
 			systemRaw, _ := parsed.SystemValue()
 			systemPromptInjectionEnabled, systemPrompt, systemPromptBlocks := s.claudeOAuthSystemPromptInjectionSettings(ctx)
 			if systemPromptInjectionEnabled {
-				if err := replaceBody(rewriteSystemForNonClaudeCodeWithPromptBlocks(body, systemRaw, systemPrompt, systemPromptBlocks)); err != nil {
+				if err := replaceBody(rewriteSystemForNonClaudeCodeWithPromptBlocks(body, systemRaw, systemPrompt, systemPromptBlocks, s.claudeCLIVersion())); err != nil {
 					return nil, err
 				}
 				systemRewritten = true
@@ -6708,9 +6735,9 @@ func (s *GatewayService) buildUpstreamRequest(ctx context.Context, c *gin.Contex
 		}
 	}
 
-	// 同步 billing header cc_version 与实际发送的 User-Agent 版本
+	// 同步 billing header cc_version 与当前 Claude CLI identity 版本
 	if fingerprint != nil {
-		body = syncBillingHeaderVersion(body, fingerprint.UserAgent)
+		body = syncBillingHeaderCLIVersion(body, s.claudeCLIVersion())
 	}
 
 	// === 计算最终 anthropic-beta header（先于 body sanitize 与 CCH 签名）===
@@ -10201,9 +10228,9 @@ func (s *GatewayService) buildCountTokensRequest(ctx context.Context, c *gin.Con
 		}
 	}
 
-	// 同步 billing header cc_version 与实际发送的 User-Agent 版本
+	// 同步 billing header cc_version 与当前 Claude CLI identity 版本
 	if ctFingerprint != nil && ctEnableFP {
-		body = syncBillingHeaderVersion(body, ctFingerprint.UserAgent)
+		body = syncBillingHeaderCLIVersion(body, s.claudeCLIVersion())
 	}
 
 	// === 计算最终 anthropic-beta header（先于 body sanitize 与 CCH 签名）===

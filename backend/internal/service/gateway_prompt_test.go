@@ -492,7 +492,7 @@ func TestRewriteSystemForNonClaudeCodeWithPromptBlocks_UsesConfiguredBlocks(t *t
 		]
 	}`
 
-	result := rewriteSystemForNonClaudeCodeWithPromptBlocks(body, "Project instructions", "", blocks)
+	result := rewriteSystemForNonClaudeCodeWithPromptBlocks(body, "Project instructions", "", blocks, claude.CLICurrentVersion)
 
 	system := gjson.GetBytes(result, "system")
 	require.True(t, system.IsArray())
@@ -505,4 +505,22 @@ func TestRewriteSystemForNonClaudeCodeWithPromptBlocks_UsesConfiguredBlocks(t *t
 	require.False(t, arr[1].Get("cache_control").Exists())
 	require.Equal(t, "tail", arr[2].Get("text").String())
 	require.Equal(t, "1h", arr[2].Get("cache_control.ttl").String())
+}
+
+func TestExpandClaudeOAuthSystemPromptTextTemplate_UsesProvidedCLIVersion(t *testing.T) {
+	body := []byte(`{"messages":[{"role":"user","content":"hello from test"}]}`)
+	cliVersion := "9.8.7"
+	fp := computeClaudeCodeFingerprint(body, cliVersion)
+
+	got, err := expandClaudeOAuthSystemPromptTextTemplate(
+		body,
+		"{cc_version}|{fp}|{billing_header}",
+		"",
+		cliVersion,
+	)
+
+	require.NoError(t, err)
+	require.Contains(t, got, cliVersion+"|"+fp)
+	require.Contains(t, got, "cc_version="+cliVersion+"."+fp)
+	require.NotContains(t, got, claude.CLICurrentVersion+"."+fp)
 }
