@@ -636,5 +636,13 @@ func (s *stubAdminService) RevertAccountProxyFallback(ctx context.Context, id in
 	return nil
 }
 
+func (s *stubAdminService) EnableAllOpenAIWS(ctx context.Context, id int64) error {
+	return nil
+}
+
+func (s *stubAdminService) ResetOpenAIWS(ctx context.Context, id int64) error {
+	return nil
+}
+
 // Ensure stub implements interface.
 var _ service.AdminService = (*stubAdminService)(nil)

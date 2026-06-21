@@ -1147,6 +1147,36 @@ func (h *AccountHandler) RevertProxyFallback(c *gin.Context) {
 	response.Success(c, gin.H{"message": "reverted"})
 }
 
+// EnableAllOpenAIWS handles enabling all OpenAI WebSocket account overrides.
+// POST /api/v1/admin/accounts/:id/openai-ws/enable-all
+func (h *AccountHandler) EnableAllOpenAIWS(c *gin.Context) {
+	id, err := strconv.ParseInt(c.Param("id"), 10, 64)
+	if err != nil {
+		response.BadRequest(c, "Invalid account ID")
+		return
+	}
+	if err := h.adminService.EnableAllOpenAIWS(c.Request.Context(), id); err != nil {
+		response.ErrorFrom(c, err)
+		return
+	}
+	response.Success(c, gin.H{"message": "OpenAI WS features enabled"})
+}
+
+// ResetOpenAIWS handles deleting OpenAI WebSocket account overrides.
+// POST /api/v1/admin/accounts/:id/openai-ws/reset
+func (h *AccountHandler) ResetOpenAIWS(c *gin.Context) {
+	id, err := strconv.ParseInt(c.Param("id"), 10, 64)
+	if err != nil {
+		response.BadRequest(c, "Invalid account ID")
+		return
+	}
+	if err := h.adminService.ResetOpenAIWS(c.Request.Context(), id); err != nil {
+		response.ErrorFrom(c, err)
+		return
+	}
+	response.Success(c, gin.H{"message": "OpenAI WS configuration reset"})
+}
+
 // BatchClearError handles batch clearing account errors
 // POST /api/v1/admin/accounts/batch-clear-error
 func (h *AccountHandler) BatchClearError(c *gin.Context) {
