@@ -651,6 +651,7 @@ Copyright (c) 2026 Wesley Liddick
 
 <div align="center">
 
+感谢linux.do社区支持
 **If you find this project useful, please give it a star!**
 
 </div>
