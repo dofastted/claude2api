@@ -1117,7 +1117,8 @@ func (s *OpenAIGatewayService) buildOpenAIWSHeaders(
 	turnState string,
 	turnMetadata string,
 	promptCacheKey string,
-) (http.Header, openAIWSSessionHeaderResolution) {
+	codexProfile *CodexEnvironmentProfile,
+) (http.Header, openAIWSSessionHeaderResolution, error) {
 	headers := make(http.Header)
 	headers.Set("authorization", "Bearer "+token)
 
@@ -1182,7 +1183,15 @@ func (s *OpenAIGatewayService) buildOpenAIWSHeaders(
 		headers.Set("user-agent", s.codexCLIUserAgent())
 	}
 
-	return headers, sessionResolution
+	if codexProfile != nil {
+		applyCodexEnvironmentProfile(&http.Request{Header: headers}, account, codexProfile, CodexProfileApplyOptions{
+			APIKeyID:       getAPIKeyIDFromContext(c),
+			PromptCacheKey: promptCacheKey,
+			WSBetaValue:    betaValue,
+			AcceptLanguage: headers.Get("accept-language"),
+		})
+	}
+	return headers, sessionResolution, nil
 }
 
 func (s *OpenAIGatewayService) buildOpenAIWSCreatePayload(reqBody map[string]any, account *Account) map[string]any {
@@ -1869,7 +1878,19 @@ func (s *OpenAIGatewayService) forwardOpenAIWSV2(
 	storeDisabledConnMode := s.openAIWSStoreDisabledConnMode()
 	forceNewConnByPolicy := shouldForceNewConnOnStoreDisabled(storeDisabledConnMode, lastFailureReason)
 	forceNewConn := forceNewConnByPolicy && storeDisabled && previousResponseID == "" && sessionHash != "" && preferredConnID == ""
-	wsHeaders, sessionResolution := s.buildOpenAIWSHeaders(c, account, token, decision, isCodexCLI, turnState, turnMetadata, promptCacheKey)
+	codexProfileLease, codexProfile, profileErr := s.acquireCodexEnvironmentProfileForRequest(ctx, account, ginRequestHeader(c))
+	if profileErr != nil {
+		return nil, profileErr
+	}
+	defer func() {
+		if codexProfileLease != nil && codexProfileLease.ReleaseFunc != nil {
+			codexProfileLease.ReleaseFunc()
+		}
+	}()
+	wsHeaders, sessionResolution, headerErr := s.buildOpenAIWSHeaders(c, account, token, decision, isCodexCLI, turnState, turnMetadata, promptCacheKey, codexProfile)
+	if headerErr != nil {
+		return nil, headerErr
+	}
 	logOpenAIWSModeDebug(
 		"acquire_start account_id=%d account_type=%s transport=%s preferred_conn_id=%s has_previous_response_id=%v session_hash=%s has_turn_state=%v turn_state_len=%d has_turn_metadata=%v turn_metadata_len=%d store_disabled=%v store_disabled_conn_mode=%s retry_last_reason=%s force_new_conn=%v header_user_agent=%s header_openai_beta=%s header_originator=%s header_accept_language=%s header_session_id=%s header_conversation_id=%s session_id_source=%s conversation_id_source=%s has_prompt_cache_key=%v has_chatgpt_account_id=%v has_authorization=%v has_session_id=%v has_conversation_id=%v proxy_enabled=%v",
 		account.ID,
@@ -2916,7 +2937,19 @@ func (s *OpenAIGatewayService) ProxyResponsesWebSocketFromClient(
 		}
 	}
 
-	wsHeaders, _ := s.buildOpenAIWSHeaders(c, account, token, wsDecision, isCodexCLI, turnState, strings.TrimSpace(c.GetHeader(openAIWSTurnMetadataHeader)), firstPayload.promptCacheKey)
+	codexProfileLease, codexProfile, profileErr := s.acquireCodexEnvironmentProfileForRequest(ctx, account, ginRequestHeader(c))
+	if profileErr != nil {
+		return profileErr
+	}
+	defer func() {
+		if codexProfileLease != nil && codexProfileLease.ReleaseFunc != nil {
+			codexProfileLease.ReleaseFunc()
+		}
+	}()
+	wsHeaders, _, headerErr := s.buildOpenAIWSHeaders(c, account, token, wsDecision, isCodexCLI, turnState, strings.TrimSpace(c.GetHeader(openAIWSTurnMetadataHeader)), firstPayload.promptCacheKey, codexProfile)
+	if headerErr != nil {
+		return headerErr
+	}
 	baseAcquireReq := openAIWSAcquireRequest{
 		Account: account,
 		WSURL:   wsURL,
@@ -3905,7 +3938,10 @@ func (s *OpenAIGatewayService) ProxyResponsesWebSocketFromClient(
 		if nextPayload.promptCacheKey != "" {
 			// ingress 会话在整个客户端 WS 生命周期内复用同一上游连接；
 			// prompt_cache_key 对握手头的更新仅在未来需要重新建连时生效。
-			updatedHeaders, _ := s.buildOpenAIWSHeaders(c, account, token, wsDecision, isCodexCLI, turnState, strings.TrimSpace(c.GetHeader(openAIWSTurnMetadataHeader)), nextPayload.promptCacheKey)
+			updatedHeaders, _, headerErr := s.buildOpenAIWSHeaders(c, account, token, wsDecision, isCodexCLI, turnState, strings.TrimSpace(c.GetHeader(openAIWSTurnMetadataHeader)), nextPayload.promptCacheKey, codexProfile)
+			if headerErr != nil {
+				return headerErr
+			}
 			baseAcquireReq.Headers = updatedHeaders
 		}
 		if nextPayload.previousResponseID != "" {

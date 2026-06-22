@@ -1325,6 +1325,40 @@
         <p class="input-hint">{{ t('admin.accounts.expiresAtHint') }}</p>
       </div>
 
+      <EnvironmentProfileCard
+        v-if="account?.platform === 'anthropic' && (account?.type === 'oauth' || account?.type === 'setup-token')"
+        family="claude"
+        :profile="claudeEnvironmentProfile"
+        :pool="claudeEnvironmentProfilePool"
+        :single-environment="claudeEnvironmentSingleEnabled"
+        :locked="claudeEnvironmentProfileLocked"
+        :allow-learn="claudeEnvironmentAllowDesktopLearn"
+        :family-preference="claudeEnvironmentFamilyPreference"
+        :resetting="profileResetting"
+        @update:single-environment="claudeEnvironmentSingleEnabled = $event"
+        @update:locked="claudeEnvironmentProfileLocked = $event"
+        @update:allow-learn="claudeEnvironmentAllowDesktopLearn = $event"
+        @update:family-preference="claudeEnvironmentFamilyPreference = $event"
+        @reset="resetClaudeEnvironmentProfile"
+      />
+
+      <EnvironmentProfileCard
+        v-if="account?.platform === 'openai' && account?.type === 'oauth'"
+        family="codex"
+        :profile="codexEnvironmentProfile"
+        :pool="codexEnvironmentProfilePool"
+        :single-environment="codexEnvironmentSingleEnabled"
+        :locked="codexEnvironmentProfileLocked"
+        :allow-learn="codexEnvironmentAllowOfficialClientLearn"
+        :family-preference="codexEnvironmentFamilyPreference"
+        :resetting="profileResetting"
+        @update:single-environment="codexEnvironmentSingleEnabled = $event"
+        @update:locked="codexEnvironmentProfileLocked = $event"
+        @update:allow-learn="codexEnvironmentAllowOfficialClientLearn = $event"
+        @update:family-preference="codexEnvironmentFamilyPreference = $event"
+        @reset="resetCodexEnvironmentProfile"
+      />
+
       <!-- OpenAI 自动透传开关（OAuth/API Key） -->
       <div
         v-if="account?.platform === 'openai' && (account?.type === 'oauth' || account?.type === 'apikey')"
@@ -2387,7 +2421,11 @@ import type {
   CheckMixedChannelResponse,
   OpenAICompactMode,
   OpenAIResponsesMode,
-  OpenAIEndpointCapability
+  OpenAIEndpointCapability,
+  ClaudeEnvironmentProfile,
+  ClaudeEnvironmentProfilePool,
+  CodexEnvironmentProfile,
+  CodexEnvironmentProfilePool
 } from '@/types'
 import BaseDialog from '@/components/common/BaseDialog.vue'
 import ConfirmDialog from '@/components/common/ConfirmDialog.vue'
@@ -2397,6 +2435,7 @@ import ProxySelector from '@/components/common/ProxySelector.vue'
 import ProxyAdBanner from '@/components/common/ProxyAdBanner.vue'
 import GroupSelector from '@/components/common/GroupSelector.vue'
 import ModelWhitelistSelector from '@/components/account/ModelWhitelistSelector.vue'
+import EnvironmentProfileCard from '@/components/account/EnvironmentProfileCard.vue'
 import QuotaLimitCard from '@/components/account/QuotaLimitCard.vue'
 import { applyInterceptWarmup } from '@/components/account/credentialsBuilder'
 import { formatDateTime, formatDateTimeLocalInput, parseDateTimeLocalInput } from '@/utils/format'
@@ -2585,6 +2624,15 @@ const openaiOAuthResponsesWebSocketV2Mode = ref<OpenAIWSMode>(OPENAI_WS_MODE_OFF
 const openaiAPIKeyResponsesWebSocketV2Mode = ref<OpenAIWSMode>(OPENAI_WS_MODE_OFF)
 const codexCLIOnlyEnabled = ref(false)
 const codexCLIOnlyAllowClaudeCodeEnabled = ref(false)
+const claudeEnvironmentSingleEnabled = ref(true)
+const claudeEnvironmentProfileLocked = ref(true)
+const claudeEnvironmentAllowDesktopLearn = ref(true)
+const claudeEnvironmentFamilyPreference = ref('auto')
+const codexEnvironmentSingleEnabled = ref(true)
+const codexEnvironmentProfileLocked = ref(true)
+const codexEnvironmentAllowOfficialClientLearn = ref(true)
+const codexEnvironmentFamilyPreference = ref('auto')
+const profileResetting = ref(false)
 type CodexImageGenerationBridgeMode = 'inherit' | 'enabled' | 'disabled'
 const codexImageGenerationBridgeMode = ref<CodexImageGenerationBridgeMode>('inherit')
 const anthropicPassthroughEnabled = ref(false)
@@ -2965,6 +3013,14 @@ const syncFormFromAccount = (newAccount: Account | null) => {
   codexImageGenerationBridgeMode.value = 'inherit'
   anthropicPassthroughEnabled.value = false
   webSearchEmulationMode.value = 'default'
+  claudeEnvironmentSingleEnabled.value = extra?.claude_single_environment !== false
+  claudeEnvironmentProfileLocked.value = extra?.claude_environment_profile_locked !== false
+  claudeEnvironmentAllowDesktopLearn.value = extra?.claude_environment_allow_desktop_learn !== false
+  claudeEnvironmentFamilyPreference.value = typeof extra?.claude_environment_profile_family_preference === 'string' ? extra.claude_environment_profile_family_preference : 'auto'
+  codexEnvironmentSingleEnabled.value = extra?.codex_single_environment !== false
+  codexEnvironmentProfileLocked.value = extra?.codex_environment_profile_locked !== false
+  codexEnvironmentAllowOfficialClientLearn.value = extra?.codex_environment_allow_official_client_learn !== false
+  codexEnvironmentFamilyPreference.value = typeof extra?.codex_environment_profile_family_preference === 'string' ? extra.codex_environment_profile_family_preference : 'auto'
   if (newAccount.platform === 'openai' && (newAccount.type === 'oauth' || newAccount.type === 'apikey')) {
     openaiPassthroughEnabled.value = extra?.openai_passthrough === true || extra?.openai_oauth_passthrough === true
     openAICompactMode.value = (extra?.openai_compact_mode as OpenAICompactMode) || 'auto'
@@ -3632,10 +3688,79 @@ const handleClose = () => {
   emit('close')
 }
 
+const claudeEnvironmentProfile = computed(() => {
+  const profile = props.account?.extra?.claude_environment_profile
+  return profile && typeof profile === 'object' ? profile as ClaudeEnvironmentProfile : undefined
+})
+
+const claudeEnvironmentProfilePool = computed(() => {
+  const pool = props.account?.extra?.claude_environment_profile_pool
+  return pool && typeof pool === 'object' ? pool as ClaudeEnvironmentProfilePool : undefined
+})
+
+const codexEnvironmentProfile = computed(() => {
+  const profile = props.account?.extra?.codex_environment_profile
+  return profile && typeof profile === 'object' ? profile as CodexEnvironmentProfile : undefined
+})
+
+const codexEnvironmentProfilePool = computed(() => {
+  const pool = props.account?.extra?.codex_environment_profile_pool
+  return pool && typeof pool === 'object' ? pool as CodexEnvironmentProfilePool : undefined
+})
+
+const persistEnvironmentProfileSettings = async (account: Account): Promise<Account> => {
+  if (account.platform === 'anthropic' && (account.type === 'oauth' || account.type === 'setup-token')) {
+    return adminAPI.accounts.updateClaudeEnvironmentProfileSettings(account.id, {
+      single_environment: claudeEnvironmentSingleEnabled.value,
+      profile_locked: claudeEnvironmentProfileLocked.value,
+      allow_desktop_learn: claudeEnvironmentAllowDesktopLearn.value,
+      profile_family_preference: claudeEnvironmentFamilyPreference.value
+    })
+  }
+  if (account.platform === 'openai' && account.type === 'oauth') {
+    return adminAPI.accounts.updateCodexEnvironmentProfileSettings(account.id, {
+      single_environment: codexEnvironmentSingleEnabled.value,
+      profile_locked: codexEnvironmentProfileLocked.value,
+      allow_official_client_learn: codexEnvironmentAllowOfficialClientLearn.value,
+      profile_family_preference: codexEnvironmentFamilyPreference.value
+    })
+  }
+  return account
+}
+
+const resetClaudeEnvironmentProfile = async () => {
+  if (!props.account) return
+  profileResetting.value = true
+  try {
+    const updatedAccount = await adminAPI.accounts.resetClaudeEnvironmentProfile(props.account.id)
+    appStore.showSuccess(t('admin.accounts.environmentProfile.resetSuccess'))
+    emit('updated', updatedAccount)
+  } catch (error: any) {
+    appStore.showError(error.message || t('admin.accounts.environmentProfile.resetFailed'))
+  } finally {
+    profileResetting.value = false
+  }
+}
+
+const resetCodexEnvironmentProfile = async () => {
+  if (!props.account) return
+  profileResetting.value = true
+  try {
+    const updatedAccount = await adminAPI.accounts.resetCodexEnvironmentProfile(props.account.id)
+    appStore.showSuccess(t('admin.accounts.environmentProfile.resetSuccess'))
+    emit('updated', updatedAccount)
+  } catch (error: any) {
+    appStore.showError(error.message || t('admin.accounts.environmentProfile.resetFailed'))
+  } finally {
+    profileResetting.value = false
+  }
+}
+
 const submitUpdateAccount = async (accountID: number, updatePayload: Record<string, unknown>) => {
   submitting.value = true
   try {
-    const updatedAccount = await adminAPI.accounts.update(accountID, withAntigravityConfirmFlag(updatePayload))
+    const baseUpdatedAccount = await adminAPI.accounts.update(accountID, withAntigravityConfirmFlag(updatePayload))
+    const updatedAccount = await persistEnvironmentProfileSettings(baseUpdatedAccount)
     appStore.showSuccess(t('admin.accounts.accountUpdated'))
     emit('updated', updatedAccount)
     handleClose()

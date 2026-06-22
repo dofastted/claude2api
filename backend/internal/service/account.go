@@ -1516,6 +1516,101 @@ func (a *Account) GetWebSearchEmulationMode() string {
 	}
 }
 
+// IsClaudeSingleEnvironmentEnabled 返回 Anthropic OAuth/SetupToken 账号是否启用账号级固定环境 profile。
+// 字段缺失时默认启用；显式 false 表示关闭。
+func (a *Account) IsClaudeSingleEnvironmentEnabled() bool {
+	if a == nil || !a.IsAnthropicOAuthOrSetupToken() {
+		return false
+	}
+	if a.Extra == nil {
+		return true
+	}
+	enabled, ok := a.Extra[claudeSingleEnvironmentKey].(bool)
+	return !ok || enabled
+}
+
+func (a *Account) GetClaudeEnvironmentProfile() (*ClaudeEnvironmentProfile, bool) {
+	if a == nil || a.Extra == nil {
+		return nil, false
+	}
+	profile, err := DecodeClaudeEnvironmentProfile(a.Extra[claudeEnvironmentProfileKey])
+	if err != nil || profile == nil {
+		return nil, false
+	}
+	return profile, true
+}
+
+func (a *Account) AllowClaudeDesktopEnvironmentLearn() bool {
+	if a == nil || !a.IsAnthropicOAuthOrSetupToken() {
+		return false
+	}
+	if a.Extra == nil {
+		return true
+	}
+	allowed, ok := a.Extra[claudeEnvironmentAllowDesktopLearnKey].(bool)
+	return !ok || allowed
+}
+
+func (a *Account) ClaudeEnvironmentFamilyPreference() string {
+	if a == nil || a.Extra == nil {
+		return "auto"
+	}
+	preference, ok := a.Extra[claudeEnvironmentProfileFamilyPreferenceKey].(string)
+	if !ok || strings.TrimSpace(preference) == "" {
+		return "auto"
+	}
+	return strings.TrimSpace(preference)
+}
+
+// IsCodexSingleEnvironmentEnabled 返回 OpenAI OAuth 账号是否启用账号级固定 Codex 环境 profile。
+// 字段缺失时默认启用；显式 false 表示关闭。
+func (a *Account) IsCodexSingleEnvironmentEnabled() bool {
+	if a == nil || !a.IsOpenAIOAuth() {
+		return false
+	}
+	if a.Extra == nil {
+		return true
+	}
+	enabled, ok := a.Extra[codexSingleEnvironmentKey].(bool)
+	return !ok || enabled
+}
+
+func (a *Account) GetCodexEnvironmentProfile() (*CodexEnvironmentProfile, bool) {
+	if a == nil || a.Extra == nil {
+		return nil, false
+	}
+	profile, err := DecodeCodexEnvironmentProfile(a.Extra[codexEnvironmentProfileKey])
+	if err != nil || profile == nil {
+		return nil, false
+	}
+	return profile, true
+}
+
+func (a *Account) AllowCodexOfficialClientEnvironmentLearn() bool {
+	if a == nil || !a.IsOpenAIOAuth() {
+		return false
+	}
+	if a.Extra == nil {
+		return true
+	}
+	if allowed, ok := a.Extra[codexEnvironmentAllowOfficialClientLearnKey].(bool); ok {
+		return allowed
+	}
+	allowed, ok := a.Extra[codexEnvironmentAllowOfficialClientLearnLegacyKey].(bool)
+	return !ok || allowed
+}
+
+func (a *Account) CodexEnvironmentFamilyPreference() string {
+	if a == nil || a.Extra == nil {
+		return "auto"
+	}
+	preference, ok := a.Extra[codexEnvironmentProfileFamilyPreferenceKey].(string)
+	if !ok || strings.TrimSpace(preference) == "" {
+		return "auto"
+	}
+	return strings.TrimSpace(preference)
+}
+
 // IsCodexCLIOnlyEnabled 返回 OpenAI OAuth 账号是否启用"仅允许 Codex 官方客户端"。
 // 字段：accounts.extra.codex_cli_only。
 // 字段缺失或类型不正确时，按 false（关闭）处理。

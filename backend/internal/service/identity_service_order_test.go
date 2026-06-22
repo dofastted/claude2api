@@ -26,6 +26,12 @@ func (s *identityCacheStub) SetMaskedSessionID(_ context.Context, _ int64, sessi
 	return nil
 }
 
+func TestIdentityFingerprintCacheAccountIDUsesProfileSlotOnlyWhenEnabled(t *testing.T) {
+	require.Equal(t, int64(123), identityFingerprintCacheAccountID(123, 0, false))
+	require.Equal(t, int64(123), identityFingerprintCacheAccountID(123, -1, true))
+	require.Equal(t, int64(123000003), identityFingerprintCacheAccountID(123, 2, true))
+}
+
 func TestIdentityService_RewriteUserID_PreservesTopLevelFieldOrder(t *testing.T) {
 	cache := &identityCacheStub{}
 	svc := NewIdentityService(cache, nil)

@@ -817,6 +817,102 @@ export interface TempUnschedulableStatus {
   state?: TempUnschedulableState
 }
 
+export type ClaudeClientFamily = 'code_cli' | 'desktop'
+export type CodexClientFamily = 'cli' | 'desktop' | 'vscode' | 'custom'
+
+export interface ClaudeEnvironmentProfile {
+  family: ClaudeClientFamily
+  source: 'auto_default' | 'learned_desktop' | 'learned_code_cli' | 'admin' | string
+  client_id?: string
+  device_id?: string
+  session_seed?: string
+  user_agent?: string
+  x_app?: string
+  client_version?: string
+  platform?: string
+  platform_raw?: string
+  arch?: string
+  runtime?: string
+  runtime_version?: string
+  client_type?: string
+  headers?: Record<string, string>
+  telemetry_policy?: string
+  created_at?: string
+  updated_at?: string
+}
+
+export interface CodexEnvironmentProfile {
+  family: CodexClientFamily
+  source: 'auto_default' | 'learned_cli' | 'learned_desktop' | 'learned_vscode' | 'admin' | string
+  user_agent?: string
+  originator?: string
+  version?: string
+  session_seed?: string
+  conversation_seed?: string
+  client_type?: string
+  platform?: string
+  arch?: string
+  tls_profile?: string
+  headers?: Record<string, string>
+  created_at?: string
+  updated_at?: string
+}
+
+export type EnvironmentClass = 'windows' | 'linux' | 'macos' | 'desktop'
+export type EnvironmentProfileSlotState = 'empty' | 'bound'
+
+export interface ClaudeEnvironmentProfileSlot {
+  slot: number
+  environment: EnvironmentClass
+  state: EnvironmentProfileSlotState
+  profile?: ClaudeEnvironmentProfile | null
+  created_at?: string
+  updated_at?: string
+}
+
+export interface ClaudeEnvironmentProfilePool {
+  version?: number
+  capacity: number
+  slots: ClaudeEnvironmentProfileSlot[]
+}
+
+export interface CodexEnvironmentProfileSlot {
+  slot: number
+  environment: EnvironmentClass
+  state: EnvironmentProfileSlotState
+  profile?: CodexEnvironmentProfile | null
+  created_at?: string
+  updated_at?: string
+}
+
+export interface CodexEnvironmentProfilePool {
+  version?: number
+  capacity: number
+  slots: CodexEnvironmentProfileSlot[]
+}
+
+export interface ClaudeEnvironmentProfileSettingsRequest {
+  single_environment?: boolean
+  profile_locked?: boolean
+  allow_desktop_learn?: boolean
+  profile_family_preference?: string
+}
+
+export interface CodexEnvironmentProfileSettingsRequest {
+  single_environment?: boolean
+  profile_locked?: boolean
+  allow_official_client_learn?: boolean
+  profile_family_preference?: string
+}
+
+export interface ClaudeEnvironmentProfileUpdateRequest {
+  profile: ClaudeEnvironmentProfile
+}
+
+export interface CodexEnvironmentProfileUpdateRequest {
+  profile: CodexEnvironmentProfile
+}
+
 export interface Account {
   id: number
   name: string
@@ -829,8 +925,20 @@ export interface Account {
   // 改为通过 credentials_status.has_<key> 暴露存在性。
   credentials?: Record<string, unknown>
   credentials_status?: Record<string, boolean>
-  // Extra fields including Codex usage, OpenAI compact capability, and model-level rate limits.
+  // Extra fields including environment profiles, Codex usage, OpenAI compact capability, and model-level rate limits.
   extra?: (CodexUsageSnapshot & OpenAICompactState & {
+    claude_single_environment?: boolean
+    claude_environment_profile?: ClaudeEnvironmentProfile
+    claude_environment_profile_pool?: ClaudeEnvironmentProfilePool
+    claude_environment_profile_locked?: boolean
+    claude_environment_allow_desktop_learn?: boolean
+    claude_environment_profile_family_preference?: string
+    codex_single_environment?: boolean
+    codex_environment_profile?: CodexEnvironmentProfile
+    codex_environment_profile_pool?: CodexEnvironmentProfilePool
+    codex_environment_profile_locked?: boolean
+    codex_environment_allow_official_client_learn?: boolean
+    codex_environment_profile_family_preference?: string
     model_rate_limits?: Record<string, { rate_limited_at: string; rate_limit_reset_at: string }>
     antigravity_credits_overages?: Record<string, { activated_at: string; active_until: string }>
   } & Record<string, unknown>)

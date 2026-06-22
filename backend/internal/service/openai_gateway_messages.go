@@ -283,6 +283,11 @@ func (s *OpenAIGatewayService) ForwardAsAnthropic(
 	}
 	resp, err := s.httpUpstream.Do(upstreamReq, proxyURL, account.ID, account.Concurrency)
 	if err != nil {
+		releaseEnvironmentProfileLeaseFromRequest(upstreamReq)
+	} else {
+		wrapResponseBodyWithEnvironmentProfileLease(upstreamReq, resp)
+	}
+	if err != nil {
 		safeErr := sanitizeUpstreamErrorMessage(err.Error())
 		setOpsUpstreamError(c, 0, safeErr, "")
 		appendOpsUpstreamError(c, OpsUpstreamErrorEvent{

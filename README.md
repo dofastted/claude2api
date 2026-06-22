@@ -55,16 +55,16 @@ RUN_MODE=standard
 - Anthropic Messages 与 token 计数请求转发。
 - Gemini 兼容路径转发。
 
-### 固定环境 Profile
+### 环境 Profile 池
 
-近期任务已将 Claude 与 Codex 账号级环境固定作为重点能力：
+近期任务已将 Claude 与 Codex 环境隔离升级为按并发槽位工作的 Profile 池：
 
-- Claude OAuth / Setup Token 账号支持 `claude_environment_profile`。
-- OpenAI OAuth / Codex 账号支持 `codex_environment_profile`。
-- 一个账号任意时刻只生效一份环境 Profile。
-- 无 Profile 时可自动生成默认 CLI 环境，或在可信官方客户端请求中首次学习。
-- Profile 固定后不会被后续请求自动重学、自动切换或自动覆盖。
-- 管理员可在账号 UI 中查看、编辑、重置和锁定 Profile。
+- Claude OAuth / Setup Token 账号支持 `claude_environment_profile_pool`，并兼容旧 `claude_environment_profile`。
+- OpenAI OAuth / Codex 账号支持 `codex_environment_profile_pool`，并兼容旧 `codex_environment_profile`。
+- 一个账号的可用槽位数来自账号 `concurrency`；`concurrency=5` 表示最多 5 个并发 Profile 槽位。
+- 请求按 linux / windows / macos / desktop 环境绑定槽位；同环境请求优先复用匹配槽位，空槽首次绑定后不自动改绑。
+- 当前凭据冷却、限流或槽位耗尽时，调度可切换到下一个可用凭据的匹配环境槽位。
+- 管理员可在账号 UI 中查看、重置和锁定 Profile 池。
 
 ### 客户端真实性增强
 

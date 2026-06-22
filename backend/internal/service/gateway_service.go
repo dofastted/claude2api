@@ -615,43 +615,45 @@ func (s *GatewayService) TempUnscheduleRetryableError(ctx context.Context, accou
 
 // GatewayService handles API gateway operations
 type GatewayService struct {
-	accountRepo           AccountRepository
-	groupRepo             GroupRepository
-	usageLogRepo          UsageLogRepository
-	usageBillingRepo      UsageBillingRepository
-	userRepo              UserRepository
-	userSubRepo           UserSubscriptionRepository
-	userGroupRateRepo     UserGroupRateRepository
-	cache                 GatewayCache
-	digestStore           *DigestSessionStore
-	cfg                   *config.Config
-	schedulerSnapshot     *SchedulerSnapshotService
-	billingService        *BillingService
-	rateLimitService      *RateLimitService
-	billingCacheService   *BillingCacheService
-	identityService       *IdentityService
-	httpUpstream          HTTPUpstream
-	deferredService       *DeferredService
-	concurrencyService    *ConcurrencyService
-	claudeTokenProvider   *ClaudeTokenProvider
-	sessionLimitCache     SessionLimitCache // 会话数量限制缓存（仅 Anthropic OAuth/SetupToken）
-	rpmCache              RPMCache          // RPM 计数缓存（仅 Anthropic OAuth/SetupToken）
-	userGroupRateResolver *userGroupRateResolver
-	userGroupRateCache    *gocache.Cache
-	userGroupRateSF       singleflight.Group
-	modelsListCache       *gocache.Cache
-	modelsListCacheTTL    time.Duration
-	settingService        *SettingService
-	responseHeaderFilter  *responseheaders.CompiledHeaderFilter
-	debugModelRouting     atomic.Bool
-	debugClaudeMimic      atomic.Bool
-	channelService        *ChannelService
-	resolver              *ModelPricingResolver
-	debugGatewayBodyFile  atomic.Pointer[os.File] // non-nil when SUB2API_DEBUG_GATEWAY_BODY is set
-	tlsFPProfileService   *TLSFingerprintProfileService
-	balanceNotifyService  *BalanceNotifyService
-	userPlatformQuotaRepo UserPlatformQuotaRepository
-	identityRegistry      *clientidentity.Registry
+	accountRepo                        AccountRepository
+	groupRepo                          GroupRepository
+	usageLogRepo                       UsageLogRepository
+	usageBillingRepo                   UsageBillingRepository
+	userRepo                           UserRepository
+	userSubRepo                        UserSubscriptionRepository
+	userGroupRateRepo                  UserGroupRateRepository
+	cache                              GatewayCache
+	digestStore                        *DigestSessionStore
+	cfg                                *config.Config
+	schedulerSnapshot                  *SchedulerSnapshotService
+	billingService                     *BillingService
+	rateLimitService                   *RateLimitService
+	billingCacheService                *BillingCacheService
+	identityService                    *IdentityService
+	httpUpstream                       HTTPUpstream
+	deferredService                    *DeferredService
+	concurrencyService                 *ConcurrencyService
+	claudeTokenProvider                *ClaudeTokenProvider
+	sessionLimitCache                  SessionLimitCache // 会话数量限制缓存（仅 Anthropic OAuth/SetupToken）
+	rpmCache                           RPMCache          // RPM 计数缓存（仅 Anthropic OAuth/SetupToken）
+	userGroupRateResolver              *userGroupRateResolver
+	userGroupRateCache                 *gocache.Cache
+	userGroupRateSF                    singleflight.Group
+	claudeEnvironmentProfileSF         singleflight.Group
+	claudeEnvironmentProfileSlotLeases *EnvironmentProfileSlotLeaseManager
+	modelsListCache                    *gocache.Cache
+	modelsListCacheTTL                 time.Duration
+	settingService                     *SettingService
+	responseHeaderFilter               *responseheaders.CompiledHeaderFilter
+	debugModelRouting                  atomic.Bool
+	debugClaudeMimic                   atomic.Bool
+	channelService                     *ChannelService
+	resolver                           *ModelPricingResolver
+	debugGatewayBodyFile               atomic.Pointer[os.File] // non-nil when SUB2API_DEBUG_GATEWAY_BODY is set
+	tlsFPProfileService                *TLSFingerprintProfileService
+	balanceNotifyService               *BalanceNotifyService
+	userPlatformQuotaRepo              UserPlatformQuotaRepository
+	identityRegistry                   *clientidentity.Registry
 }
 
 // NewGatewayService creates a new GatewayService
@@ -692,38 +694,39 @@ func NewGatewayService(
 	}
 
 	svc := &GatewayService{
-		accountRepo:           accountRepo,
-		groupRepo:             groupRepo,
-		usageLogRepo:          usageLogRepo,
-		usageBillingRepo:      usageBillingRepo,
-		userRepo:              userRepo,
-		userSubRepo:           userSubRepo,
-		userGroupRateRepo:     userGroupRateRepo,
-		cache:                 cache,
-		digestStore:           digestStore,
-		cfg:                   cfg,
-		schedulerSnapshot:     schedulerSnapshot,
-		concurrencyService:    concurrencyService,
-		billingService:        billingService,
-		rateLimitService:      rateLimitService,
-		billingCacheService:   billingCacheService,
-		identityService:       identityService,
-		httpUpstream:          httpUpstream,
-		deferredService:       deferredService,
-		claudeTokenProvider:   claudeTokenProvider,
-		sessionLimitCache:     sessionLimitCache,
-		rpmCache:              rpmCache,
-		userGroupRateCache:    gocache.New(userGroupRateTTL, time.Minute),
-		settingService:        settingService,
-		modelsListCache:       gocache.New(modelsListTTL, time.Minute),
-		modelsListCacheTTL:    modelsListTTL,
-		responseHeaderFilter:  compileResponseHeaderFilter(cfg),
-		tlsFPProfileService:   tlsFPProfileService,
-		channelService:        channelService,
-		resolver:              resolver,
-		balanceNotifyService:  balanceNotifyService,
-		userPlatformQuotaRepo: userPlatformQuotaRepo,
-		identityRegistry:      identityRegistry,
+		accountRepo:                        accountRepo,
+		groupRepo:                          groupRepo,
+		usageLogRepo:                       usageLogRepo,
+		usageBillingRepo:                   usageBillingRepo,
+		userRepo:                           userRepo,
+		userSubRepo:                        userSubRepo,
+		userGroupRateRepo:                  userGroupRateRepo,
+		cache:                              cache,
+		digestStore:                        digestStore,
+		cfg:                                cfg,
+		schedulerSnapshot:                  schedulerSnapshot,
+		concurrencyService:                 concurrencyService,
+		billingService:                     billingService,
+		rateLimitService:                   rateLimitService,
+		billingCacheService:                billingCacheService,
+		identityService:                    identityService,
+		httpUpstream:                       httpUpstream,
+		deferredService:                    deferredService,
+		claudeTokenProvider:                claudeTokenProvider,
+		sessionLimitCache:                  sessionLimitCache,
+		rpmCache:                           rpmCache,
+		userGroupRateCache:                 gocache.New(userGroupRateTTL, time.Minute),
+		settingService:                     settingService,
+		modelsListCache:                    gocache.New(modelsListTTL, time.Minute),
+		modelsListCacheTTL:                 modelsListTTL,
+		responseHeaderFilter:               compileResponseHeaderFilter(cfg),
+		tlsFPProfileService:                tlsFPProfileService,
+		channelService:                     channelService,
+		resolver:                           resolver,
+		balanceNotifyService:               balanceNotifyService,
+		userPlatformQuotaRepo:              userPlatformQuotaRepo,
+		identityRegistry:                   identityRegistry,
+		claudeEnvironmentProfileSlotLeases: NewEnvironmentProfileSlotLeaseManager(),
 	}
 	svc.userGroupRateResolver = newUserGroupRateResolver(
 		userGroupRateRepo,
@@ -5042,6 +5045,11 @@ func (s *GatewayService) Forward(ctx context.Context, c *gin.Context, account *A
 		// 发送请求
 		resp, err = s.httpUpstream.DoWithTLS(upstreamReq, proxyURL, account.ID, account.Concurrency, tlsProfile)
 		if err != nil {
+			releaseEnvironmentProfileLeaseFromRequest(upstreamReq)
+		} else {
+			wrapResponseBodyWithEnvironmentProfileLease(upstreamReq, resp)
+		}
+		if err != nil {
 			if resp != nil && resp.Body != nil {
 				_ = resp.Body.Close()
 			}
@@ -5119,6 +5127,11 @@ func (s *GatewayService) Forward(ctx context.Context, c *gin.Context, account *A
 					releaseRetryCtx()
 					if buildErr == nil {
 						retryResp, retryErr := s.httpUpstream.DoWithTLS(retryReq, proxyURL, account.ID, account.Concurrency, tlsProfile)
+						if retryErr != nil {
+							releaseEnvironmentProfileLeaseFromRequest(retryReq)
+						} else {
+							wrapResponseBodyWithEnvironmentProfileLease(retryReq, retryResp)
+						}
 						if retryErr == nil {
 							if retryResp.StatusCode < 400 {
 								// 重试请求被上游接受后同步 ParsedRequest，保证 usage/日志看到真实请求体。
@@ -5160,6 +5173,11 @@ func (s *GatewayService) Forward(ctx context.Context, c *gin.Context, account *A
 									releaseRetryCtx2()
 									if buildErr2 == nil {
 										retryResp2, retryErr2 := s.httpUpstream.DoWithTLS(retryReq2, proxyURL, account.ID, account.Concurrency, tlsProfile)
+										if retryErr2 != nil {
+											releaseEnvironmentProfileLeaseFromRequest(retryReq2)
+										} else {
+											wrapResponseBodyWithEnvironmentProfileLease(retryReq2, retryResp2)
+										}
 										if retryErr2 == nil {
 											if retryResp2.StatusCode < 400 {
 												// 二阶段工具块降级成功时也必须更新当前 body。
@@ -5239,6 +5257,11 @@ func (s *GatewayService) Forward(ctx context.Context, c *gin.Context, account *A
 						releaseBudgetRetryCtx()
 						if buildErr == nil {
 							budgetRetryResp, retryErr := s.httpUpstream.DoWithTLS(budgetRetryReq, proxyURL, account.ID, account.Concurrency, tlsProfile)
+							if retryErr != nil {
+								releaseEnvironmentProfileLeaseFromRequest(budgetRetryReq)
+							} else {
+								wrapResponseBodyWithEnvironmentProfileLease(budgetRetryReq, budgetRetryResp)
+							}
 							if retryErr == nil {
 								if budgetRetryResp.StatusCode < 400 {
 									// budget 修正请求成功后，ParsedRequest 也要描述被接受的修正版。
@@ -6714,24 +6737,34 @@ func (s *GatewayService) buildUpstreamRequest(ctx context.Context, c *gin.Contex
 
 	// OAuth账号：应用统一指纹和metadata重写（受设置开关控制）
 	var fingerprint *Fingerprint
+	var claudeEnvironmentProfile *ClaudeEnvironmentProfile
+	var claudeEnvironmentProfileLease *EnvironmentProfileSlotLease
 	enableFP, enableMPT, enableCCH := true, false, false
 	if s.settingService != nil {
 		enableFP, enableMPT, enableCCH = s.settingService.GetGatewayForwardingSettings(ctx)
 	}
 	if account.IsOAuth() && s.identityService != nil {
-		// 1. 获取或创建指纹（包含随机生成的ClientID）
-		fp, err := s.identityService.GetOrCreateFingerprint(ctx, account.ID, clientHeaders)
+		var profileErr error
+		claudeEnvironmentProfileLease, claudeEnvironmentProfile, profileErr = s.acquireClaudeEnvironmentProfileForRequest(ctx, account, clientHeaders, body)
+		if profileErr != nil {
+			return nil, nil, profileErr
+		}
+		claudeEnvironmentProfileSlot := -1
+		if claudeEnvironmentProfileLease != nil {
+			claudeEnvironmentProfileSlot = claudeEnvironmentProfileLease.Slot
+		}
+		fp, err := s.identityService.GetOrCreateFingerprintWithOptions(ctx, account.ID, clientHeaders, FingerprintOptions{
+			AllowHeaderUpdate: claudeEnvironmentProfile == nil,
+			SeedProfile:       claudeEnvironmentProfile,
+			ProfileSlot:       claudeEnvironmentProfileSlot,
+			UseProfileSlot:    claudeEnvironmentProfileLease != nil,
+		})
 		if err != nil {
 			logger.LegacyPrintf("service.gateway", "Warning: failed to get fingerprint for account %d: %v", account.ID, err)
-			// 失败时降级为透传原始headers
 		} else {
 			if enableFP {
 				fingerprint = fp
 			}
-
-			// 2. 重写metadata.user_id（需要指纹中的ClientID和账号的account_uuid）
-			// 如果启用了会话ID伪装，会在重写后替换 session 部分为固定值
-			// 当 metadata 透传开启时跳过重写
 			if !enableMPT {
 				accountUUID := account.GetExtraString("account_uuid")
 				if accountUUID != "" && fp.ClientID != "" {
@@ -6820,13 +6853,16 @@ func (s *GatewayService) buildUpstreamRequest(ctx context.Context, c *gin.Contex
 		applyClaudeOAuthHeaderDefaults(req, s.identityRegistry)
 	}
 
-	// OAuth + mimic Claude Code：强制注入 CLI 指纹相关 header
-	// （user-agent/x-stainless-*/x-app/Accept/x-stainless-helper-method/x-client-request-id）
+	// OAuth + mimic Claude Code：强制注入 CLI 指纹相关 header。
+	// Legacy claude_code_header_profile is applied only as compatibility; the new account environment profile wins last.
 	if tokenType == "oauth" && mimicClaudeCode {
 		applyClaudeCodeMimicHeaders(req, reqStream, s.identityRegistry)
 		if profile := s.getClaudeCodeHeaderProfile(account); profile != nil {
 			s.applyClaudeCodeHeaderProfile(req, account, profile)
 		}
+	}
+	if claudeEnvironmentProfile != nil {
+		s.applyClaudeEnvironmentProfile(req, account, claudeEnvironmentProfile)
 	}
 
 	// 写入最终 anthropic-beta header
@@ -6864,8 +6900,7 @@ func (s *GatewayService) buildUpstreamRequest(ctx context.Context, c *gin.Contex
 	if s.debugClaudeMimicEnabled() {
 		logClaudeMimicDebug(req, body, account, tokenType, mimicClaudeCode)
 	}
-
-	return req, body, nil
+	return attachEnvironmentProfileLeaseToRequest(req, claudeEnvironmentProfileLease), body, nil
 }
 
 func (s *GatewayService) buildUpstreamRequestAnthropicVertex(
@@ -9919,6 +9954,11 @@ func (s *GatewayService) ForwardCountTokens(ctx context.Context, c *gin.Context,
 	// 发送请求
 	resp, err := s.httpUpstream.DoWithTLS(upstreamReq, proxyURL, account.ID, account.Concurrency, s.tlsFPProfileService.ResolveTLSProfile(account))
 	if err != nil {
+		releaseEnvironmentProfileLeaseFromRequest(upstreamReq)
+	} else {
+		wrapResponseBodyWithEnvironmentProfileLease(upstreamReq, resp)
+	}
+	if err != nil {
 		setOpsUpstreamError(c, 0, sanitizeUpstreamErrorMessage(err.Error()), "")
 		s.countTokensError(c, http.StatusBadGateway, "upstream_error", "Request failed")
 		return fmt.Errorf("upstream request failed: %w", err)
@@ -9945,6 +9985,11 @@ func (s *GatewayService) ForwardCountTokens(ctx context.Context, c *gin.Context,
 		retryReq, retryWireBody, buildErr := s.buildCountTokensRequest(ctx, c, account, filteredBody, token, tokenType, reqModel, shouldMimicClaudeCode)
 		if buildErr == nil {
 			retryResp, retryErr := s.httpUpstream.DoWithTLS(retryReq, proxyURL, account.ID, account.Concurrency, s.tlsFPProfileService.ResolveTLSProfile(account))
+			if retryErr != nil {
+				releaseEnvironmentProfileLeaseFromRequest(retryReq)
+			} else {
+				wrapResponseBodyWithEnvironmentProfileLease(retryReq, retryResp)
+			}
 			if retryErr == nil {
 				if retryResp.StatusCode < 400 {
 					// count_tokens 签名重试成功后记录最终 wire body，错误响应仍保留原 body 便于后续处理。
@@ -10232,8 +10277,24 @@ func (s *GatewayService) buildCountTokensRequest(ctx context.Context, c *gin.Con
 		ctEnableFP, ctEnableMPT, ctEnableCCH = s.settingService.GetGatewayForwardingSettings(ctx)
 	}
 	var ctFingerprint *Fingerprint
+	var ctClaudeEnvironmentProfile *ClaudeEnvironmentProfile
+	var ctClaudeEnvironmentProfileLease *EnvironmentProfileSlotLease
 	if account.IsOAuth() && s.identityService != nil {
-		fp, err := s.identityService.GetOrCreateFingerprint(ctx, account.ID, clientHeaders)
+		var profileErr error
+		ctClaudeEnvironmentProfileLease, ctClaudeEnvironmentProfile, profileErr = s.acquireClaudeEnvironmentProfileForRequest(ctx, account, clientHeaders, body)
+		if profileErr != nil {
+			return nil, nil, profileErr
+		}
+		ctClaudeEnvironmentProfileSlot := -1
+		if ctClaudeEnvironmentProfileLease != nil {
+			ctClaudeEnvironmentProfileSlot = ctClaudeEnvironmentProfileLease.Slot
+		}
+		fp, err := s.identityService.GetOrCreateFingerprintWithOptions(ctx, account.ID, clientHeaders, FingerprintOptions{
+			AllowHeaderUpdate: ctClaudeEnvironmentProfile == nil,
+			SeedProfile:       ctClaudeEnvironmentProfile,
+			ProfileSlot:       ctClaudeEnvironmentProfileSlot,
+			UseProfileSlot:    ctClaudeEnvironmentProfileLease != nil,
+		})
 		if err == nil {
 			ctFingerprint = fp
 			if !ctEnableMPT {
@@ -10308,9 +10369,15 @@ func (s *GatewayService) buildCountTokensRequest(ctx context.Context, c *gin.Con
 		applyClaudeOAuthHeaderDefaults(req, s.identityRegistry)
 	}
 
-	// OAuth + mimic Claude Code：强制注入 CLI 指纹 header
+	// OAuth + mimic Claude Code：强制注入 CLI 指纹 header。
 	if tokenType == "oauth" && mimicClaudeCode {
 		applyClaudeCodeMimicHeaders(req, false, s.identityRegistry)
+		if profile := s.getClaudeCodeHeaderProfile(account); profile != nil {
+			s.applyClaudeCodeHeaderProfile(req, account, profile)
+		}
+	}
+	if ctClaudeEnvironmentProfile != nil {
+		s.applyClaudeEnvironmentProfile(req, account, ctClaudeEnvironmentProfile)
 	}
 
 	// 写入最终 anthropic-beta header（Del 一次避免白名单透传值残留）
@@ -10335,7 +10402,7 @@ func (s *GatewayService) buildCountTokensRequest(ctx context.Context, c *gin.Con
 		logClaudeMimicDebug(req, body, account, tokenType, mimicClaudeCode)
 	}
 
-	return req, body, nil
+	return attachEnvironmentProfileLeaseToRequest(req, ctClaudeEnvironmentProfileLease), body, nil
 }
 
 func sanitizeCountTokensRequestBody(body []byte) []byte {

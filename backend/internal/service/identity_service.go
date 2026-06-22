@@ -58,6 +58,13 @@ type IdentityService struct {
 	identityRegistry *clientidentity.Registry
 }
 
+type FingerprintOptions struct {
+	AllowHeaderUpdate bool
+	SeedProfile       *ClaudeEnvironmentProfile
+	ProfileSlot       int
+	UseProfileSlot    bool
+}
+
 // NewIdentityService 创建新的IdentityService
 func NewIdentityService(cache IdentityCache, identityRegistry *clientidentity.Registry) *IdentityService {
 	return &IdentityService{
@@ -70,14 +77,27 @@ func NewIdentityService(cache IdentityCache, identityRegistry *clientidentity.Re
 // 如果缓存存在，检测user-agent版本，新版本则更新
 // 如果缓存不存在，生成随机ClientID并从请求头创建指纹，然后缓存
 func (s *IdentityService) GetOrCreateFingerprint(ctx context.Context, accountID int64, headers http.Header) (*Fingerprint, error) {
+	return s.GetOrCreateFingerprintWithOptions(ctx, accountID, headers, FingerprintOptions{AllowHeaderUpdate: true})
+}
+
+func (s *IdentityService) GetOrCreateFingerprintWithOptions(ctx context.Context, accountID int64, headers http.Header, opts FingerprintOptions) (*Fingerprint, error) {
+	cacheAccountID := identityFingerprintCacheAccountID(accountID, opts.ProfileSlot, opts.UseProfileSlot)
 	// 尝试从缓存获取指纹
-	cached, err := s.cache.GetFingerprint(ctx, accountID)
+	cached, err := s.cache.GetFingerprint(ctx, cacheAccountID)
 	if err == nil && cached != nil {
+		if opts.SeedProfile != nil {
+			seeded := fingerprintFromClaudeEnvironmentProfile(opts.SeedProfile)
+			seeded.UpdatedAt = time.Now().Unix()
+			if err := s.cache.SetFingerprint(ctx, cacheAccountID, seeded); err != nil {
+				logger.LegacyPrintf("service.identity", "Warning: failed to cache seeded fingerprint for account %d: %v", accountID, err)
+			}
+			return seeded, nil
+		}
 		needWrite := false
 
 		// 检查客户端的user-agent是否是更新版本
 		clientUA := headers.Get("User-Agent")
-		if clientUA != "" && isNewerVersion(clientUA, cached.UserAgent) {
+		if opts.AllowHeaderUpdate && clientUA != "" && isNewerVersion(clientUA, cached.UserAgent) {
 			// 版本升级：merge 语义 — 仅更新请求中实际携带的字段，保留缓存值
 			// 避免缺失的头被硬编码默认值覆盖（如新 CLI 版本 + 旧 SDK 默认值的不一致）
 			mergeHeadersIntoFingerprint(cached, headers)
@@ -90,7 +110,7 @@ func (s *IdentityService) GetOrCreateFingerprint(ctx context.Context, accountID 
 
 		if needWrite {
 			cached.UpdatedAt = time.Now().Unix()
-			if err := s.cache.SetFingerprint(ctx, accountID, cached); err != nil {
+			if err := s.cache.SetFingerprint(ctx, cacheAccountID, cached); err != nil {
 				logger.LegacyPrintf("service.identity", "Warning: failed to refresh fingerprint for account %d: %v", accountID, err)
 			}
 		}
@@ -99,18 +119,64 @@ func (s *IdentityService) GetOrCreateFingerprint(ctx context.Context, accountID 
 
 	// 缓存不存在或解析失败，创建新指纹
 	fp := s.createFingerprintFromHeaders(headers)
+	if opts.SeedProfile != nil {
+		fp = fingerprintFromClaudeEnvironmentProfile(opts.SeedProfile)
+	}
 
-	// 生成随机ClientID
-	fp.ClientID = generateClientID()
+	if fp.ClientID == "" {
+		fp.ClientID = generateClientID()
+	}
 	fp.UpdatedAt = time.Now().Unix()
 
 	// 保存到缓存（7天TTL，每24小时自动续期）
-	if err := s.cache.SetFingerprint(ctx, accountID, fp); err != nil {
+	if err := s.cache.SetFingerprint(ctx, cacheAccountID, fp); err != nil {
 		logger.LegacyPrintf("service.identity", "Warning: failed to cache fingerprint for account %d: %v", accountID, err)
 	}
 
 	logger.LegacyPrintf("service.identity", "Created new fingerprint for account %d with client_id: %s", accountID, fp.ClientID)
 	return fp, nil
+}
+
+func identityFingerprintCacheAccountID(accountID int64, profileSlot int, useProfileSlot bool) int64 {
+	if !useProfileSlot || profileSlot < 0 {
+		return accountID
+	}
+	return accountID*1000000 + int64(profileSlot+1)
+}
+
+func fingerprintFromClaudeEnvironmentProfile(profile *ClaudeEnvironmentProfile) *Fingerprint {
+	if profile == nil {
+		return &Fingerprint{}
+	}
+	return &Fingerprint{
+		ClientID:                strings.TrimSpace(profile.ClientID),
+		UserAgent:               strings.TrimSpace(profile.UserAgent),
+		StainlessLang:           getProfileHeaderOrDefault(profile, "x-stainless-lang", "js"),
+		StainlessPackageVersion: firstNonEmptyIdentityString(profile.ClientVersion, getProfileHeaderOrDefault(profile, "x-stainless-package-version", "")),
+		StainlessOS:             firstNonEmptyIdentityString(profile.Platform, getProfileHeaderOrDefault(profile, "x-stainless-os", "")),
+		StainlessArch:           firstNonEmptyIdentityString(profile.Arch, getProfileHeaderOrDefault(profile, "x-stainless-arch", "")),
+		StainlessRuntime:        firstNonEmptyIdentityString(profile.Runtime, getProfileHeaderOrDefault(profile, "x-stainless-runtime", "")),
+		StainlessRuntimeVersion: firstNonEmptyIdentityString(profile.RuntimeVersion, getProfileHeaderOrDefault(profile, "x-stainless-runtime-version", "")),
+	}
+}
+
+func getProfileHeaderOrDefault(profile *ClaudeEnvironmentProfile, key, fallback string) string {
+	if profile == nil || profile.Headers == nil {
+		return fallback
+	}
+	if value := strings.TrimSpace(profile.Headers[strings.ToLower(key)]); value != "" {
+		return value
+	}
+	return fallback
+}
+
+func firstNonEmptyIdentityString(values ...string) string {
+	for _, value := range values {
+		if strings.TrimSpace(value) != "" {
+			return strings.TrimSpace(value)
+		}
+	}
+	return ""
 }
 
 // createFingerprintFromHeaders 从请求头创建指纹

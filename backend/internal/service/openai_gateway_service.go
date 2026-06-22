@@ -35,6 +35,7 @@ import (
 	"github.com/tidwall/gjson"
 	"github.com/tidwall/sjson"
 	"go.uber.org/zap"
+	"golang.org/x/sync/singleflight"
 )
 
 const (
@@ -371,6 +372,8 @@ type OpenAIGatewayService struct {
 	openaiWSRetryMetrics                openAIWSRetryMetrics
 	responseHeaderFilter                *responseheaders.CompiledHeaderFilter
 	codexSnapshotThrottle               *accountWriteThrottle
+	codexEnvironmentProfileSF           singleflight.Group
+	codexEnvironmentProfileSlotLeases   *EnvironmentProfileSlotLeaseManager
 	openaiCompatSessionResponses        sync.Map
 	openaiCompatAnthropicDigestSessions sync.Map
 }
@@ -424,19 +427,20 @@ func NewOpenAIGatewayService(
 			nil,
 			"service.openai_gateway",
 		),
-		httpUpstream:          httpUpstream,
-		deferredService:       deferredService,
-		openAITokenProvider:   openAITokenProvider,
-		toolCorrector:         NewCodexToolCorrector(),
-		openaiWSResolver:      NewOpenAIWSProtocolResolver(cfg),
-		resolver:              resolver,
-		channelService:        channelService,
-		balanceNotifyService:  balanceNotifyService,
-		settingService:        settingService,
-		userPlatformQuotaRepo: userPlatformQuotaRepo,
-		identityRegistry:      identityRegistry,
-		responseHeaderFilter:  compileResponseHeaderFilter(cfg),
-		codexSnapshotThrottle: newAccountWriteThrottle(openAICodexSnapshotPersistMinInterval),
+		httpUpstream:                      httpUpstream,
+		deferredService:                   deferredService,
+		openAITokenProvider:               openAITokenProvider,
+		toolCorrector:                     NewCodexToolCorrector(),
+		openaiWSResolver:                  NewOpenAIWSProtocolResolver(cfg),
+		resolver:                          resolver,
+		channelService:                    channelService,
+		balanceNotifyService:              balanceNotifyService,
+		settingService:                    settingService,
+		userPlatformQuotaRepo:             userPlatformQuotaRepo,
+		identityRegistry:                  identityRegistry,
+		responseHeaderFilter:              compileResponseHeaderFilter(cfg),
+		codexSnapshotThrottle:             newAccountWriteThrottle(openAICodexSnapshotPersistMinInterval),
+		codexEnvironmentProfileSlotLeases: NewEnvironmentProfileSlotLeaseManager(),
 	}
 	if rateLimitService != nil {
 		rateLimitService.SetAccountRuntimeBlocker(svc)
@@ -3016,6 +3020,11 @@ func (s *OpenAIGatewayService) Forward(ctx context.Context, c *gin.Context, acco
 		// Send request
 		upstreamStart := time.Now()
 		resp, err := s.httpUpstream.Do(upstreamReq, proxyURL, account.ID, account.Concurrency)
+		if err != nil {
+			releaseEnvironmentProfileLeaseFromRequest(upstreamReq)
+		} else {
+			wrapResponseBodyWithEnvironmentProfileLease(upstreamReq, resp)
+		}
 		SetOpsLatencyMs(c, OpsUpstreamLatencyMsKey, time.Since(upstreamStart).Milliseconds())
 		if err != nil {
 			// Transport-level failure (proxy/DNS/TCP/TLS — no HTTP response). Convert to
@@ -3306,6 +3315,11 @@ func (s *OpenAIGatewayService) forwardOpenAIPassthrough(
 
 	upstreamStart := time.Now()
 	resp, err := s.httpUpstream.Do(upstreamReq, proxyURL, account.ID, account.Concurrency)
+	if err != nil {
+		releaseEnvironmentProfileLeaseFromRequest(upstreamReq)
+	} else {
+		wrapResponseBodyWithEnvironmentProfileLease(upstreamReq, resp)
+	}
 	SetOpsLatencyMs(c, OpsUpstreamLatencyMsKey, time.Since(upstreamStart).Milliseconds())
 	if err != nil {
 		// Transport-level failure (proxy/DNS/TCP/TLS — no HTTP response). Convert to
@@ -3464,6 +3478,15 @@ func (s *OpenAIGatewayService) buildUpstreamRequestOpenAIPassthrough(
 	req.Header.Del("x-goog-api-key")
 	req.Header.Set("authorization", "Bearer "+token)
 
+	var codexProfile *CodexEnvironmentProfile
+	var codexProfileLease *EnvironmentProfileSlotLease
+	if account.Type == AccountTypeOAuth {
+		var profileErr error
+		codexProfileLease, codexProfile, profileErr = s.acquireCodexEnvironmentProfileForRequest(ctx, account, ginRequestHeader(c))
+		if profileErr != nil {
+			return nil, profileErr
+		}
+	}
 	// OAuth 透传到 ChatGPT internal API 时补齐必要头。
 	if account.Type == AccountTypeOAuth {
 		promptCacheKey := strings.TrimSpace(gjson.GetBytes(body, "prompt_cache_key").String())
@@ -3524,11 +3547,18 @@ func (s *OpenAIGatewayService) buildUpstreamRequestOpenAIPassthrough(
 	// （Chrome/Firefox/Safari/Edge 等），替换为后台配置的 Codex UA，避免 Cloudflare 触发 JS 质询。
 	s.overrideBrowserUserAgent(ctx, account, req)
 
+	if codexProfile != nil {
+		applyCodexEnvironmentProfile(req, account, codexProfile, CodexProfileApplyOptions{
+			APIKeyID:       getAPIKeyIDFromContext(c),
+			PromptCacheKey: strings.TrimSpace(gjson.GetBytes(body, "prompt_cache_key").String()),
+			Compact:        isOpenAIResponsesCompactPath(c),
+		})
+	}
 	if req.Header.Get("content-type") == "" {
 		req.Header.Set("content-type", "application/json")
 	}
 
-	return req, nil
+	return attachEnvironmentProfileLeaseToRequest(req, codexProfileLease), nil
 }
 
 func shouldFailoverOpenAIPassthroughResponse(statusCode int) bool {
@@ -4230,6 +4260,15 @@ func (s *OpenAIGatewayService) buildUpstreamRequest(ctx context.Context, c *gin.
 			}
 		}
 	}
+	var codexProfile *CodexEnvironmentProfile
+	var codexProfileLease *EnvironmentProfileSlotLease
+	if account.Type == AccountTypeOAuth {
+		var profileErr error
+		codexProfileLease, codexProfile, profileErr = s.acquireCodexEnvironmentProfileForRequest(ctx, account, ginRequestHeader(c))
+		if profileErr != nil {
+			return nil, profileErr
+		}
+	}
 	if account.Type == AccountTypeOAuth {
 		compatMessagesBridge := isOpenAICompatMessagesBridgeContext(c) || isOpenAICompatMessagesBridgeBody(body)
 		// 清除客户端透传的 session 头，后续用隔离后的值重新设置，防止跨用户会话碰撞。
@@ -4280,12 +4319,21 @@ func (s *OpenAIGatewayService) buildUpstreamRequest(ctx context.Context, c *gin.
 	// （Chrome/Firefox/Safari/Edge 等），替换为后台配置的 Codex UA，避免 Cloudflare 触发 JS 质询。
 	s.overrideBrowserUserAgent(ctx, account, req)
 
+	if codexProfile != nil {
+		compatMessagesBridge := isOpenAICompatMessagesBridgeContext(c) || isOpenAICompatMessagesBridgeBody(body)
+		applyCodexEnvironmentProfile(req, account, codexProfile, CodexProfileApplyOptions{
+			APIKeyID:             getAPIKeyIDFromContext(c),
+			PromptCacheKey:       promptCacheKey,
+			CompatMessagesBridge: compatMessagesBridge,
+			Compact:              isOpenAIResponsesCompactPath(c),
+		})
+	}
 	// Ensure required headers exist
 	if req.Header.Get("content-type") == "" {
 		req.Header.Set("content-type", "application/json")
 	}
 
-	return req, nil
+	return attachEnvironmentProfileLeaseToRequest(req, codexProfileLease), nil
 }
 
 // overrideBrowserUserAgent 检查请求的最终 user-agent，若为浏览器 UA 则替换为后台配置的 Codex UA。

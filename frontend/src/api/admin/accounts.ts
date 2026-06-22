@@ -19,7 +19,11 @@ import type {
   CodexSessionImportRequest,
   CodexSessionImportResult,
   CheckMixedChannelRequest,
-  CheckMixedChannelResponse
+  CheckMixedChannelResponse,
+  ClaudeEnvironmentProfileSettingsRequest,
+  ClaudeEnvironmentProfileUpdateRequest,
+  CodexEnvironmentProfileSettingsRequest,
+  CodexEnvironmentProfileUpdateRequest
 } from '@/types'
 
 /**
@@ -143,6 +147,64 @@ export async function create(accountData: CreateAccountRequest): Promise<Account
  */
 export async function update(id: number, updates: UpdateAccountRequest): Promise<Account> {
   const { data } = await apiClient.put<Account>(`/admin/accounts/${id}`, updates)
+  return data
+}
+
+export async function updateClaudeEnvironmentProfileSettings(
+  id: number,
+  settings: ClaudeEnvironmentProfileSettingsRequest
+): Promise<Account> {
+  const { data } = await apiClient.put<Account>(
+    `/admin/accounts/${id}/claude-environment-profile/settings`,
+    settings
+  )
+  return data
+}
+
+export async function updateClaudeEnvironmentProfile(
+  id: number,
+  request: ClaudeEnvironmentProfileUpdateRequest
+): Promise<Account> {
+  const { data } = await apiClient.put<Account>(
+    `/admin/accounts/${id}/claude-environment-profile`,
+    request
+  )
+  return data
+}
+
+export async function resetClaudeEnvironmentProfile(id: number): Promise<Account> {
+  const { data } = await apiClient.post<Account>(
+    `/admin/accounts/${id}/claude-environment-profile/reset`
+  )
+  return data
+}
+
+export async function updateCodexEnvironmentProfileSettings(
+  id: number,
+  settings: CodexEnvironmentProfileSettingsRequest
+): Promise<Account> {
+  const { data } = await apiClient.put<Account>(
+    `/admin/accounts/${id}/codex-environment-profile/settings`,
+    settings
+  )
+  return data
+}
+
+export async function updateCodexEnvironmentProfile(
+  id: number,
+  request: CodexEnvironmentProfileUpdateRequest
+): Promise<Account> {
+  const { data } = await apiClient.put<Account>(
+    `/admin/accounts/${id}/codex-environment-profile`,
+    request
+  )
+  return data
+}
+
+export async function resetCodexEnvironmentProfile(id: number): Promise<Account> {
+  const { data } = await apiClient.post<Account>(
+    `/admin/accounts/${id}/codex-environment-profile/reset`
+  )
   return data
 }
 
@@ -781,6 +843,12 @@ export const accountsAPI = {
   getById,
   create,
   update,
+  updateClaudeEnvironmentProfileSettings,
+  updateClaudeEnvironmentProfile,
+  resetClaudeEnvironmentProfile,
+  updateCodexEnvironmentProfileSettings,
+  updateCodexEnvironmentProfile,
+  resetCodexEnvironmentProfile,
   checkMixedChannelRisk,
   delete: deleteAccount,
   toggleStatus,

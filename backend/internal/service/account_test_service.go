@@ -64,14 +64,15 @@ func isOpenAIImageModel(model string) bool {
 
 // AccountTestService handles account testing operations
 type AccountTestService struct {
-	accountRepo               AccountRepository
-	geminiTokenProvider       *GeminiTokenProvider
-	claudeTokenProvider       *ClaudeTokenProvider
-	antigravityGatewayService *AntigravityGatewayService
-	httpUpstream              HTTPUpstream
-	cfg                       *config.Config
-	tlsFPProfileService       *TLSFingerprintProfileService
-	identityRegistry          *clientidentity.Registry
+	accountRepo                       AccountRepository
+	geminiTokenProvider               *GeminiTokenProvider
+	claudeTokenProvider               *ClaudeTokenProvider
+	antigravityGatewayService         *AntigravityGatewayService
+	httpUpstream                      HTTPUpstream
+	cfg                               *config.Config
+	tlsFPProfileService               *TLSFingerprintProfileService
+	identityRegistry                  *clientidentity.Registry
+	codexEnvironmentProfileSlotLeases *EnvironmentProfileSlotLeaseManager
 }
 
 // NewAccountTestService creates a new AccountTestService
@@ -89,14 +90,15 @@ func NewAccountTestService(
 		identityRegistry = clientidentity.NewRegistry()
 	}
 	return &AccountTestService{
-		accountRepo:               accountRepo,
-		geminiTokenProvider:       geminiTokenProvider,
-		claudeTokenProvider:       claudeTokenProvider,
-		antigravityGatewayService: antigravityGatewayService,
-		httpUpstream:              httpUpstream,
-		cfg:                       cfg,
-		tlsFPProfileService:       tlsFPProfileService,
-		identityRegistry:          identityRegistry,
+		accountRepo:                       accountRepo,
+		geminiTokenProvider:               geminiTokenProvider,
+		claudeTokenProvider:               claudeTokenProvider,
+		antigravityGatewayService:         antigravityGatewayService,
+		httpUpstream:                      httpUpstream,
+		cfg:                               cfg,
+		tlsFPProfileService:               tlsFPProfileService,
+		identityRegistry:                  identityRegistry,
+		codexEnvironmentProfileSlotLeases: NewEnvironmentProfileSlotLeaseManager(),
 	}
 }
 
@@ -623,6 +625,7 @@ func (s *AccountTestService) testOpenAIAccountConnection(c *gin.Context, account
 	req.Header.Set("Content-Type", "application/json")
 	req.Header.Set("Authorization", "Bearer "+authToken)
 
+	var codexProfile *CodexEnvironmentProfile
 	// Set OAuth-specific headers for ChatGPT internal API
 	if isOAuth {
 		req.Host = "chatgpt.com"
@@ -630,6 +633,15 @@ func (s *AccountTestService) testOpenAIAccountConnection(c *gin.Context, account
 		if chatgptAccountID != "" {
 			req.Header.Set("chatgpt-account-id", chatgptAccountID)
 		}
+		codexProfileLease, resolvedProfile, profileErr := s.acquireCodexEnvironmentProfileForRequest(ctx, account, req.Header)
+		if profileErr != nil {
+			return s.sendErrorAndEnd(c, fmt.Sprintf("Failed to resolve Codex profile: %s", profileErr.Error()))
+		}
+		codexProfile = resolvedProfile
+		if codexProfile != nil {
+			applyCodexEnvironmentProfile(req, account, codexProfile, CodexProfileApplyOptions{})
+		}
+		req = attachEnvironmentProfileLeaseToRequest(req, codexProfileLease)
 	}
 
 	// Get proxy URL
@@ -637,8 +649,19 @@ func (s *AccountTestService) testOpenAIAccountConnection(c *gin.Context, account
 	if account.ProxyID != nil && account.Proxy != nil {
 		proxyURL = account.Proxy.URL()
 	}
+	tlsProfile := s.tlsFPProfileService.ResolveTLSProfile(account)
+	if codexProfile != nil {
+		if codexTLSProfile := resolveCodexTLSProfile(codexProfile); codexTLSProfile != nil {
+			tlsProfile = codexTLSProfile
+		}
+	}
 
-	resp, err := s.httpUpstream.DoWithTLS(req, proxyURL, account.ID, account.Concurrency, s.tlsFPProfileService.ResolveTLSProfile(account))
+	resp, err := s.httpUpstream.DoWithTLS(req, proxyURL, account.ID, account.Concurrency, tlsProfile)
+	if err != nil {
+		releaseEnvironmentProfileLeaseFromRequest(req)
+	} else {
+		wrapResponseBodyWithEnvironmentProfileLease(req, resp)
+	}
 	if err != nil {
 		return s.sendErrorAndEnd(c, fmt.Sprintf("Request failed: %s", err.Error()))
 	}
@@ -791,6 +814,18 @@ func (s *AccountTestService) testOpenAICompactConnection(c *gin.Context, account
 	req.Header.Set("Session_ID", probeSessionID)
 	req.Header.Set("Conversation_ID", probeSessionID)
 
+	var codexProfile *CodexEnvironmentProfile
+	if isOAuth {
+		codexProfileLease, resolvedProfile, profileErr := s.acquireCodexEnvironmentProfileForRequest(ctx, account, req.Header)
+		if profileErr != nil {
+			return s.sendErrorAndEnd(c, fmt.Sprintf("Failed to resolve Codex profile: %s", profileErr.Error()))
+		}
+		codexProfile = resolvedProfile
+		if codexProfile != nil {
+			applyCodexEnvironmentProfile(req, account, codexProfile, CodexProfileApplyOptions{PromptCacheKey: probeSessionID})
+		}
+		req = attachEnvironmentProfileLeaseToRequest(req, codexProfileLease)
+	}
 	if isOAuth {
 		req.Host = "chatgpt.com"
 		if chatgptAccountID != "" {
@@ -802,8 +837,19 @@ func (s *AccountTestService) testOpenAICompactConnection(c *gin.Context, account
 	if account.ProxyID != nil && account.Proxy != nil {
 		proxyURL = account.Proxy.URL()
 	}
+	tlsProfile := s.tlsFPProfileService.ResolveTLSProfile(account)
+	if isOAuth && codexProfile != nil {
+		if codexTLSProfile := resolveCodexTLSProfile(codexProfile); codexTLSProfile != nil {
+			tlsProfile = codexTLSProfile
+		}
+	}
 
-	resp, err := s.httpUpstream.DoWithTLS(req, proxyURL, account.ID, account.Concurrency, s.tlsFPProfileService.ResolveTLSProfile(account))
+	resp, err := s.httpUpstream.DoWithTLS(req, proxyURL, account.ID, account.Concurrency, tlsProfile)
+	if err != nil {
+		releaseEnvironmentProfileLeaseFromRequest(req)
+	} else {
+		wrapResponseBodyWithEnvironmentProfileLease(req, resp)
+	}
 	if err != nil {
 		if s.accountRepo != nil {
 			updates := buildOpenAICompactProbeExtraUpdates(nil, nil, err, time.Now())
@@ -1646,6 +1692,16 @@ func (s *AccountTestService) testOpenAIImageOAuth(c *gin.Context, ctx context.Co
 	} else {
 		req.Header.Set("User-Agent", s.codexCLIUserAgent())
 	}
+
+	codexProfileLease, codexProfile, profileErr := s.acquireCodexEnvironmentProfileForRequest(ctx, account, req.Header)
+	if profileErr != nil {
+		return s.sendErrorAndEnd(c, fmt.Sprintf("Failed to resolve Codex profile: %s", profileErr.Error()))
+	}
+	if codexProfile != nil {
+		applyCodexEnvironmentProfile(req, account, codexProfile, CodexProfileApplyOptions{PromptCacheKey: parsed.StickySessionSeed()})
+	}
+	req = attachEnvironmentProfileLeaseToRequest(req, codexProfileLease)
+
 	if chatgptAccountID := strings.TrimSpace(account.GetChatGPTAccountID()); chatgptAccountID != "" {
 		req.Header.Set("chatgpt-account-id", chatgptAccountID)
 	}
@@ -1654,10 +1710,18 @@ func (s *AccountTestService) testOpenAIImageOAuth(c *gin.Context, ctx context.Co
 	if account.ProxyID != nil && account.Proxy != nil {
 		proxyURL = account.Proxy.URL()
 	}
-	resp, err := s.httpUpstream.Do(req, proxyURL, account.ID, account.Concurrency)
+	tlsProfile := s.tlsFPProfileService.ResolveTLSProfile(account)
+	if codexProfile != nil {
+		if codexTLSProfile := resolveCodexTLSProfile(codexProfile); codexTLSProfile != nil {
+			tlsProfile = codexTLSProfile
+		}
+	}
+	resp, err := s.httpUpstream.DoWithTLS(req, proxyURL, account.ID, account.Concurrency, tlsProfile)
 	if err != nil {
+		releaseEnvironmentProfileLeaseFromRequest(req)
 		return s.sendErrorAndEnd(c, fmt.Sprintf("Responses API request failed: %s", err.Error()))
 	}
+	wrapResponseBodyWithEnvironmentProfileLease(req, resp)
 	defer func() {
 		if resp != nil && resp.Body != nil {
 			_ = resp.Body.Close()

@@ -258,15 +258,16 @@ type ClaudeUsageFetcher interface {
 
 // AccountUsageService 账号使用量查询服务
 type AccountUsageService struct {
-	accountRepo             AccountRepository
-	usageLogRepo            UsageLogRepository
-	usageFetcher            ClaudeUsageFetcher
-	geminiQuotaService      *GeminiQuotaService
-	antigravityQuotaFetcher *AntigravityQuotaFetcher
-	cache                   *UsageCache
-	identityCache           IdentityCache
-	tlsFPProfileService     *TLSFingerprintProfileService
-	identityRegistry        *clientidentity.Registry
+	accountRepo                       AccountRepository
+	usageLogRepo                      UsageLogRepository
+	usageFetcher                      ClaudeUsageFetcher
+	geminiQuotaService                *GeminiQuotaService
+	antigravityQuotaFetcher           *AntigravityQuotaFetcher
+	cache                             *UsageCache
+	identityCache                     IdentityCache
+	tlsFPProfileService               *TLSFingerprintProfileService
+	identityRegistry                  *clientidentity.Registry
+	codexEnvironmentProfileSlotLeases *EnvironmentProfileSlotLeaseManager
 }
 
 // NewAccountUsageService 创建AccountUsageService实例
@@ -285,15 +286,16 @@ func NewAccountUsageService(
 		identityRegistry = clientidentity.NewRegistry()
 	}
 	return &AccountUsageService{
-		accountRepo:             accountRepo,
-		usageLogRepo:            usageLogRepo,
-		usageFetcher:            usageFetcher,
-		geminiQuotaService:      geminiQuotaService,
-		antigravityQuotaFetcher: antigravityQuotaFetcher,
-		cache:                   cache,
-		identityCache:           identityCache,
-		tlsFPProfileService:     tlsFPProfileService,
-		identityRegistry:        identityRegistry,
+		accountRepo:                       accountRepo,
+		usageLogRepo:                      usageLogRepo,
+		usageFetcher:                      usageFetcher,
+		geminiQuotaService:                geminiQuotaService,
+		antigravityQuotaFetcher:           antigravityQuotaFetcher,
+		cache:                             cache,
+		identityCache:                     identityCache,
+		tlsFPProfileService:               tlsFPProfileService,
+		identityRegistry:                  identityRegistry,
+		codexEnvironmentProfileSlotLeases: NewEnvironmentProfileSlotLeaseManager(),
 	}
 }
 
@@ -673,6 +675,14 @@ func (s *AccountUsageService) probeOpenAICodexSnapshot(ctx context.Context, acco
 			req.Header.Set("User-Agent", strings.TrimSpace(fp.UserAgent))
 		}
 	}
+	codexProfileLease, codexProfile, profileErr := s.acquireCodexEnvironmentProfileForRequest(reqCtx, account, req.Header)
+	if profileErr != nil {
+		return nil, fmt.Errorf("resolve codex environment profile: %w", profileErr)
+	}
+	if codexProfile != nil {
+		applyCodexEnvironmentProfile(req, account, codexProfile, CodexProfileApplyOptions{})
+	}
+	req = attachEnvironmentProfileLeaseToRequest(req, codexProfileLease)
 	if chatgptAccountID := account.GetChatGPTAccountID(); chatgptAccountID != "" {
 		req.Header.Set("chatgpt-account-id", chatgptAccountID)
 	}
@@ -690,6 +700,11 @@ func (s *AccountUsageService) probeOpenAICodexSnapshot(ctx context.Context, acco
 		return nil, fmt.Errorf("build openai probe client: %w", err)
 	}
 	resp, err := client.Do(req)
+	if err != nil {
+		releaseEnvironmentProfileLeaseFromRequest(req)
+	} else {
+		wrapResponseBodyWithEnvironmentProfileLease(req, resp)
+	}
 	if err != nil {
 		return nil, fmt.Errorf("openai codex probe request failed: %w", err)
 	}
@@ -1215,6 +1230,11 @@ func (s *AccountUsageService) resolveUsageTLSProfile(account *Account) *tlsfinge
 	if snapshot := clientidentity.NewResolver().Resolve(account); snapshot != nil {
 		if profile := tlsfingerprint.BuiltInProfileByName(snapshot.TLSProfileName); profile != nil {
 			return profile
+		}
+	}
+	if profile, ok := account.GetCodexEnvironmentProfile(); ok {
+		if tlsProfile := resolveCodexTLSProfile(profile); tlsProfile != nil {
+			return tlsProfile
 		}
 	}
 	if s.tlsFPProfileService == nil {

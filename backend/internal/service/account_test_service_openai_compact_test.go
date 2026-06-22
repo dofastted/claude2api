@@ -14,10 +14,22 @@ import (
 	"github.com/tidwall/gjson"
 )
 
+func readUpdateWithKey(t *testing.T, updates <-chan map[string]any, key string) map[string]any {
+	t.Helper()
+	for i := 0; i < 4; i++ {
+		update := <-updates
+		if _, ok := update[key]; ok {
+			return update
+		}
+	}
+	t.Fatalf("missing update key %s", key)
+	return nil
+}
+
 func TestAccountTestService_TestAccountConnection_OpenAICompactOAuthSuccessPersistsSupport(t *testing.T) {
 	gin.SetMode(gin.TestMode)
 
-	updateCalls := make(chan map[string]any, 1)
+	updateCalls := make(chan map[string]any, 4)
 	account := Account{
 		ID:          1,
 		Name:        "openai-oauth",
@@ -62,7 +74,7 @@ func TestAccountTestService_TestAccountConnection_OpenAICompactOAuthSuccessPersi
 	require.Equal(t, "chatgpt-acc", upstream.lastReq.Header.Get("chatgpt-account-id"))
 	require.Equal(t, "gpt-5.4", gjson.GetBytes(upstream.lastBody, "model").String())
 
-	updates := <-updateCalls
+	updates := readUpdateWithKey(t, updateCalls, "openai_compact_supported")
 	require.Equal(t, true, updates["openai_compact_supported"])
 	require.Equal(t, http.StatusOK, updates["openai_compact_last_status"])
 	require.Contains(t, rec.Body.String(), `"type":"test_complete"`)
@@ -71,7 +83,7 @@ func TestAccountTestService_TestAccountConnection_OpenAICompactOAuthSuccessPersi
 func TestAccountTestService_TestAccountConnection_OpenAICompactOAuth404MarksUnsupported(t *testing.T) {
 	gin.SetMode(gin.TestMode)
 
-	updateCalls := make(chan map[string]any, 1)
+	updateCalls := make(chan map[string]any, 4)
 	account := Account{
 		ID:          2,
 		Name:        "openai-oauth",
@@ -106,7 +118,7 @@ func TestAccountTestService_TestAccountConnection_OpenAICompactOAuth404MarksUnsu
 	err := svc.TestAccountConnection(c, account.ID, "gpt-5.4", "", AccountTestModeCompact)
 	require.Error(t, err)
 
-	updates := <-updateCalls
+	updates := readUpdateWithKey(t, updateCalls, "openai_compact_supported")
 	require.Equal(t, false, updates["openai_compact_supported"])
 	require.Equal(t, http.StatusNotFound, updates["openai_compact_last_status"])
 	require.Contains(t, rec.Body.String(), `"type":"error"`)
@@ -115,7 +127,7 @@ func TestAccountTestService_TestAccountConnection_OpenAICompactOAuth404MarksUnsu
 func TestAccountTestService_TestAccountConnection_OpenAICompactAPIKeyUsesCompactPath(t *testing.T) {
 	gin.SetMode(gin.TestMode)
 
-	updateCalls := make(chan map[string]any, 1)
+	updateCalls := make(chan map[string]any, 4)
 	account := Account{
 		ID:          3,
 		Name:        "openai-apikey",
@@ -154,14 +166,14 @@ func TestAccountTestService_TestAccountConnection_OpenAICompactAPIKeyUsesCompact
 
 	require.Equal(t, "https://example.com/v1/responses/compact", upstream.lastReq.URL.String())
 	require.Equal(t, "gpt-5.4-openai-compact", gjson.GetBytes(upstream.lastBody, "model").String())
-	updates := <-updateCalls
+	updates := readUpdateWithKey(t, updateCalls, "openai_compact_supported")
 	require.Equal(t, true, updates["openai_compact_supported"])
 }
 
 func TestAccountTestService_TestAccountConnection_OpenAICompactAPIKeyDefaultBaseURLUsesV1Path(t *testing.T) {
 	gin.SetMode(gin.TestMode)
 
-	updateCalls := make(chan map[string]any, 1)
+	updateCalls := make(chan map[string]any, 4)
 	account := Account{
 		ID:          4,
 		Name:        "openai-apikey-default",
@@ -196,5 +208,5 @@ func TestAccountTestService_TestAccountConnection_OpenAICompactAPIKeyDefaultBase
 	err := svc.TestAccountConnection(c, account.ID, "gpt-5.4", "", AccountTestModeCompact)
 	require.NoError(t, err)
 	require.Equal(t, "https://api.openai.com/v1/responses/compact", upstream.lastReq.URL.String())
-	<-updateCalls
+	readUpdateWithKey(t, updateCalls, "openai_compact_supported")
 }

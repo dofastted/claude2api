@@ -132,6 +132,28 @@ type UpdateAccountRequest struct {
 	ConfirmMixedChannelRisk *bool          `json:"confirm_mixed_channel_risk"` // 用户确认混合渠道风险
 }
 
+type UpdateClaudeEnvironmentProfileSettingsRequest struct {
+	SingleEnvironment       *bool   `json:"single_environment"`
+	ProfileLocked           *bool   `json:"profile_locked"`
+	AllowDesktopLearn       *bool   `json:"allow_desktop_learn"`
+	ProfileFamilyPreference *string `json:"profile_family_preference"`
+}
+
+type UpdateClaudeEnvironmentProfileRequest struct {
+	Profile *service.ClaudeEnvironmentProfile `json:"profile"`
+}
+
+type UpdateCodexEnvironmentProfileSettingsRequest struct {
+	SingleEnvironment        *bool   `json:"single_environment"`
+	ProfileLocked            *bool   `json:"profile_locked"`
+	AllowOfficialClientLearn *bool   `json:"allow_official_client_learn"`
+	ProfileFamilyPreference  *string `json:"profile_family_preference"`
+}
+
+type UpdateCodexEnvironmentProfileRequest struct {
+	Profile *service.CodexEnvironmentProfile `json:"profile"`
+}
+
 // BulkUpdateAccountsRequest represents the payload for bulk editing accounts
 type BulkUpdateAccountsRequest struct {
 	AccountIDs              []int64                   `json:"account_ids"`
@@ -651,6 +673,144 @@ func (h *AccountHandler) Update(c *gin.Context) {
 		h.scheduleOpenAIResponsesProbe(account)
 	}
 
+	response.Success(c, h.buildAccountResponseWithRuntime(c.Request.Context(), account))
+}
+
+func (h *AccountHandler) UpdateClaudeEnvironmentProfileSettings(c *gin.Context) {
+	accountID, err := strconv.ParseInt(c.Param("id"), 10, 64)
+	if err != nil {
+		response.BadRequest(c, "Invalid account ID")
+		return
+	}
+	var req UpdateClaudeEnvironmentProfileSettingsRequest
+	if err := c.ShouldBindJSON(&req); err != nil {
+		response.BadRequest(c, "Invalid request: "+err.Error())
+		return
+	}
+	updates := map[string]any{}
+	if req.SingleEnvironment != nil {
+		updates["claude_single_environment"] = *req.SingleEnvironment
+	}
+	if req.ProfileLocked != nil {
+		updates["claude_environment_profile_locked"] = *req.ProfileLocked
+	}
+	if req.AllowDesktopLearn != nil {
+		updates["claude_environment_allow_desktop_learn"] = *req.AllowDesktopLearn
+	}
+	if req.ProfileFamilyPreference != nil {
+		updates["claude_environment_profile_family_preference"] = strings.TrimSpace(*req.ProfileFamilyPreference)
+	}
+	account, err := h.adminService.UpdateClaudeEnvironmentProfileSettings(c.Request.Context(), accountID, updates)
+	if err != nil {
+		response.ErrorFrom(c, err)
+		return
+	}
+	response.Success(c, h.buildAccountResponseWithRuntime(c.Request.Context(), account))
+}
+
+func (h *AccountHandler) UpdateClaudeEnvironmentProfile(c *gin.Context) {
+	accountID, err := strconv.ParseInt(c.Param("id"), 10, 64)
+	if err != nil {
+		response.BadRequest(c, "Invalid account ID")
+		return
+	}
+	var req UpdateClaudeEnvironmentProfileRequest
+	if err := c.ShouldBindJSON(&req); err != nil {
+		response.BadRequest(c, "Invalid request: "+err.Error())
+		return
+	}
+	account, err := h.adminService.UpdateClaudeEnvironmentProfile(c.Request.Context(), accountID, req.Profile)
+	if err != nil {
+		response.ErrorFrom(c, err)
+		return
+	}
+	response.Success(c, h.buildAccountResponseWithRuntime(c.Request.Context(), account))
+}
+
+func (h *AccountHandler) ResetClaudeEnvironmentProfile(c *gin.Context) {
+	accountID, err := strconv.ParseInt(c.Param("id"), 10, 64)
+	if err != nil {
+		response.BadRequest(c, "Invalid account ID")
+		return
+	}
+	account, err := h.adminService.ResetClaudeEnvironmentProfile(c.Request.Context(), accountID)
+	if err != nil {
+		response.ErrorFrom(c, err)
+		return
+	}
+	response.Success(c, h.buildAccountResponseWithRuntime(c.Request.Context(), account))
+}
+
+func (h *AccountHandler) UpdateCodexEnvironmentProfileSettings(c *gin.Context) {
+	accountID, err := strconv.ParseInt(c.Param("id"), 10, 64)
+	if err != nil {
+		response.BadRequest(c, "Invalid account ID")
+		return
+	}
+	var req UpdateCodexEnvironmentProfileSettingsRequest
+	if err := c.ShouldBindJSON(&req); err != nil {
+		response.BadRequest(c, "Invalid request: "+err.Error())
+		return
+	}
+	updates := map[string]any{}
+	if req.SingleEnvironment != nil {
+		updates["codex_single_environment"] = *req.SingleEnvironment
+	}
+	if req.ProfileLocked != nil {
+		updates["codex_environment_profile_locked"] = *req.ProfileLocked
+	}
+	if req.AllowOfficialClientLearn != nil {
+		updates["codex_environment_allow_official_client_learn"] = *req.AllowOfficialClientLearn
+	}
+	if req.ProfileFamilyPreference != nil {
+		preference := strings.TrimSpace(*req.ProfileFamilyPreference)
+		if preference == "" {
+			preference = "auto"
+		}
+		updates["codex_environment_profile_family_preference"] = preference
+	}
+	account, err := h.adminService.UpdateCodexEnvironmentProfileSettings(c.Request.Context(), accountID, updates)
+	if err != nil {
+		response.ErrorFrom(c, err)
+		return
+	}
+	response.Success(c, h.buildAccountResponseWithRuntime(c.Request.Context(), account))
+}
+
+func (h *AccountHandler) UpdateCodexEnvironmentProfile(c *gin.Context) {
+	accountID, err := strconv.ParseInt(c.Param("id"), 10, 64)
+	if err != nil {
+		response.BadRequest(c, "Invalid account ID")
+		return
+	}
+	var req UpdateCodexEnvironmentProfileRequest
+	if err := c.ShouldBindJSON(&req); err != nil {
+		response.BadRequest(c, "Invalid request: "+err.Error())
+		return
+	}
+	if req.Profile == nil {
+		response.BadRequest(c, "profile is required")
+		return
+	}
+	account, err := h.adminService.UpdateCodexEnvironmentProfile(c.Request.Context(), accountID, req.Profile)
+	if err != nil {
+		response.ErrorFrom(c, err)
+		return
+	}
+	response.Success(c, h.buildAccountResponseWithRuntime(c.Request.Context(), account))
+}
+
+func (h *AccountHandler) ResetCodexEnvironmentProfile(c *gin.Context) {
+	accountID, err := strconv.ParseInt(c.Param("id"), 10, 64)
+	if err != nil {
+		response.BadRequest(c, "Invalid account ID")
+		return
+	}
+	account, err := h.adminService.ResetCodexEnvironmentProfile(c.Request.Context(), accountID)
+	if err != nil {
+		response.ErrorFrom(c, err)
+		return
+	}
 	response.Success(c, h.buildAccountResponseWithRuntime(c.Request.Context(), account))
 }
 

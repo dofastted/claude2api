@@ -85,6 +85,12 @@ type AdminService interface {
 	// UpdateAccountExtra 仅对 Extra 做 JSONB 增量合并（key 级覆盖），不会影响其它字段或运行态键。
 	// 用于刷新流程持久化 account_uuid / org_uuid 等少量键，避免被全量快照覆盖。
 	UpdateAccountExtra(ctx context.Context, id int64, updates map[string]any) error
+	UpdateClaudeEnvironmentProfileSettings(ctx context.Context, id int64, updates map[string]any) (*Account, error)
+	UpdateClaudeEnvironmentProfile(ctx context.Context, id int64, profile *ClaudeEnvironmentProfile) (*Account, error)
+	ResetClaudeEnvironmentProfile(ctx context.Context, id int64) (*Account, error)
+	UpdateCodexEnvironmentProfileSettings(ctx context.Context, id int64, updates map[string]any) (*Account, error)
+	UpdateCodexEnvironmentProfile(ctx context.Context, id int64, profile *CodexEnvironmentProfile) (*Account, error)
+	ResetCodexEnvironmentProfile(ctx context.Context, id int64) (*Account, error)
 	EnableAllOpenAIWS(ctx context.Context, id int64) error
 	ResetOpenAIWS(ctx context.Context, id int64) error
 	DeleteAccount(ctx context.Context, id int64) error
@@ -2816,6 +2822,183 @@ func (s *adminServiceImpl) UpdateAccountExtra(ctx context.Context, id int64, upd
 		return nil
 	}
 	return s.accountRepo.UpdateExtra(ctx, id, updates)
+}
+
+func (s *adminServiceImpl) UpdateClaudeEnvironmentProfileSettings(ctx context.Context, id int64, updates map[string]any) (*Account, error) {
+	account, err := s.accountRepo.GetByID(ctx, id)
+	if err != nil {
+		return nil, err
+	}
+	if account == nil || !account.IsAnthropicOAuthOrSetupToken() {
+		return nil, errors.New("claude environment profile settings are only supported for Anthropic OAuth/SetupToken accounts")
+	}
+	allowed := map[string]struct{}{
+		claudeSingleEnvironmentKey:                  {},
+		claudeEnvironmentProfileLockedKey:           {},
+		claudeEnvironmentAllowDesktopLearnKey:       {},
+		claudeEnvironmentProfileFamilyPreferenceKey: {},
+	}
+	merged := make(map[string]any, len(updates))
+	for key, value := range updates {
+		if _, ok := allowed[key]; ok {
+			merged[key] = value
+		}
+	}
+	if len(merged) == 0 {
+		return account, nil
+	}
+	if err := s.accountRepo.UpdateExtra(ctx, id, merged); err != nil {
+		return nil, err
+	}
+	slog.Info("claude_environment_profile_settings_updated", "account_id", id)
+	return s.accountRepo.GetByID(ctx, id)
+}
+
+func (s *adminServiceImpl) UpdateClaudeEnvironmentProfile(ctx context.Context, id int64, profile *ClaudeEnvironmentProfile) (*Account, error) {
+	account, err := s.accountRepo.GetByID(ctx, id)
+	if err != nil {
+		return nil, err
+	}
+	if account == nil || !account.IsAnthropicOAuthOrSetupToken() {
+		return nil, errors.New("claude environment profile is only supported for Anthropic OAuth/SetupToken accounts")
+	}
+	if err := ValidateClaudeEnvironmentProfile(profile); err != nil {
+		return nil, err
+	}
+	now := time.Now().UTC()
+	if profile.CreatedAt.IsZero() {
+		profile.CreatedAt = now
+	}
+	profile.UpdatedAt = now
+	if strings.TrimSpace(profile.Source) == "" {
+		profile.Source = claudeEnvironmentProfileSourceAdmin
+	}
+	if deleter, ok := s.accountRepo.(accountExtraKeyDeleter); ok {
+		if err := deleter.DeleteExtraKeys(ctx, id, []string{claudeEnvironmentProfilePoolKey}); err != nil {
+			return nil, err
+		}
+	}
+	updates := map[string]any{
+		claudeEnvironmentProfileKey:       profile,
+		claudeEnvironmentProfileLockedKey: true,
+	}
+	if err := s.accountRepo.UpdateExtra(ctx, id, updates); err != nil {
+		return nil, err
+	}
+	slog.Info("claude_environment_profile_manual_updated", "account_id", id, "family", profile.Family)
+	return s.accountRepo.GetByID(ctx, id)
+}
+
+func (s *adminServiceImpl) ResetClaudeEnvironmentProfile(ctx context.Context, id int64) (*Account, error) {
+	account, err := s.accountRepo.GetByID(ctx, id)
+	if err != nil {
+		return nil, err
+	}
+	if account == nil || !account.IsAnthropicOAuthOrSetupToken() {
+		return nil, errors.New("claude environment profile is only supported for Anthropic OAuth/SetupToken accounts")
+	}
+	deleter, ok := s.accountRepo.(accountExtraKeyDeleter)
+	if !ok {
+		return nil, errors.New("account repository does not support extra key deletion")
+	}
+	if err := deleter.DeleteExtraKeys(ctx, id, []string{claudeEnvironmentProfileKey, claudeEnvironmentProfilePoolKey}); err != nil {
+		return nil, err
+	}
+	slog.Info("claude_environment_profile_reset", "account_id", id)
+	return s.accountRepo.GetByID(ctx, id)
+}
+
+func (s *adminServiceImpl) UpdateCodexEnvironmentProfileSettings(ctx context.Context, id int64, updates map[string]any) (*Account, error) {
+	account, err := s.accountRepo.GetByID(ctx, id)
+	if err != nil {
+		return nil, err
+	}
+	if account == nil || !account.IsOpenAIOAuth() {
+		return nil, errors.New("codex environment profile settings are only supported for OpenAI OAuth accounts")
+	}
+	allowed := map[string]struct{}{
+		codexSingleEnvironmentKey:                         {},
+		codexEnvironmentProfileLockedKey:                  {},
+		codexEnvironmentAllowOfficialClientLearnKey:       {},
+		codexEnvironmentAllowOfficialClientLearnLegacyKey: {},
+		codexEnvironmentProfileFamilyPreferenceKey:        {},
+	}
+	merged := make(map[string]any, len(updates))
+	for key, value := range updates {
+		if _, ok := allowed[key]; ok {
+			merged[key] = value
+		}
+	}
+	if len(merged) == 0 {
+		return account, nil
+	}
+	if preference, ok := merged[codexEnvironmentProfileFamilyPreferenceKey].(string); ok {
+		normalized, err := normalizeCodexProfileFamilyPreference(preference)
+		if err != nil {
+			return nil, err
+		}
+		merged[codexEnvironmentProfileFamilyPreferenceKey] = normalized
+	}
+	if err := s.accountRepo.UpdateExtra(ctx, id, merged); err != nil {
+		return nil, err
+	}
+	slog.Info("codex_environment_profile_settings_updated", "account_id", id)
+	return s.accountRepo.GetByID(ctx, id)
+}
+
+func (s *adminServiceImpl) UpdateCodexEnvironmentProfile(ctx context.Context, id int64, profile *CodexEnvironmentProfile) (*Account, error) {
+	account, err := s.accountRepo.GetByID(ctx, id)
+	if err != nil {
+		return nil, err
+	}
+	if account == nil || !account.IsOpenAIOAuth() {
+		return nil, errors.New("codex environment profile is only supported for OpenAI OAuth accounts")
+	}
+	if profile == nil {
+		return nil, errors.New("codex environment profile is required")
+	}
+	profile.Source = "admin"
+	profile.UpdatedAt = time.Now().UTC()
+	if profile.CreatedAt.IsZero() {
+		profile.CreatedAt = profile.UpdatedAt
+	}
+	encoded, err := EncodeCodexEnvironmentProfile(profile)
+	if err != nil {
+		return nil, err
+	}
+	if deleter, ok := s.accountRepo.(accountExtraKeyDeleter); ok {
+		if err := deleter.DeleteExtraKeys(ctx, id, []string{codexEnvironmentProfilePoolKey}); err != nil {
+			return nil, err
+		}
+	}
+	updates := map[string]any{
+		codexEnvironmentProfileKey:       encoded,
+		codexEnvironmentProfileLockedKey: true,
+	}
+	if err := s.accountRepo.UpdateExtra(ctx, id, updates); err != nil {
+		return nil, err
+	}
+	slog.Info("codex_environment_profile_manual_updated", "account_id", id, "family", profile.Family)
+	return s.accountRepo.GetByID(ctx, id)
+}
+
+func (s *adminServiceImpl) ResetCodexEnvironmentProfile(ctx context.Context, id int64) (*Account, error) {
+	account, err := s.accountRepo.GetByID(ctx, id)
+	if err != nil {
+		return nil, err
+	}
+	if account == nil || !account.IsOpenAIOAuth() {
+		return nil, errors.New("codex environment profile is only supported for OpenAI OAuth accounts")
+	}
+	deleter, ok := s.accountRepo.(accountExtraKeyDeleter)
+	if !ok {
+		return nil, errors.New("account repository does not support extra key deletion")
+	}
+	if err := deleter.DeleteExtraKeys(ctx, id, []string{codexEnvironmentProfileKey, codexEnvironmentProfilePoolKey}); err != nil {
+		return nil, err
+	}
+	slog.Info("codex_environment_profile_reset", "account_id", id)
+	return s.accountRepo.GetByID(ctx, id)
 }
 
 // BulkUpdateAccounts updates multiple accounts in one request.

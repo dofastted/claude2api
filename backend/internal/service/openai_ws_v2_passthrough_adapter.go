@@ -345,7 +345,19 @@ func (s *OpenAIGatewayService) proxyResponsesWebSocketV2Passthrough(
 		turnState = strings.TrimSpace(c.GetHeader(openAIWSTurnStateHeader))
 		turnMetadata = strings.TrimSpace(c.GetHeader(openAIWSTurnMetadataHeader))
 	}
-	headers, _ := s.buildOpenAIWSHeaders(c, account, token, wsDecision, isCodexCLI, turnState, turnMetadata, promptCacheKey)
+	codexProfileLease, codexProfile, profileErr := s.acquireCodexEnvironmentProfileForRequest(ctx, account, ginRequestHeader(c))
+	if profileErr != nil {
+		return profileErr
+	}
+	defer func() {
+		if codexProfileLease != nil && codexProfileLease.ReleaseFunc != nil {
+			codexProfileLease.ReleaseFunc()
+		}
+	}()
+	headers, _, headerErr := s.buildOpenAIWSHeaders(c, account, token, wsDecision, isCodexCLI, turnState, turnMetadata, promptCacheKey, codexProfile)
+	if headerErr != nil {
+		return headerErr
+	}
 	proxyURL := ""
 	if account.ProxyID != nil && account.Proxy != nil {
 		proxyURL = account.Proxy.URL()

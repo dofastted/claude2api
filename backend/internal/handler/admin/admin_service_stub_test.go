@@ -644,5 +644,29 @@ func (s *stubAdminService) ResetOpenAIWS(ctx context.Context, id int64) error {
 	return nil
 }
 
+func (s *stubAdminService) UpdateClaudeEnvironmentProfileSettings(ctx context.Context, id int64, updates map[string]any) (*service.Account, error) {
+	return &service.Account{ID: id, Platform: service.PlatformAnthropic, Type: service.AccountTypeOAuth, Extra: updates}, nil
+}
+
+func (s *stubAdminService) UpdateClaudeEnvironmentProfile(ctx context.Context, id int64, profile *service.ClaudeEnvironmentProfile) (*service.Account, error) {
+	return &service.Account{ID: id, Platform: service.PlatformAnthropic, Type: service.AccountTypeOAuth, Extra: map[string]any{"claude_environment_profile": profile}}, nil
+}
+
+func (s *stubAdminService) ResetClaudeEnvironmentProfile(ctx context.Context, id int64) (*service.Account, error) {
+	return &service.Account{ID: id, Platform: service.PlatformAnthropic, Type: service.AccountTypeOAuth, Extra: map[string]any{}}, nil
+}
+
+func (s *stubAdminService) UpdateCodexEnvironmentProfileSettings(ctx context.Context, id int64, updates map[string]any) (*service.Account, error) {
+	return &service.Account{ID: id, Platform: service.PlatformOpenAI, Type: service.AccountTypeOAuth, Extra: updates}, nil
+}
+
+func (s *stubAdminService) UpdateCodexEnvironmentProfile(ctx context.Context, id int64, profile *service.CodexEnvironmentProfile) (*service.Account, error) {
+	return &service.Account{ID: id, Platform: service.PlatformOpenAI, Type: service.AccountTypeOAuth, Extra: map[string]any{"codex_environment_profile": profile}}, nil
+}
+
+func (s *stubAdminService) ResetCodexEnvironmentProfile(ctx context.Context, id int64) (*service.Account, error) {
+	return &service.Account{ID: id, Platform: service.PlatformOpenAI, Type: service.AccountTypeOAuth, Extra: map[string]any{}}, nil
+}
+
 // Ensure stub implements interface.
 var _ service.AdminService = (*stubAdminService)(nil)
