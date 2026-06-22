@@ -138,3 +138,9 @@ docs/*
 frontend/coverage/
 aicodex
 output/
+
+
+# Local AI/Trellis workspace scaffolding
+.agents/
+.cursor/
+.trellis/
