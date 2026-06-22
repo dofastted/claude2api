@@ -12,6 +12,7 @@ const AUTH_TOKEN_KEY = 'auth_token'
 const AUTH_USER_KEY = 'auth_user'
 const REFRESH_TOKEN_KEY = 'refresh_token'
 const TOKEN_EXPIRES_AT_KEY = 'token_expires_at' // 存储过期时间戳而非有效期
+const RUN_MODE_KEY = 'run_mode'
 const PENDING_AUTH_SESSION_KEY = 'pending_auth_session'
 const AUTO_REFRESH_INTERVAL = 60 * 1000 // 60 seconds for user data refresh
 const TOKEN_REFRESH_BUFFER = 120 * 1000 // 120 seconds before expiry to refresh token
@@ -105,6 +106,7 @@ export const useAuthStore = defineStore('auth', () => {
     const savedUser = localStorage.getItem(AUTH_USER_KEY)
     const savedRefreshToken = localStorage.getItem(REFRESH_TOKEN_KEY)
     const savedExpiresAt = localStorage.getItem(TOKEN_EXPIRES_AT_KEY)
+    const savedRunMode = localStorage.getItem(RUN_MODE_KEY)
     pendingAuthSession.value = getPersistedPendingAuthSession()
 
     if (savedToken && savedUser) {
@@ -113,6 +115,9 @@ export const useAuthStore = defineStore('auth', () => {
         user.value = JSON.parse(savedUser)
         refreshTokenValue.value = savedRefreshToken
         tokenExpiresAt.value = savedExpiresAt ? parseInt(savedExpiresAt, 10) : null
+        if (savedRunMode === 'simple' || savedRunMode === 'standard') {
+          runMode.value = savedRunMode
+        }
 
         // Immediately refresh user data from backend (async, don't block)
         refreshUser().catch((error) => {
@@ -292,6 +297,7 @@ export const useAuthStore = defineStore('auth', () => {
     // Extract run_mode if present
     if (response.user.run_mode) {
       runMode.value = response.user.run_mode
+      localStorage.setItem(RUN_MODE_KEY, response.user.run_mode)
     }
     const { run_mode: _run_mode, ...userData } = response.user
     user.value = userData
@@ -419,6 +425,7 @@ export const useAuthStore = defineStore('auth', () => {
       const response = await authAPI.getCurrentUser()
       if (response.data.run_mode) {
         runMode.value = response.data.run_mode
+        localStorage.setItem(RUN_MODE_KEY, response.data.run_mode)
       }
       const { run_mode: _run_mode, ...userData } = response.data
       user.value = userData
@@ -454,6 +461,7 @@ export const useAuthStore = defineStore('auth', () => {
     localStorage.removeItem(AUTH_USER_KEY)
     localStorage.removeItem(REFRESH_TOKEN_KEY)
     localStorage.removeItem(TOKEN_EXPIRES_AT_KEY)
+    localStorage.removeItem(RUN_MODE_KEY)
 
     if (options?.preservePendingAuthSession) {
       pendingAuthSession.value = getPersistedPendingAuthSession()

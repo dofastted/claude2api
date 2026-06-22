@@ -1,6 +1,7 @@
 package routes
 
 import (
+	"log/slog"
 	"net/http"
 
 	"github.com/Wei-Shaw/sub2api/internal/config"
@@ -30,6 +31,8 @@ func RegisterGatewayRoutes(
 	// 未分组 Key 拦截中间件（按协议格式区分错误响应）
 	requireGroupAnthropic := middleware.RequireGroupAssignment(settingService, middleware.AnthropicErrorWriter)
 	requireGroupGoogle := middleware.RequireGroupAssignment(settingService, middleware.GoogleErrorWriter)
+
+	registerClaudeAuxiliaryLocalAckRoutes(r, bodyLimit, clientRequestID, opsErrorLogger, endpointNorm)
 
 	// API网关（Claude API兼容）
 	gateway := r.Group("/v1")
@@ -244,6 +247,29 @@ func RegisterGatewayRoutes(
 		antigravityV1Beta.POST("/models/*modelAction", h.Gateway.GeminiV1BetaModels)
 	}
 
+}
+
+func registerClaudeAuxiliaryLocalAckRoutes(r *gin.Engine, handlers ...gin.HandlerFunc) {
+	ack := func(c *gin.Context) {
+		slog.Info("claude_auxiliary_request_local_ack", "path", c.Request.URL.Path, "method", c.Request.Method)
+		c.Status(http.StatusNoContent)
+	}
+	paths := []string{
+		"/v1/logs",
+		"/v1/metrics",
+		"/v1/traces",
+		"/events",
+		"/analytics",
+		"/settings",
+		"/config",
+		"/diagnostics",
+		"/crash",
+		"/experiments",
+		"/feature_flags",
+	}
+	for _, path := range paths {
+		r.Any(path, append(handlers, ack)...)
+	}
 }
 
 // getGroupPlatform extracts the group platform from the API Key stored in context.

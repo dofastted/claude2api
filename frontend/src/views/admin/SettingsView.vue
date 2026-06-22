@@ -1467,6 +1467,7 @@
 
               <!-- Promo Code -->
               <div
+                v-if="!isSimpleMode"
                 class="flex items-center justify-between border-t border-gray-100 pt-4 dark:border-dark-700"
               >
                 <div>
@@ -3070,7 +3071,7 @@
             </div>
             <div class="space-y-6 p-6">
               <div class="grid grid-cols-1 gap-6 md:grid-cols-2">
-                <div>
+                <div v-if="!isSimpleMode">
                   <label
                     class="mb-2 block text-sm font-medium text-gray-700 dark:text-gray-300"
                   >
@@ -3125,7 +3126,7 @@
                 </div>
               </div>
 
-              <div class="border-t border-gray-100 pt-4 dark:border-dark-700">
+              <div v-if="!isSimpleMode" class="border-t border-gray-100 pt-4 dark:border-dark-700">
                 <div class="mb-3 flex items-center justify-between">
                   <div>
                     <label class="font-medium text-gray-900 dark:text-white">
@@ -3264,7 +3265,7 @@
               </div>
 
               <!-- ★ 新增：系统全局默认平台限额矩阵 -->
-              <div class="border-t border-gray-100 pt-4 dark:border-dark-700">
+              <div v-if="!isSimpleMode" class="border-t border-gray-100 pt-4 dark:border-dark-700">
                 <div class="mb-3">
                   <label class="font-medium text-gray-900 dark:text-white">
                     {{ t("admin.settings.defaults.defaultPlatformQuotas") }}
@@ -3330,7 +3331,7 @@
             </div>
           </div>
 
-          <div class="card">
+          <div v-if="!isSimpleMode" class="card">
             <div
               class="border-b border-gray-100 px-6 py-4 dark:border-dark-700"
             >
@@ -5413,7 +5414,7 @@
         <!-- /Tab: Login Agreement -->
 
 	        <!-- Tab: Features (功能开关) -->
-        <div v-show="activeTab === 'features'" class="space-y-6">
+        <div v-if="!isSimpleMode" v-show="activeTab === 'features'" class="space-y-6">
 
         <div class="card">
           <div class="border-b border-gray-100 px-6 py-4 dark:border-dark-700">
@@ -5960,7 +5961,7 @@
 
         <!-- Tab: Email -->
         <!-- Tab: Payment -->
-        <div v-show="activeTab === 'payment'" class="space-y-6">
+        <div v-if="!isSimpleMode" v-show="activeTab === 'payment'" class="space-y-6">
           <!-- Payment System Settings -->
           <div class="card">
             <div
@@ -6704,7 +6705,7 @@
           </div>
 
           <!-- 订阅到期提醒 -->
-          <div class="card">
+          <div v-if="!isSimpleMode" class="card">
             <div
               class="border-b border-gray-100 px-6 py-4 dark:border-dark-700"
             >
@@ -6735,7 +6736,7 @@
           <EmailTemplateEditor />
 
           <!-- Balance Low Notification -->
-          <div class="card">
+          <div v-if="!isSimpleMode" class="card">
             <div
               class="border-b border-gray-100 px-6 py-4 dark:border-dark-700"
             >
@@ -6795,7 +6796,7 @@
           </div>
 
           <!-- Account Quota Notification -->
-          <div class="card">
+          <div v-if="!isSimpleMode" class="card">
             <div
               class="border-b border-gray-100 px-6 py-4 dark:border-dark-700"
             >
@@ -6915,6 +6916,7 @@
 
       <!-- Provider dialogs placed outside the settings form to prevent form submission bubbling -->
       <PaymentProviderDialog
+        v-if="!isSimpleMode"
         ref="providerDialogRef"
         :show="showProviderDialog"
         :saving="providerSaving"
@@ -6927,6 +6929,7 @@
         @save="handleSaveProvider"
       />
       <ConfirmDialog
+        v-if="!isSimpleMode"
         :show="showDeleteProviderDialog"
         :title="t('admin.settings.payment.deleteProvider')"
         :message="t('admin.settings.payment.deleteProviderConfirm')"
@@ -6951,6 +6954,7 @@
 <script setup lang="ts">
 import { ref, reactive, computed, onMounted, watch } from "vue";
 import { useI18n } from "vue-i18n";
+import { useRoute, useRouter } from "vue-router";
 import { adminAPI } from "@/api";
 import {
   appendAuthSourceDefaultsToUpdateRequest,
@@ -6998,7 +7002,7 @@ import EmailTemplateEditor from "@/views/admin/settings/EmailTemplateEditor.vue"
 import { useClipboard } from "@/composables/useClipboard";
 import { affiliatesAPI, type AffiliateAdminEntry, type SimpleUser as AffiliateSimpleUser } from "@/api/admin/affiliates";
 import { extractApiErrorMessage, extractI18nErrorMessage } from "@/utils/apiError";
-import { useAppStore } from "@/stores";
+import { useAppStore, useAuthStore } from "@/stores";
 import { useAdminSettingsStore } from "@/stores/adminSettings";
 import { normalizeVisibleMethod } from "@/components/payment/paymentFlow";
 import {
@@ -7009,7 +7013,11 @@ import {
 } from "@/utils/registrationEmailPolicy";
 
 const { t, locale } = useI18n();
+const route = useRoute();
+const router = useRouter();
 const appStore = useAppStore();
+const authStore = useAuthStore();
+const isSimpleMode = computed(() => authStore.isSimpleMode);
 const adminSettingsStore = useAdminSettingsStore();
 const isZhLocale = computed(() => locale.value.startsWith("zh"));
 
@@ -7039,18 +7047,71 @@ type SettingsTab =
   | "payment"
   | "email"
   | "backup";
-const activeTab = ref<SettingsTab>("general");
-const settingsTabs = [
+const allSettingsTabs = [
   { key: "general" as SettingsTab, icon: "home" as const },
   { key: "agreement" as SettingsTab, icon: "document" as const },
-  { key: "features" as SettingsTab, icon: "bolt" as const },
+  { key: "features" as SettingsTab, icon: "bolt" as const, hideInSimpleMode: true },
   { key: "security" as SettingsTab, icon: "shield" as const },
   { key: "users" as SettingsTab, icon: "user" as const },
   { key: "gateway" as SettingsTab, icon: "server" as const },
-  { key: "payment" as SettingsTab, icon: "creditCard" as const },
+  { key: "payment" as SettingsTab, icon: "creditCard" as const, hideInSimpleMode: true },
   { key: "email" as SettingsTab, icon: "mail" as const },
   { key: "backup" as SettingsTab, icon: "database" as const },
 ];
+const settingsTabs = computed(() =>
+  allSettingsTabs.filter((tab) => !isSimpleMode.value || !tab.hideInSimpleMode),
+);
+const activeTab = ref<SettingsTab>(normalizeSettingsTab(route.query.tab));
+
+function deleteSimpleModeOnlySettings(payload: UpdateSettingsRequest): void {
+  delete payload.promo_code_enabled;
+  delete payload.default_balance;
+  delete payload.default_subscriptions;
+  delete payload.default_platform_quotas;
+  delete payload.affiliate_rebate_rate;
+  delete payload.affiliate_rebate_freeze_hours;
+  delete payload.affiliate_rebate_duration_days;
+  delete payload.affiliate_rebate_per_invitee_cap;
+  delete payload.payment_enabled;
+  delete payload.payment_min_amount;
+  delete payload.payment_max_amount;
+  delete payload.payment_daily_limit;
+  delete payload.payment_max_pending_orders;
+  delete payload.payment_order_timeout_minutes;
+  delete payload.payment_balance_disabled;
+  delete payload.payment_balance_recharge_multiplier;
+  delete payload.payment_recharge_fee_rate;
+  delete payload.payment_enabled_types;
+  delete payload.payment_load_balance_strategy;
+  delete payload.payment_product_name_prefix;
+  delete payload.payment_product_name_suffix;
+  delete payload.payment_help_image_url;
+  delete payload.payment_help_text;
+  delete payload.payment_cancel_rate_limit_enabled;
+  delete payload.payment_cancel_rate_limit_max;
+  delete payload.payment_cancel_rate_limit_window;
+  delete payload.payment_cancel_rate_limit_unit;
+  delete payload.payment_cancel_rate_limit_window_mode;
+  delete payload.payment_alipay_force_qrcode;
+  delete payload.balance_low_notify_enabled;
+  delete payload.balance_low_notify_threshold;
+  delete payload.balance_low_notify_recharge_url;
+  delete payload.subscription_expiry_notify_enabled;
+  delete payload.account_quota_notify_enabled;
+  delete payload.account_quota_notify_emails;
+  delete payload.available_channels_enabled;
+  delete payload.affiliate_enabled;
+
+  for (const source of authSourceDefaultsMeta.value) {
+    const prefix = `auth_source_default_${source.source}`;
+    const payloadRecord = payload as Record<string, unknown>;
+    delete payloadRecord[`${prefix}_balance`];
+    delete payloadRecord[`${prefix}_subscriptions`];
+    delete payloadRecord[`${prefix}_grant_on_signup`];
+    delete payloadRecord[`${prefix}_grant_on_first_bind`];
+    delete payloadRecord[`${prefix}_platform_quotas`];
+  }
+}
 
 const settingsTabKeyboardActions = {
   ArrowLeft: -1,
@@ -7061,8 +7122,37 @@ const settingsTabKeyboardActions = {
   End: "last",
 } as const;
 
+function normalizeSettingsTab(value: unknown): SettingsTab {
+  const requestedTab = Array.isArray(value) ? value[0] : value;
+  if (typeof requestedTab !== "string") {
+    return "general";
+  }
+  const matchedTab = allSettingsTabs.find((tab) => tab.key === requestedTab);
+  return matchedTab ? matchedTab.key : "general";
+}
+
+function isSettingsTabVisible(tab: SettingsTab): boolean {
+  return settingsTabs.value.some((item) => item.key === tab);
+}
+
+function applySettingsTabFromRoute(): void {
+  const nextTab = normalizeSettingsTab(route.query.tab);
+  activeTab.value = isSettingsTabVisible(nextTab) ? nextTab : "general";
+}
+
+function syncSettingsTabToRoute(tab: SettingsTab): void {
+  const nextQuery = { ...route.query };
+  if (tab === "general") {
+    delete nextQuery.tab;
+  } else {
+    nextQuery.tab = tab;
+  }
+  router.replace({ query: nextQuery });
+}
+
 function selectSettingsTab(tab: SettingsTab): void {
   activeTab.value = tab;
+  syncSettingsTabToRoute(tab);
 }
 
 function focusSettingsTab(tab: SettingsTab): void {
@@ -7081,19 +7171,20 @@ function handleSettingsTabKeydown(event: KeyboardEvent, tab: SettingsTab): void 
   }
 
   event.preventDefault();
-  const currentIndex = settingsTabs.findIndex((item) => item.key === tab);
+  const visibleTabs = settingsTabs.value;
+  const currentIndex = visibleTabs.findIndex((item) => item.key === tab);
   let nextIndex = currentIndex < 0 ? 0 : currentIndex;
 
   if (action === "first") {
     nextIndex = 0;
   } else if (action === "last") {
-    nextIndex = settingsTabs.length - 1;
+    nextIndex = visibleTabs.length - 1;
   } else {
     nextIndex =
-      (nextIndex + action + settingsTabs.length) % settingsTabs.length;
+      (nextIndex + action + visibleTabs.length) % visibleTabs.length;
   }
 
-  const nextTab = settingsTabs[nextIndex]?.key;
+  const nextTab = visibleTabs[nextIndex]?.key;
   if (!nextTab) {
     return;
   }
@@ -9052,6 +9143,9 @@ async function saveSettings() {
 
     payload.default_platform_quotas = sanitizePlatformQuotasMap(form.default_platform_quotas);
     appendAuthSourceDefaultsToUpdateRequest(payload, authSourceDefaults);
+    if (isSimpleMode.value) {
+      deleteSimpleModeOnlySettings(payload);
+    }
 
     const updated = await adminAPI.settings.updateSettings(payload);
     for (const [key, value] of Object.entries(updated)) {
@@ -9121,7 +9215,7 @@ async function saveSettings() {
     const wsOk = await saveWebSearchConfig();
     // Refresh cached settings so sidebar/header update immediately
     await appStore.fetchPublicSettings(true);
-    await adminSettingsStore.fetch(true);
+    await adminSettingsStore.fetch(true, !isSimpleMode.value)
     if (wsOk) {
       appStore.showSuccess(t("admin.settings.settingsSaved"));
     }
@@ -9931,15 +10025,33 @@ async function handleDeleteProvider() {
 }
 
 onMounted(() => {
+  applySettingsTabFromRoute();
   loadSettings();
-  loadSubscriptionGroups();
+  if (!isSimpleMode.value) {
+    loadSubscriptionGroups();
+  }
   loadAdminApiKey();
   loadOverloadCooldownSettings();
   loadRateLimit429CooldownSettings();
   loadStreamTimeoutSettings();
   loadRectifierSettings();
   loadBetaPolicySettings();
-  loadProviders();
+  if (!isSimpleMode.value) {
+    loadProviders();
+  }
+});
+
+watch(
+  () => route.query.tab,
+  () => {
+    applySettingsTabFromRoute();
+  },
+);
+
+watch(settingsTabs, () => {
+  if (!isSettingsTabVisible(activeTab.value)) {
+    activeTab.value = "general";
+  }
 });
 
 // =========================

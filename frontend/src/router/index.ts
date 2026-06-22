@@ -11,7 +11,7 @@ import { useAdminComplianceStore } from '@/stores/adminCompliance'
 import { useNavigationLoadingState } from '@/composables/useNavigationLoading'
 import { useRoutePrefetch } from '@/composables/useRoutePrefetch'
 import { getSetupStatus } from '@/api/setup'
-import { resolveCompletedSetupRedirectPath } from './setupRedirect'
+import { resolveAdminHomePath, resolveCompletedSetupRedirectPath } from './setupRedirect'
 import { resolveDocumentTitle } from './title'
 
 /**
@@ -376,7 +376,7 @@ const routes: RouteRecordRaw[] = [
   // ==================== Admin Routes ====================
   {
     path: '/admin',
-    redirect: '/admin/dashboard'
+    redirect: () => resolveAdminHomePath(localStorage.getItem('run_mode') !== 'standard')
   },
   {
     path: '/admin/dashboard',
@@ -757,7 +757,7 @@ router.beforeEach(async (to, _from, next) => {
     try {
       const status = await getSetupStatus()
       if (!status.needs_setup) {
-        next(resolveCompletedSetupRedirectPath(authStore.isAuthenticated, authStore.isAdmin))
+        next(resolveCompletedSetupRedirectPath(authStore.isAuthenticated, authStore.isAdmin, authStore.isSimpleMode))
         return
       }
     } catch {
@@ -775,8 +775,8 @@ router.beforeEach(async (to, _from, next) => {
         next()
         return
       }
-      // Admin users go to admin dashboard, regular users go to user dashboard
-      next(authStore.isAdmin ? '/admin/dashboard' : '/dashboard')
+      // Admin users in Simple Mode start at Settings → Users to configure user defaults/password-related options.
+      next(authStore.isAdmin ? resolveAdminHomePath(authStore.isSimpleMode) : '/dashboard')
       return
     }
     // Backend mode: block public pages for unauthenticated users (except login, key-usage, setup)
@@ -843,11 +843,20 @@ router.beforeEach(async (to, _from, next) => {
   // 简易模式下限制访问某些页面
   if (authStore.isSimpleMode) {
     const restrictedPaths = [
+      '/admin/announcements',
       '/admin/groups',
       '/admin/subscriptions',
       '/admin/redeem',
+      '/admin/channels/pricing',
+      '/admin/channels/monitor',
+      '/admin/risk-control',
+      '/admin/affiliates',
       '/subscriptions',
-      '/redeem'
+      '/redeem',
+      '/purchase',
+      '/orders',
+      '/affiliate',
+      '/available-channels'
     ]
 
     if (restrictedPaths.some((path) => to.path.startsWith(path))) {

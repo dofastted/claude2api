@@ -51,6 +51,14 @@ const {
 }));
 
 const localeRef = vi.hoisted(() => ({ value: "zh-CN" }));
+const isSimpleModeRef = vi.hoisted(() => ({ value: false }));
+const routeQueryRef = vi.hoisted(() => ({ value: {} as Record<string, unknown> }));
+const routerReplace = vi.hoisted(() => vi.fn());
+
+vi.mock("vue-router", () => ({
+  useRoute: () => ({ query: routeQueryRef.value }),
+  useRouter: () => ({ replace: routerReplace }),
+}));
 
 vi.mock("@/api", () => ({
   adminAPI: {
@@ -89,6 +97,11 @@ vi.mock("@/stores", () => ({
     showWarning: vi.fn(),
     showInfo: vi.fn(),
     fetchPublicSettings,
+  }),
+  useAuthStore: () => ({
+    get isSimpleMode() {
+      return isSimpleModeRef.value;
+    },
   }),
 }));
 
@@ -500,6 +513,9 @@ describe("admin SettingsView payment visible method controls", () => {
     showError.mockReset();
     showSuccess.mockReset();
     localeRef.value = "zh-CN";
+    isSimpleModeRef.value = false;
+    routeQueryRef.value = {};
+    routerReplace.mockReset();
 
     getSettings.mockResolvedValue({ ...baseSettingsResponse });
     updateSettings.mockImplementation(async (payload) => ({
@@ -553,6 +569,59 @@ describe("admin SettingsView payment visible method controls", () => {
     });
     fetchPublicSettings.mockResolvedValue(undefined);
     adminSettingsFetch.mockResolvedValue(undefined);
+  });
+
+  it("opens users tab from route query", async () => {
+    isSimpleModeRef.value = true;
+    routeQueryRef.value = { tab: "users" };
+
+    const wrapper = mountView();
+
+    await flushPromises();
+
+    const selectedTab = wrapper
+      .findAll('[role="tab"]')
+      .find((node) => node.attributes("aria-selected") === "true");
+    expect(selectedTab?.text()).toContain("admin.settings.tabs.users");
+    expect(wrapper.text()).toContain("admin.settings.defaults.defaultConcurrency");
+    expect(wrapper.text()).toContain("admin.settings.defaults.defaultUserRpmLimit");
+  });
+
+  it("hides simple-mode irrelevant tabs, cards, loading, and payload fields", async () => {
+    isSimpleModeRef.value = true;
+    const wrapper = mountView();
+
+    await flushPromises();
+    await openUsersTab(wrapper);
+    await wrapper.find("form").trigger("submit.prevent");
+    await flushPromises();
+
+    expect(wrapper.text()).not.toContain("admin.settings.tabs.payment");
+    expect(wrapper.text()).not.toContain("admin.settings.tabs.features");
+    expect(wrapper.text()).not.toContain("admin.settings.registration.promoCode");
+    expect(wrapper.text()).not.toContain("admin.settings.defaults.defaultBalance");
+    expect(wrapper.text()).not.toContain("admin.settings.defaults.defaultSubscriptions");
+    expect(wrapper.text()).not.toContain("admin.settings.authSourceDefaults.title");
+    expect(wrapper.text()).not.toContain("admin.settings.balanceNotify.title");
+    expect(wrapper.text()).not.toContain("admin.settings.subscriptionExpiryNotify.title");
+    expect(wrapper.text()).not.toContain("admin.settings.quotaNotify.title");
+    expect(getProviders).not.toHaveBeenCalled();
+    expect(getGroups).not.toHaveBeenCalled();
+
+    const payload = updateSettings.mock.calls.at(-1)?.[0] as Record<string, unknown>;
+    expect(payload).not.toHaveProperty("promo_code_enabled");
+    expect(payload).not.toHaveProperty("default_balance");
+    expect(payload).not.toHaveProperty("default_subscriptions");
+    expect(payload).not.toHaveProperty("default_platform_quotas");
+    expect(payload).not.toHaveProperty("payment_enabled");
+    expect(payload).not.toHaveProperty("balance_low_notify_enabled");
+    expect(payload).not.toHaveProperty("subscription_expiry_notify_enabled");
+    expect(payload).not.toHaveProperty("account_quota_notify_enabled");
+    expect(payload).not.toHaveProperty("affiliate_enabled");
+    expect(payload).not.toHaveProperty("auth_source_default_email_balance");
+    expect(payload).not.toHaveProperty("auth_source_default_email_subscriptions");
+    expect(payload).toHaveProperty("default_concurrency");
+    expect(payload).toHaveProperty("default_user_rpm_limit");
   });
 
   it("does not render legacy visible payment method controls", async () => {
@@ -818,6 +887,7 @@ describe("admin SettingsView wechat connect controls", () => {
     adminSettingsFetch.mockReset();
     showError.mockReset();
     showSuccess.mockReset();
+    isSimpleModeRef.value = false;
 
     getSettings.mockResolvedValue({
       ...baseSettingsResponse,
@@ -1065,6 +1135,7 @@ describe("admin SettingsView platform quota matrix", () => {
     showError.mockReset();
     showSuccess.mockReset();
     localeRef.value = "zh-CN";
+    isSimpleModeRef.value = false;
 
     getSettings.mockResolvedValue({ ...baseSettingsResponse });
     updateSettings.mockImplementation(async (payload) => ({

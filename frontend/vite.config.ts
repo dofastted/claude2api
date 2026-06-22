@@ -81,6 +81,16 @@ export default defineConfig(({ mode }) => {
               return 'vendor-vue'
             }
 
+
+            // Payment SDKs are route-local. Keeping them out of the eager vendor chunk
+            // prevents Simple Mode pages from loading commercial payment scripts.
+            if (
+              id.includes('/@stripe/stripe-js/') ||
+              id.includes('/@airwallex/components-sdk/') ||
+              id.includes('/@airwallex/airtracker/')
+            ) {
+              return undefined
+            }
             // UI 工具库（较大，单独分离）
             if (id.includes('/@vueuse/') || id.includes('/xlsx/')) {
               return 'vendor-ui'

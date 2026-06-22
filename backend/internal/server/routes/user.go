@@ -94,10 +94,12 @@ func RegisterUserRoutes(
 		}
 
 		// 公告（用户可见）
-		announcements := authenticated.Group("/announcements")
-		{
-			announcements.GET("", h.Announcement.List)
-			announcements.POST("/:id/read", h.Announcement.MarkRead)
+		if !settingService.IsSimpleMode() {
+			announcements := authenticated.Group("/announcements")
+			{
+				announcements.GET("", h.Announcement.List)
+				announcements.POST("/:id/read", h.Announcement.MarkRead)
+			}
 		}
 
 		// 卡密兑换

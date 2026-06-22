@@ -11,32 +11,32 @@ export default {
     getStarted: '立即开始',
     goToDashboard: '进入控制台',
     // 新增：面向用户的价值主张
-    heroSubtitle: '一个密钥，畅用多个 AI 模型',
-    heroDescription: '无需管理多个订阅账号，一站式接入 Claude、GPT、Gemini 等主流 AI 服务',
+    heroSubtitle: '本地优先的 AI API 网关',
+    heroDescription: '统一接入 Claude Code、Codex CLI、Gemini CLI 和 OpenAI 兼容客户端',
     tags: {
-      subscriptionToApi: '订阅转 API',
+      subscriptionToApi: '统一 API 网关',
       stickySession: '会话保持',
-      realtimeBilling: '按量计费'
+      realtimeBilling: '本地优先'
     },
     // 用户痛点区块
     painPoints: {
       title: '你是否也遇到这些问题？',
       items: {
         expensive: {
-          title: '订阅费用高',
-          desc: '每个 AI 服务都要单独订阅，每月支出越来越多'
+          title: '多客户端接入繁琐',
+          desc: 'Claude Code、Codex CLI、Gemini CLI 和 OpenAI 兼容客户端需要分别配置'
         },
         complex: {
-          title: '多账号难管理',
-          desc: '不同平台的账号、密钥分散各处，管理起来很麻烦'
+          title: '账号和密钥分散',
+          desc: '不同平台的账号、密钥和环境参数分散各处，排查和维护成本高'
         },
         unstable: {
-          title: '服务不稳定',
-          desc: '单一账号容易触发限制，影响正常使用'
+          title: '上游状态不一致',
+          desc: '单一账号触发限制后会影响正常调用'
         },
         noControl: {
-          title: '用量无法控制',
-          desc: '不知道钱花在哪了，也无法限制团队成员的使用'
+          title: '权限边界不清晰',
+          desc: '团队内部需要明确 API Key、用户状态、分组和 IP 限制'
         }
       }
     },
@@ -46,12 +46,12 @@ export default {
       subtitle: '简单三步，开始省心使用 AI'
     },
     features: {
-      unifiedGateway: '一键接入',
-      unifiedGatewayDesc: '获取一个 API 密钥，即可调用所有已接入的 AI 模型，无需分别申请。',
-      multiAccount: '稳定可靠',
-      multiAccountDesc: '智能调度多个上游账号，自动切换和负载均衡，告别频繁报错。',
-      balanceQuota: '用多少付多少',
-      balanceQuotaDesc: '按实际使用量计费，支持设置配额上限，团队用量一目了然。'
+      unifiedGateway: '统一接入',
+      unifiedGatewayDesc: '使用一个 API Key 接入 Claude、OpenAI、Gemini、Antigravity 等上游能力。',
+      multiAccount: '账号池路由',
+      multiAccountDesc: '按账号状态、分组和平台能力调度请求，降低单点限制带来的影响。',
+      balanceQuota: '用量与权限可控',
+      balanceQuotaDesc: '保留 API Key、用户状态、分组和 IP 限制，适合自托管内部使用。'
     },
     // 优势对比
     comparison: {
@@ -63,9 +63,9 @@ export default {
       },
       items: {
         pricing: {
-          feature: '付费方式',
-          official: '固定月费，用不完也付',
-          us: '按量付费，用多少付多少'
+          feature: '部署方式',
+          official: '分散配置，分别维护',
+          us: '本地优先，统一入口'
         },
         models: {
           feature: '模型选择',
@@ -3388,6 +3388,44 @@ export default {
           unavailableLabel: '503 维护',
           unavailableDesc: '服务不可用 - 暂停 30 分钟'
         }
+      },
+      environmentProfile: {
+        claudeTitle: 'Claude 环境 Profile',
+        claudeDesc: '为账号固定唯一 Claude 客户端环境，创建后不会被请求自动修改。',
+        codexTitle: 'Codex 环境 Profile',
+        codexDesc: '为 OpenAI OAuth/Codex 流量固定唯一账号级客户端环境。',
+        singleEnvironment: '单环境模式',
+        singleEnvironmentDesc: '该账号任意时刻仅有一份账号级 Profile 生效。',
+        familyPreference: 'Profile 家族',
+        familyAuto: '自动',
+        claudeCodeCLI: 'Claude Code CLI',
+        claudeDesktop: 'Claude Desktop',
+        codexCLI: 'Codex CLI',
+        codexDesktop: 'Codex Desktop',
+        codexVSCode: 'Codex VSCode',
+        codexCustom: '自定义',
+        locked: '锁定 Profile',
+        allowDesktopLearn: '允许首次学习 Desktop',
+        allowDesktopLearnDesc: '仅在 Claude Profile 尚不存在时生效。',
+        allowOfficialClientLearn: '允许首次学习官方客户端',
+        allowOfficialClientLearnDesc: '仅在 Codex Profile 尚不存在时生效。',
+        status: '当前 Profile',
+        createPending: '创建账号时不会手动生成 Profile；首次可信请求会生成或学习。',
+        noProfile: '尚未保存 Profile。',
+        reset: '重置 Profile',
+        resetting: '重置中...',
+        resetSuccess: '环境 Profile 已重置',
+        resetFailed: '重置环境 Profile 失败',
+        family: '家族',
+        source: '来源',
+        platformArch: '平台 / 架构',
+        clientVersion: '客户端版本',
+        userAgent: 'User-Agent',
+        telemetryPolicy: '遥测策略',
+        originator: 'Originator',
+        version: '版本',
+        tlsProfile: 'TLS Profile',
+        updatedAt: '更新时间'
       },
       usageWindow: {
         statsTitle: '5小时窗口用量统计',

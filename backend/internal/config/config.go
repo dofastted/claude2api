@@ -18,6 +18,7 @@ import (
 const (
 	RunModeStandard = "standard"
 	RunModeSimple   = "simple"
+	RunModeDefault  = RunModeSimple
 )
 
 // 使用量记录队列溢出策略
@@ -1352,7 +1353,7 @@ func NormalizeRunMode(value string) string {
 	case RunModeStandard, RunModeSimple:
 		return normalized
 	default:
-		return RunModeStandard
+		return RunModeDefault
 	}
 }
 
@@ -1538,7 +1539,7 @@ func load(allowMissingJWTSecret bool) (*Config, error) {
 }
 
 func setDefaults() {
-	viper.SetDefault("run_mode", RunModeStandard)
+	viper.SetDefault("run_mode", RunModeDefault)
 
 	// Server
 	viper.SetDefault("server.host", "0.0.0.0")

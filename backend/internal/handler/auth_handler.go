@@ -78,11 +78,27 @@ type LoginRequest struct {
 
 // AuthResponse 认证响应格式（匹配前端期望）
 type AuthResponse struct {
-	AccessToken  string    `json:"access_token"`
-	RefreshToken string    `json:"refresh_token,omitempty"` // 新增：Refresh Token
-	ExpiresIn    int       `json:"expires_in,omitempty"`    // 新增：Access Token有效期（秒）
-	TokenType    string    `json:"token_type"`
-	User         *dto.User `json:"user"`
+	AccessToken  string            `json:"access_token"`
+	RefreshToken string            `json:"refresh_token,omitempty"` // 新增：Refresh Token
+	ExpiresIn    int               `json:"expires_in,omitempty"`    // 新增：Access Token有效期（秒）
+	TokenType    string            `json:"token_type"`
+	User         authenticatedUser `json:"user"`
+}
+
+type authenticatedUser struct {
+	*dto.User
+	RunMode string `json:"run_mode"`
+}
+
+func (h *AuthHandler) authenticatedUserFromService(user *service.User) authenticatedUser {
+	runMode := config.RunModeDefault
+	if h != nil && h.cfg != nil {
+		runMode = h.cfg.RunMode
+	}
+	return authenticatedUser{
+		User:    dto.UserFromService(user),
+		RunMode: runMode,
+	}
 }
 
 func ensureLoginUserActive(user *service.User) error {
@@ -115,7 +131,7 @@ func (h *AuthHandler) respondWithTokenPair(c *gin.Context, user *service.User) {
 		response.Success(c, AuthResponse{
 			AccessToken: token,
 			TokenType:   "Bearer",
-			User:        dto.UserFromService(user),
+			User:        h.authenticatedUserFromService(user),
 		})
 		return
 	}
@@ -124,7 +140,7 @@ func (h *AuthHandler) respondWithTokenPair(c *gin.Context, user *service.User) {
 		RefreshToken: tokenPair.RefreshToken,
 		ExpiresIn:    tokenPair.ExpiresIn,
 		TokenType:    "Bearer",
-		User:         dto.UserFromService(user),
+		User:         h.authenticatedUserFromService(user),
 	})
 }
 
@@ -426,7 +442,7 @@ func (h *AuthHandler) GetCurrentUser(c *gin.Context) {
 		RunMode string `json:"run_mode"`
 	}
 
-	runMode := config.RunModeStandard
+	runMode := config.RunModeDefault
 	if h.cfg != nil {
 		runMode = h.cfg.RunMode
 	}

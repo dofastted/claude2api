@@ -58,13 +58,13 @@ server:
 # Run Mode Configuration
 # 运行模式配置
 # =============================================================================
-# Run mode: "standard" (default) or "simple" (for internal use)
-# 运行模式："standard"（默认）或 "simple"（内部使用）
-# - standard: Full SaaS features with billing/balance checks
-# - standard: 完整 SaaS 功能，包含计费和余额校验
+# Run mode: "simple" (default) or "standard"
+# 运行模式："simple"（默认，精简模式）或 "standard"（完整 SaaS 模式）
 # - simple: Hides SaaS features and skips billing/balance checks
 # - simple: 隐藏 SaaS 功能，跳过计费和余额校验
-run_mode: "standard"
+# - standard: Full SaaS features with billing/balance checks
+# - standard: 完整 SaaS 功能，包含计费和余额校验
+run_mode: "simple"
 
 # =============================================================================
 # CORS Configuration

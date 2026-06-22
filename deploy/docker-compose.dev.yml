@@ -24,7 +24,7 @@ services:
       - SERVER_HOST=0.0.0.0
       - SERVER_PORT=8080
       - SERVER_MODE=debug
-      - RUN_MODE=${RUN_MODE:-standard}
+      - RUN_MODE=${RUN_MODE:-simple}
       - DATABASE_HOST=postgres
       - DATABASE_PORT=5432
       - DATABASE_USER=${POSTGRES_USER:-sub2api}

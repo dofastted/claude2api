@@ -11,32 +11,32 @@ export default {
     getStarted: 'Get Started',
     goToDashboard: 'Go to Dashboard',
     // User-focused value proposition
-    heroSubtitle: 'One Key, All AI Models',
-    heroDescription: 'No need to manage multiple subscriptions. Access Claude, GPT, Gemini and more with a single API key',
+    heroSubtitle: 'Local-first AI API gateway',
+    heroDescription: 'Unified access for Claude Code, Codex CLI, Gemini CLI, and OpenAI-compatible clients',
     tags: {
-      subscriptionToApi: 'Subscription to API',
+      subscriptionToApi: 'Unified API Gateway',
       stickySession: 'Session Persistence',
-      realtimeBilling: 'Pay As You Go'
+      realtimeBilling: 'Local First'
     },
     // Pain points section
     painPoints: {
       title: 'Sound Familiar?',
       items: {
         expensive: {
-          title: 'High Subscription Costs',
-          desc: 'Paying for multiple AI subscriptions that add up every month'
+          title: 'Client Setup Sprawl',
+          desc: 'Claude Code, Codex CLI, Gemini CLI, and OpenAI-compatible clients need separate configuration'
         },
         complex: {
-          title: 'Account Chaos',
-          desc: 'Managing scattered accounts and API keys across different platforms'
+          title: 'Scattered Accounts and Keys',
+          desc: 'Accounts, keys, and environment settings are spread across providers'
         },
         unstable: {
-          title: 'Service Interruptions',
-          desc: 'Single accounts hitting rate limits and disrupting your workflow'
+          title: 'Inconsistent Upstream State',
+          desc: 'A single limited account can interrupt normal requests'
         },
         noControl: {
-          title: 'No Usage Control',
-          desc: "Can't track where your money goes or limit team member usage"
+          title: 'Unclear Access Boundaries',
+          desc: 'Internal teams need explicit API key, user status, group, and IP controls'
         }
       }
     },
@@ -46,12 +46,12 @@ export default {
       subtitle: 'Three simple steps to stress-free AI access'
     },
     features: {
-      unifiedGateway: 'One-Click Access',
-      unifiedGatewayDesc: 'Get a single API key to call all connected AI models. No separate applications needed.',
-      multiAccount: 'Always Reliable',
-      multiAccountDesc: 'Smart routing across multiple upstream accounts with automatic failover. Say goodbye to errors.',
-      balanceQuota: 'Pay What You Use',
-      balanceQuotaDesc: 'Usage-based billing with quota limits. Full visibility into team consumption.'
+      unifiedGateway: 'Unified Access',
+      unifiedGatewayDesc: 'Use one API key for Claude, OpenAI, Gemini, Antigravity, and other upstream capabilities.',
+      multiAccount: 'Account Pool Routing',
+      multiAccountDesc: 'Route requests by account state, group, and platform capability to reduce single-account limits.',
+      balanceQuota: 'Usage and Access Controls',
+      balanceQuotaDesc: 'Keep API keys, user status, groups, and IP restrictions for self-hosted internal use.'
     },
     // Comparison section
     comparison: {
@@ -63,9 +63,9 @@ export default {
       },
       items: {
         pricing: {
-          feature: 'Pricing',
-          official: 'Fixed monthly fee, pay even if unused',
-          us: 'Pay only for what you use'
+          feature: 'Deployment',
+          official: 'Scattered setup and maintenance',
+          us: 'Local-first, unified entry'
         },
         models: {
           feature: 'Model Selection',
@@ -3259,6 +3259,44 @@ export default {
           unavailableLabel: '503 Unavailable',
           unavailableDesc: 'Unavailable - pause 30 minutes'
         }
+      },
+      environmentProfile: {
+        claudeTitle: 'Claude environment profile',
+        claudeDesc: 'Fix one account-level Claude client environment. Requests cannot change it after it is created.',
+        codexTitle: 'Codex environment profile',
+        codexDesc: 'Fix one account-level Codex client environment for OAuth Codex traffic.',
+        singleEnvironment: 'Single environment mode',
+        singleEnvironmentDesc: 'Exactly one account-level profile is effective for this account.',
+        familyPreference: 'Profile family',
+        familyAuto: 'Auto',
+        claudeCodeCLI: 'Claude Code CLI',
+        claudeDesktop: 'Claude Desktop',
+        codexCLI: 'Codex CLI',
+        codexDesktop: 'Codex Desktop',
+        codexVSCode: 'Codex VSCode',
+        codexCustom: 'Custom',
+        locked: 'Profile locked',
+        allowDesktopLearn: 'Allow Desktop first-learn',
+        allowDesktopLearnDesc: 'Only applies while no Claude profile exists.',
+        allowOfficialClientLearn: 'Allow official client first-learn',
+        allowOfficialClientLearnDesc: 'Only applies while no Codex profile exists.',
+        status: 'Current profile',
+        createPending: 'No profile is created during account creation. The first trusted request will generate or learn one.',
+        noProfile: 'No profile saved yet.',
+        reset: 'Reset profile',
+        resetting: 'Resetting...',
+        resetSuccess: 'Environment profile reset',
+        resetFailed: 'Failed to reset environment profile',
+        family: 'Family',
+        source: 'Source',
+        platformArch: 'Platform / Arch',
+        clientVersion: 'Client Version',
+        userAgent: 'User-Agent',
+        telemetryPolicy: 'Telemetry',
+        originator: 'Originator',
+        version: 'Version',
+        tlsProfile: 'TLS Profile',
+        updatedAt: 'Updated'
       },
       clearRateLimit: 'Clear Rate Limit',
       resetQuota: 'Reset Quota',

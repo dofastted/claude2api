@@ -1,6 +1,6 @@
 <script setup lang="ts">
 import { RouterView, useRouter, useRoute } from 'vue-router'
-import { onMounted, onBeforeUnmount, watch } from 'vue'
+import { computed, onMounted, onBeforeUnmount, watch } from 'vue'
 import Toast from '@/components/common/Toast.vue'
 import NavigationProgress from '@/components/common/NavigationProgress.vue'
 import AdminComplianceDialog from '@/components/admin/AdminComplianceDialog.vue'
@@ -16,6 +16,9 @@ const authStore = useAuthStore()
 const subscriptionStore = useSubscriptionStore()
 const announcementStore = useAnnouncementStore()
 const adminComplianceStore = useAdminComplianceStore()
+
+const announcementsEnabled = computed(() => authStore.isAuthenticated && !authStore.isSimpleMode)
+const commercialUserFeaturesEnabled = computed(() => authStore.isAuthenticated && !authStore.isSimpleMode)
 
 /**
  * Update favicon dynamically
@@ -46,7 +49,7 @@ watch(
 
 // Watch for authentication state and manage subscription data + announcements
 function onVisibilityChange() {
-  if (document.visibilityState === 'visible' && authStore.isAuthenticated) {
+  if (document.visibilityState === 'visible' && announcementsEnabled.value) {
     announcementStore.fetchAnnouncements()
   }
 }
@@ -58,7 +61,7 @@ function onAdminComplianceRequired(event: Event) {
 
 watch(
   () => authStore.isAuthenticated,
-  (isAuthenticated, oldValue) => {
+  (isAuthenticated) => {
     if (isAuthenticated) {
       if (authStore.isAdmin) {
         adminComplianceStore.fetchStatus().catch((error) => {
@@ -66,37 +69,61 @@ watch(
         })
       }
 
-      // User logged in: preload subscriptions and start polling
-      subscriptionStore.fetchActiveSubscriptions().catch((error) => {
-        console.error('Failed to preload subscriptions:', error)
-      })
-      subscriptionStore.startPolling()
 
-      // Announcements: new login vs page refresh restore
-      if (oldValue === false) {
-        // New login: delay 3s then force fetch
-        setTimeout(() => announcementStore.fetchAnnouncements(true), 3000)
-      } else {
-        // Page refresh restore (oldValue was undefined)
-        announcementStore.fetchAnnouncements()
-      }
-
-      // Register visibility change listener
-      document.addEventListener('visibilitychange', onVisibilityChange)
-    } else {
-      // User logged out: clear data and stop polling
-      subscriptionStore.clear()
-      announcementStore.reset()
-      adminComplianceStore.reset()
-      document.removeEventListener('visibilitychange', onVisibilityChange)
+      return
     }
+
+    // User logged out: clear data and stop polling
+    subscriptionStore.clear()
+    announcementStore.reset()
+    adminComplianceStore.reset()
+    document.removeEventListener('visibilitychange', onVisibilityChange)
+  },
+  { immediate: true }
+)
+
+watch(
+  commercialUserFeaturesEnabled,
+  (enabled) => {
+    if (!enabled) {
+      subscriptionStore.clear()
+      return
+    }
+
+    subscriptionStore.fetchActiveSubscriptions().catch((error) => {
+      console.error('Failed to preload subscriptions:', error)
+    })
+    subscriptionStore.startPolling()
+  },
+  { immediate: true }
+)
+
+watch(
+  announcementsEnabled,
+  (enabled, oldValue) => {
+    if (!enabled) {
+      announcementStore.reset()
+      document.removeEventListener('visibilitychange', onVisibilityChange)
+      return
+    }
+
+    if (oldValue === false) {
+      setTimeout(() => {
+        if (announcementsEnabled.value) {
+          announcementStore.fetchAnnouncements(true)
+        }
+      }, 3000)
+    } else {
+      announcementStore.fetchAnnouncements()
+    }
+    document.addEventListener('visibilitychange', onVisibilityChange)
   },
   { immediate: true }
 )
 
 // Route change trigger (throttled by store)
 router.afterEach(() => {
-  if (authStore.isAuthenticated) {
+  if (announcementsEnabled.value) {
     announcementStore.fetchAnnouncements()
   }
 })
@@ -132,6 +159,6 @@ onMounted(async () => {
   <NavigationProgress />
   <RouterView />
   <Toast />
-  <AnnouncementPopup />
+  <AnnouncementPopup v-if="!authStore.isSimpleMode" />
   <AdminComplianceDialog />
 </template>

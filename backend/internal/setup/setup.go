@@ -31,7 +31,7 @@ const (
 )
 
 func setupDefaultAdminConcurrency() int {
-	if strings.EqualFold(strings.TrimSpace(os.Getenv("RUN_MODE")), config.RunModeSimple) {
+	if config.NormalizeRunMode(os.Getenv("RUN_MODE")) == config.RunModeSimple {
 		return simpleModeAdminConcurrency
 	}
 	return defaultUserConcurrency

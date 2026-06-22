@@ -36,7 +36,9 @@ func RegisterAdminRoutes(
 		registerAccountRoutes(admin, h)
 
 		// 公告管理
-		registerAnnouncementRoutes(admin, h)
+		if !settingService.IsSimpleMode() {
+			registerAnnouncementRoutes(admin, h)
+		}
 
 		// OpenAI OAuth
 		registerOpenAIOAuthRoutes(admin, h)

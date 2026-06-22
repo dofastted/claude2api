@@ -21,10 +21,10 @@
         </div>
       </div>
 
-      <!-- Right: Announcements + Docs + Language + Subscriptions + Balance + User Dropdown -->
+      <!-- Right: Announcements + Docs + Language + User Dropdown -->
       <div class="flex items-center gap-3">
         <!-- Announcement Bell -->
-        <AnnouncementBell v-if="user" />
+        <AnnouncementBell v-if="showAnnouncementBell" />
 
         <!-- Docs Link -->
         <a
@@ -41,12 +41,12 @@
         <!-- Language Switcher -->
         <LocaleSwitcher />
 
-        <!-- Subscription Progress (for users with active subscriptions) -->
-        <SubscriptionProgressMini v-if="user" />
+        <!-- Subscription Progress (standard mode only) -->
+        <SubscriptionProgressMini v-if="showCommercialUserIndicators" />
 
-        <!-- Balance Display -->
+        <!-- Balance Display (standard mode only) -->
         <div
-          v-if="user"
+          v-if="showCommercialUserIndicators"
           class="hidden items-center gap-2 rounded-xl bg-primary-50 px-3 py-1.5 dark:bg-primary-900/20 sm:flex"
         >
           <svg
@@ -63,7 +63,7 @@
             />
           </svg>
           <span class="text-sm font-semibold text-primary-700 dark:text-primary-300">
-            ${{ user.balance?.toFixed(2) || '0.00' }}
+            ${{ user?.balance?.toFixed(2) || '0.00' }}
           </span>
         </div>
 
@@ -105,13 +105,13 @@
                 <div class="text-xs text-gray-500 dark:text-dark-400">{{ user.email }}</div>
               </div>
 
-              <!-- Balance (mobile only) -->
-              <div class="border-b border-gray-100 px-4 py-2 dark:border-dark-700 sm:hidden">
+              <!-- Balance (mobile only, standard mode only) -->
+              <div v-if="showCommercialUserIndicators" class="border-b border-gray-100 px-4 py-2 dark:border-dark-700 sm:hidden">
                 <div class="text-xs text-gray-500 dark:text-dark-400">
                   {{ t('common.balance') }}
                 </div>
                 <div class="text-sm font-semibold text-primary-600 dark:text-primary-400">
-                  ${{ user.balance?.toFixed(2) || '0.00' }}
+                  ${{ user?.balance?.toFixed(2) || '0.00' }}
                 </div>
               </div>
 
@@ -128,7 +128,7 @@
 
                 <a
                   v-if="authStore.isAdmin"
-                  href="https://github.com/Wei-Shaw/sub2api"
+                  href="https://github.com/dofastted/claude2api"
                   target="_blank"
                   rel="noopener noreferrer"
                   @click="closeDropdown"
@@ -237,6 +237,9 @@ const dropdownRef = ref<HTMLElement | null>(null)
 const contactInfo = computed(() => appStore.contactInfo)
 const docUrl = computed(() => appStore.docUrl)
 const avatarUrl = computed(() => user.value?.avatar_url?.trim() || '')
+
+const showAnnouncementBell = computed(() => !!user.value && !authStore.isSimpleMode)
+const showCommercialUserIndicators = computed(() => !!user.value && !authStore.isSimpleMode)
 
 // 只在标准模式的管理员下显示新手引导按钮
 const showOnboardingButton = computed(() => {

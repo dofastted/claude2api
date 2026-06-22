@@ -1,6 +1,6 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest'
 import { setActivePinia, createPinia } from 'pinia'
-import { resolveCompletedSetupRedirectPath } from '@/router/setupRedirect'
+import { resolveAdminHomePath, resolveCompletedSetupRedirectPath } from '@/router/setupRedirect'
 
 // Mock 导航加载状态
 vi.mock('@/composables/useNavigationLoading', () => {
@@ -69,7 +69,7 @@ function simulateGuard(
   const requiresAdmin = toMeta.requiresAdmin === true
 
   if (toPath === '/setup' && authState.setupNeedsSetup === false) {
-    return resolveCompletedSetupRedirectPath(authState.isAuthenticated, authState.isAdmin)
+    return resolveCompletedSetupRedirectPath(authState.isAuthenticated, authState.isAdmin, authState.isSimpleMode)
   }
 
   // 不需要认证的路由
@@ -81,7 +81,7 @@ function simulateGuard(
       if (authState.backendModeEnabled && !authState.isAdmin) {
         return null
       }
-      return authState.isAdmin ? '/admin/dashboard' : '/dashboard'
+      return authState.isAdmin ? resolveAdminHomePath(authState.isSimpleMode) : '/dashboard'
     }
     if (authState.backendModeEnabled && !authState.isAuthenticated) {
       const allowed = ['/login', '/key-usage', '/setup', '/payment/result']
@@ -117,11 +117,20 @@ function simulateGuard(
   // 简易模式限制
   if (authState.isSimpleMode) {
     const restrictedPaths = [
+      '/admin/announcements',
       '/admin/groups',
       '/admin/subscriptions',
       '/admin/redeem',
+      '/admin/channels/pricing',
+      '/admin/channels/monitor',
+      '/admin/risk-control',
+      '/admin/affiliates',
       '/subscriptions',
       '/redeem',
+      '/purchase',
+      '/orders',
+      '/affiliate',
+      '/available-channels',
     ]
     if (restrictedPaths.some((path) => toPath.startsWith(path))) {
       return authState.isAdmin ? '/admin/dashboard' : '/dashboard'
@@ -244,6 +253,14 @@ describe('路由守卫逻辑', () => {
       expect(redirect).toBe('/admin/dashboard')
     })
 
+    it('精简模式管理员访问 /login 重定向到 Settings users tab', () => {
+      const redirect = simulateGuard('/login', { requiresAuth: false }, {
+        ...authState,
+        isSimpleMode: true,
+      })
+      expect(redirect).toBe('/admin/settings?tab=users')
+    })
+
     it('访问管理页面允许通过', () => {
       const redirect = simulateGuard('/admin/dashboard', { requiresAdmin: true }, authState)
       expect(redirect).toBeNull()
@@ -308,6 +325,40 @@ describe('路由守卫逻辑', () => {
         authState
       )
       expect(redirect).toBe('/admin/dashboard')
+    })
+
+    it('管理员简易模式访问 /admin/announcements 重定向', () => {
+      const authState: MockAuthState = {
+        isAuthenticated: true,
+        isAdmin: true,
+        isSimpleMode: true,
+        backendModeEnabled: false,
+        hasPendingAuthSession: false,
+      }
+      const redirect = simulateGuard(
+        '/admin/announcements',
+        { requiresAdmin: true },
+        authState
+      )
+      expect(redirect).toBe('/admin/dashboard')
+    })
+
+    it('管理员简易模式访问 SaaS 设置相关页面重定向', () => {
+      const authState: MockAuthState = {
+        isAuthenticated: true,
+        isAdmin: true,
+        isSimpleMode: true,
+        backendModeEnabled: false,
+        hasPendingAuthSession: false,
+      }
+      for (const path of [
+        '/admin/channels/pricing',
+        '/admin/channels/monitor',
+        '/admin/risk-control',
+        '/admin/affiliates/invites',
+      ]) {
+        expect(simulateGuard(path, { requiresAdmin: true }, authState)).toBe('/admin/dashboard')
+      }
     })
 
     it('简易模式下非受限页面正常访问', () => {
@@ -394,7 +445,7 @@ describe('路由守卫逻辑', () => {
         setupNeedsSetup: false,
       }
       const redirect = simulateGuard('/setup', { requiresAuth: false }, authState)
-      expect(redirect).toBe('/login')
+      expect(redirect).toBe('/login?redirect=/admin/settings%3Ftab%3Dusers')
     })
 
     it('admin: initialized /setup redirects to /admin/dashboard', () => {
@@ -408,6 +459,19 @@ describe('路由守卫逻辑', () => {
       }
       const redirect = simulateGuard('/setup', { requiresAuth: false }, authState)
       expect(redirect).toBe('/admin/dashboard')
+    })
+
+    it('simple-mode admin: initialized /setup redirects to Settings users tab', () => {
+      const authState: MockAuthState = {
+        isAuthenticated: true,
+        isAdmin: true,
+        isSimpleMode: true,
+        backendModeEnabled: true,
+        hasPendingAuthSession: false,
+        setupNeedsSetup: false,
+      }
+      const redirect = simulateGuard('/setup', { requiresAuth: false }, authState)
+      expect(redirect).toBe('/admin/settings?tab=users')
     })
 
     it('admin: /admin/dashboard is allowed', () => {
