@@ -76,6 +76,27 @@ func TestAdminServiceCreateAccountDefaultEnvironmentProfilePool(t *testing.T) {
 		require.NotContains(t, account.Extra, codexEnvironmentProfileLockedKey)
 	})
 
+	t.Run("openai oauth codex tier sets default pool capacity", func(t *testing.T) {
+		repo := &createAccountProfilePoolRepo{}
+		svc := &adminServiceImpl{accountRepo: repo}
+
+		account, err := svc.CreateAccount(context.Background(), &CreateAccountInput{
+			Name:                 "codex-pro20",
+			Platform:             PlatformOpenAI,
+			Type:                 AccountTypeOAuth,
+			Credentials:          map[string]any{"access_token": "token", "plan_type": "pro20"},
+			Concurrency:          3,
+			SkipDefaultGroupBind: true,
+		})
+
+		require.NoError(t, err)
+		pool, err := DecodeCodexEnvironmentProfilePool(account.Extra[codexEnvironmentProfilePoolKey])
+		require.NoError(t, err)
+		require.NotNil(t, pool)
+		require.Equal(t, 20, pool.Capacity)
+		require.Len(t, pool.Slots, 20)
+	})
+
 	t.Run("preserves explicit disabled single environment", func(t *testing.T) {
 		repo := &createAccountProfilePoolRepo{}
 		svc := &adminServiceImpl{accountRepo: repo}

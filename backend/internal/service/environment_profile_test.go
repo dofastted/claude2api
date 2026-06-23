@@ -125,7 +125,9 @@ func TestClaudeEnvironmentProfileLearnsDesktopFirstRequest(t *testing.T) {
 		ID:       102,
 		Platform: PlatformAnthropic,
 		Type:     AccountTypeSetupToken,
-		Extra:    map[string]any{},
+		Extra: map[string]any{
+			claudeEnvironmentAllowDesktopLearnKey: true,
+		},
 	}
 	repo := &environmentProfileAccountRepo{account: account}
 	svc := &GatewayService{accountRepo: repo}
@@ -146,6 +148,52 @@ func TestClaudeEnvironmentProfileLearnsDesktopFirstRequest(t *testing.T) {
 	require.Equal(t, "device-fixed", profile.DeviceID)
 	require.NotContains(t, profile.Headers, "authorization")
 	require.Equal(t, 1, repo.updateCount())
+}
+
+func TestClaudeEnvironmentProfileDefaultsToFixedCodeCLI(t *testing.T) {
+	account := &Account{
+		ID:       104,
+		Platform: PlatformAnthropic,
+		Type:     AccountTypeOAuth,
+		Extra:    map[string]any{},
+	}
+	repo := &environmentProfileAccountRepo{account: account}
+	svc := &GatewayService{accountRepo: repo}
+	headers := http.Header{
+		"User-Agent":                 []string{"Claude Desktop/1.0 Electron"},
+		"X-App":                      []string{"claude-desktop"},
+		"Anthropic-Client-Type":      []string{"desktop"},
+		"Anthropic-Client-Id":        []string{"client-fixed"},
+		"Anthropic-Client-Device-Id": []string{"device-fixed"},
+	}
+
+	profile, err := svc.getOrCreateClaudeEnvironmentProfile(context.Background(), account, headers, nil)
+	require.NoError(t, err)
+	require.NotNil(t, profile)
+	require.Equal(t, ClaudeClientFamilyCodeCLI, profile.Family)
+	require.Equal(t, claudeEnvironmentProfileSourceAutoDefault, profile.Source)
+	require.NotEqual(t, "client-fixed", profile.ClientID)
+}
+
+func TestCodexEnvironmentProfileDefaultsToFixedCLI(t *testing.T) {
+	account := &Account{
+		ID:       202,
+		Platform: PlatformOpenAI,
+		Type:     AccountTypeOAuth,
+		Extra:    map[string]any{},
+	}
+	repo := &environmentProfileAccountRepo{account: account}
+	svc := &OpenAIGatewayService{accountRepo: repo}
+	headers := http.Header{
+		"User-Agent": []string{"Codex Desktop/1.0"},
+		"originator": []string{"codex_chatgpt_desktop"},
+	}
+
+	profile, err := svc.getOrCreateCodexEnvironmentProfile(context.Background(), account, headers)
+	require.NoError(t, err)
+	require.NotNil(t, profile)
+	require.Equal(t, CodexClientFamilyCLI, profile.Family)
+	require.Equal(t, "auto_default", profile.Source)
 }
 
 func TestClaudeEnvironmentProfileSkipsGenericDesktopLearning(t *testing.T) {

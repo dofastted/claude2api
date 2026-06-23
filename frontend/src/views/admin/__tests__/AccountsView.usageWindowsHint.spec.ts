@@ -61,7 +61,7 @@ vi.mock('vue-i18n', async () => {
   }
 })
 
-// Render the per-column header slots so we can assert the usage-window header hint.
+// Render the relevant DataTable slots so we can assert column-level content.
 const DataTableStub = {
   props: ['columns', 'data'],
   template: `
@@ -71,6 +71,9 @@ const DataTableStub = {
           <slot :name="'header-' + column.key" :column="column" />
         </div>
       </template>
+      <div v-for="row in data" :key="row.id" data-test="account-row">
+        <slot name="cell-platform_type" :row="row" />
+      </div>
     </div>
   `
 }
@@ -160,5 +163,48 @@ describe('admin AccountsView usage windows hint', () => {
     const hint = wrapper.find('[data-test="usage-windows-hint"]')
     expect(hint.exists()).toBe(true)
     expect(hint.text()).toBe('admin.accounts.usageWindowsHint')
+  })
+
+  it('renders passive sampling in the platform type column', async () => {
+    listAccounts.mockResolvedValue({
+      items: [
+        {
+          id: 42,
+          name: 'claude-pro',
+          platform: 'anthropic',
+          type: 'oauth',
+          credentials: {},
+          extra: { passive_usage_sampled_at: '2026-06-23T00:00:00Z' },
+          proxy_id: null,
+          concurrency: 5,
+          priority: 1,
+          status: 'active',
+          error_message: null,
+          last_used_at: null,
+          expires_at: null,
+          auto_pause_on_expired: true,
+          created_at: '2026-06-23T00:00:00Z',
+          updated_at: '2026-06-23T00:00:00Z',
+          schedulable: true,
+          rate_limited_at: null,
+          rate_limit_reset_at: null,
+          overload_until: null,
+          temp_unschedulable_until: null,
+          temp_unschedulable_reason: null,
+          session_window_start: null
+        }
+      ],
+      total: 1,
+      page: 1,
+      page_size: 20,
+      pages: 1
+    })
+
+    const wrapper = mountView()
+    await flushPromises()
+
+    const row = wrapper.find('[data-test="account-row"]')
+    expect(row.exists()).toBe(true)
+    expect(row.text()).toContain('admin.accounts.usageWindow.passiveSampled')
   })
 })

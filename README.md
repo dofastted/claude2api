@@ -61,7 +61,7 @@ RUN_MODE=standard
 
 - Claude OAuth / Setup Token 账号支持 `claude_environment_profile_pool`，并兼容旧 `claude_environment_profile`。
 - OpenAI OAuth / Codex 账号支持 `codex_environment_profile_pool`，并兼容旧 `codex_environment_profile`。
-- 一个账号的可用槽位数来自账号 `concurrency`；`concurrency=5` 表示最多 5 个并发 Profile 槽位。
+- 一个账号的可用槽位数优先来自账号等级，支持 Claude `pro/max5/max20` 与 Codex `plus/pro5/pro20/team` 自动映射到 5/10/20；也可用 `environment_profile_manual_capacity` 手动覆盖，最后回退到 `concurrency`。
 - 请求按 linux / windows / macos / desktop 环境绑定槽位；同环境请求优先复用匹配槽位，空槽首次绑定后不自动改绑。
 - 当前凭据冷却、限流或槽位耗尽时，调度可切换到下一个可用凭据的匹配环境槽位。
 - 管理员可在账号 UI 中查看、重置和锁定 Profile 池。

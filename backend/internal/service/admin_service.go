@@ -2581,7 +2581,7 @@ func (s *adminServiceImpl) GetAccountsByIDs(ctx context.Context, ids []int64) ([
 	return accounts, nil
 }
 
-func withDefaultEnvironmentProfilePool(platform, accountType string, concurrency int, extra map[string]any) map[string]any {
+func withDefaultEnvironmentProfilePool(platform, accountType string, concurrency int, credentials, extra map[string]any) map[string]any {
 	if !shouldCreateDefaultEnvironmentProfilePool(platform, accountType, extra) {
 		return extra
 	}
@@ -2589,11 +2589,18 @@ func withDefaultEnvironmentProfilePool(platform, accountType string, concurrency
 	for key, value := range extra {
 		merged[key] = value
 	}
+	capacity := environmentProfileCapacity(&Account{
+		Platform:    platform,
+		Type:        accountType,
+		Credentials: credentials,
+		Extra:       merged,
+		Concurrency: concurrency,
+	})
 	if platform == PlatformAnthropic {
-		merged[claudeEnvironmentProfilePoolKey] = newClaudeEnvironmentProfilePool(concurrency)
+		merged[claudeEnvironmentProfilePoolKey] = newClaudeEnvironmentProfilePool(capacity)
 		return merged
 	}
-	merged[codexEnvironmentProfilePoolKey] = newCodexEnvironmentProfilePool(concurrency)
+	merged[codexEnvironmentProfilePoolKey] = newCodexEnvironmentProfilePool(capacity)
 	return merged
 }
 
@@ -2652,15 +2659,26 @@ func (s *adminServiceImpl) CreateAccount(ctx context.Context, input *CreateAccou
 		}
 	}
 
+	concurrency := input.Concurrency
+	if concurrency <= 0 && shouldCreateDefaultEnvironmentProfilePool(input.Platform, input.Type, input.Extra) {
+		concurrency = environmentProfileCapacity(&Account{
+			Platform:    input.Platform,
+			Type:        input.Type,
+			Credentials: input.Credentials,
+			Extra:       input.Extra,
+			Concurrency: input.Concurrency,
+		})
+	}
+
 	account := &Account{
 		Name:        input.Name,
 		Notes:       normalizeAccountNotes(input.Notes),
 		Platform:    input.Platform,
 		Type:        input.Type,
 		Credentials: input.Credentials,
-		Extra:       withDefaultEnvironmentProfilePool(input.Platform, input.Type, input.Concurrency, input.Extra),
+		Extra:       withDefaultEnvironmentProfilePool(input.Platform, input.Type, concurrency, input.Credentials, input.Extra),
 		ProxyID:     input.ProxyID,
-		Concurrency: input.Concurrency,
+		Concurrency: concurrency,
 		Priority:    input.Priority,
 		Status:      StatusActive,
 		Schedulable: true,

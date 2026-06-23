@@ -391,7 +391,7 @@ const baseSettingsResponse = {
   enable_fingerprint_unification: true,
   enable_metadata_passthrough: false,
   enable_cch_signing: false,
-  enable_claude_oauth_system_prompt_injection: true,
+  enable_claude_oauth_system_prompt_injection: false,
   claude_oauth_system_prompt: "",
   claude_oauth_system_prompt_blocks: "",
   enable_anthropic_cache_ttl_1h_injection: false,

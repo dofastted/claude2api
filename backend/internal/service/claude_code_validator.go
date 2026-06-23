@@ -298,6 +298,20 @@ func SetClaudeCodeClient(ctx context.Context, isClaudeCode bool) context.Context
 	return context.WithValue(ctx, ctxkey.IsClaudeCodeClient, isClaudeCode)
 }
 
+// IsGenericClaudeEntrypoint returns true when a generic HTTP client request was normalized
+// to Claude-compatible headers but should still take the OAuth mimicry path.
+func IsGenericClaudeEntrypoint(ctx context.Context) bool {
+	if v, ok := ctx.Value(ctxkey.IsGenericClaudeEntrypoint).(bool); ok {
+		return v
+	}
+	return false
+}
+
+// SetGenericClaudeEntrypoint marks a normalized generic HTTP entrypoint request.
+func SetGenericClaudeEntrypoint(ctx context.Context, enabled bool) context.Context {
+	return context.WithValue(ctx, ctxkey.IsGenericClaudeEntrypoint, enabled)
+}
+
 // ExtractVersion 从 User-Agent 中提取 Claude Code 版本号
 // 返回 "2.1.22" 形式的版本号，如果不匹配返回空字符串
 func (v *ClaudeCodeValidator) ExtractVersion(ua string) string {

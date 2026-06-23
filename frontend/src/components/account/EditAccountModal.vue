@@ -2344,9 +2344,8 @@
         </div>
       </div>
 
-      <!-- Group Selection - 仅标准模式显示 -->
+      <!-- Group Selection -->
       <GroupSelector
-        v-if="!authStore.isSimpleMode"
         v-model="form.group_ids"
         :groups="groups"
         :platform="account?.platform"
@@ -2411,7 +2410,6 @@
 import { ref, reactive, computed, watch } from 'vue'
 import { useI18n } from 'vue-i18n'
 import { useAppStore } from '@/stores/app'
-import { useAuthStore } from '@/stores/auth'
 import { adminAPI } from '@/api/admin'
 import { useQuotaNotifyState } from '@/composables/useQuotaNotifyState'
 import type {
@@ -2473,7 +2471,6 @@ const emit = defineEmits<{
 
 const { t } = useI18n()
 const appStore = useAppStore()
-const authStore = useAuthStore()
 
 // Platform-specific hint for Base URL
 const baseUrlHint = computed(() => {
@@ -2626,11 +2623,11 @@ const codexCLIOnlyEnabled = ref(false)
 const codexCLIOnlyAllowClaudeCodeEnabled = ref(false)
 const claudeEnvironmentSingleEnabled = ref(true)
 const claudeEnvironmentProfileLocked = ref(true)
-const claudeEnvironmentAllowDesktopLearn = ref(true)
+const claudeEnvironmentAllowDesktopLearn = ref(false)
 const claudeEnvironmentFamilyPreference = ref('auto')
 const codexEnvironmentSingleEnabled = ref(true)
 const codexEnvironmentProfileLocked = ref(true)
-const codexEnvironmentAllowOfficialClientLearn = ref(true)
+const codexEnvironmentAllowOfficialClientLearn = ref(false)
 const codexEnvironmentFamilyPreference = ref('auto')
 const profileResetting = ref(false)
 type CodexImageGenerationBridgeMode = 'inherit' | 'enabled' | 'disabled'
@@ -3015,11 +3012,11 @@ const syncFormFromAccount = (newAccount: Account | null) => {
   webSearchEmulationMode.value = 'default'
   claudeEnvironmentSingleEnabled.value = extra?.claude_single_environment !== false
   claudeEnvironmentProfileLocked.value = extra?.claude_environment_profile_locked !== false
-  claudeEnvironmentAllowDesktopLearn.value = extra?.claude_environment_allow_desktop_learn !== false
+  claudeEnvironmentAllowDesktopLearn.value = extra?.claude_environment_allow_desktop_learn === true
   claudeEnvironmentFamilyPreference.value = typeof extra?.claude_environment_profile_family_preference === 'string' ? extra.claude_environment_profile_family_preference : 'auto'
   codexEnvironmentSingleEnabled.value = extra?.codex_single_environment !== false
   codexEnvironmentProfileLocked.value = extra?.codex_environment_profile_locked !== false
-  codexEnvironmentAllowOfficialClientLearn.value = extra?.codex_environment_allow_official_client_learn !== false
+  codexEnvironmentAllowOfficialClientLearn.value = extra?.codex_environment_allow_official_client_learn === true
   codexEnvironmentFamilyPreference.value = typeof extra?.codex_environment_profile_family_preference === 'string' ? extra.codex_environment_profile_family_preference : 'auto'
   if (newAccount.platform === 'openai' && (newAccount.type === 'oauth' || newAccount.type === 'apikey')) {
     openaiPassthroughEnabled.value = extra?.openai_passthrough === true || extra?.openai_oauth_passthrough === true

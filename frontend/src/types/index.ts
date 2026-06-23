@@ -818,7 +818,7 @@ export interface TempUnschedulableStatus {
 }
 
 export type ClaudeClientFamily = 'code_cli' | 'desktop'
-export type CodexClientFamily = 'cli' | 'desktop' | 'vscode' | 'custom'
+export type CodexClientFamily = 'cli' | 'desktop' | 'vscode'
 
 export interface ClaudeEnvironmentProfile {
   family: ClaudeClientFamily

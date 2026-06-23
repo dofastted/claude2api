@@ -239,6 +239,12 @@
                 >
                   {{ getAntigravityTierLabel(row) }}
                 </span>
+                <span
+                  v-if="hasPassiveUsageSample(row)"
+                  class="inline-block rounded bg-gray-100 px-1.5 py-0.5 text-[10px] font-medium text-gray-500 dark:bg-dark-700 dark:text-gray-400"
+                >
+                  {{ t('admin.accounts.usageWindow.passiveSampled') }}
+                </span>
               </div>
               <div
                 v-if="getOpenAICompactMeta(row)"
@@ -403,7 +409,6 @@ import { ref, reactive, computed, onMounted, onUnmounted, toRaw, watch } from 'v
 import { useIntervalFn } from '@vueuse/core'
 import { useI18n } from 'vue-i18n'
 import { useAppStore } from '@/stores/app'
-import { useAuthStore } from '@/stores/auth'
 import { adminAPI } from '@/api/admin'
 import { useTableLoader } from '@/composables/useTableLoader'
 import { useSwipeSelect, type SwipeSelectVirtualContext } from '@/composables/useSwipeSelect'
@@ -441,7 +446,6 @@ import type { Account, AccountPlatform, AccountType, Proxy as AccountProxy, Admi
 
 const { t } = useI18n()
 const appStore = useAppStore()
-const authStore = useAuthStore()
 
 const proxies = ref<AccountProxy[]>([])
 const groups = ref<AdminGroup[]>([])
@@ -1054,6 +1058,13 @@ const { pause: pauseAutoRefresh, resume: resumeAutoRefresh } = useIntervalFn(
   { immediate: false }
 )
 
+function hasPassiveUsageSample(row: Account): boolean {
+  if (row.platform !== 'anthropic' || (row.type !== 'oauth' && row.type !== 'setup-token')) return false
+  const extra = row.extra as Record<string, unknown> | undefined
+  if (!extra) return false
+  return typeof extra.passive_usage_sampled_at === 'string'
+}
+
 // Antigravity 订阅等级辅助函数
 function getAntigravityTierFromRow(row: any): string | null {
   if (row.platform !== 'antigravity') return null
@@ -1145,11 +1156,9 @@ const allColumns = computed(() => {
     { key: 'capacity', label: t('admin.accounts.columns.capacity'), sortable: false },
     { key: 'status', label: t('admin.accounts.columns.status'), sortable: true },
     { key: 'schedulable', label: t('admin.accounts.columns.schedulable'), sortable: true },
-    { key: 'today_stats', label: t('admin.accounts.columns.todayStats'), sortable: false }
+    { key: 'today_stats', label: t('admin.accounts.columns.todayStats'), sortable: false },
+    { key: 'groups', label: t('admin.accounts.columns.groups'), sortable: false }
   ]
-  if (!authStore.isSimpleMode) {
-    c.push({ key: 'groups', label: t('admin.accounts.columns.groups'), sortable: false })
-  }
   c.push(
     { key: 'usage', label: t('admin.accounts.columns.usageWindows'), sortable: false },
     { key: 'proxy', label: t('admin.accounts.columns.proxy'), sortable: false },

@@ -99,21 +99,6 @@
       >
         {{ t('admin.accounts.environmentProfile.poolStatus', { count: boundSlotCount, capacity: poolCapacity }) }}
       </div>
-      <div class="space-y-2 text-xs">
-        <div
-          v-for="slot in slotRows"
-          :key="slot.key"
-          class="rounded border border-gray-100 bg-gray-50 px-2 py-2 dark:border-dark-600 dark:bg-dark-800"
-        >
-          <div class="flex items-center justify-between gap-2">
-            <span class="font-medium text-gray-900 dark:text-gray-100">{{ slot.title }}</span>
-            <span class="text-gray-500 dark:text-gray-400">{{ slot.state }}</span>
-          </div>
-          <div class="mt-1 truncate text-gray-500 dark:text-gray-400" :title="slot.detail">
-            {{ slot.detail }}
-          </div>
-        </div>
-      </div>
     </div>
 
     <div
@@ -265,10 +250,6 @@ const familyOptions = computed<Option[]>(() => {
     {
       value: 'vscode',
       label: t('admin.accounts.environmentProfile.codexVSCode')
-    },
-    {
-      value: 'custom',
-      label: t('admin.accounts.environmentProfile.codexCustom')
     }
   ]
 })
@@ -283,25 +264,6 @@ const poolSlots = computed(() => (Array.isArray(props.pool?.slots) ? props.pool.
 const hasPoolSlots = computed(() => poolSlots.value.length > 0)
 const poolCapacity = computed(() => props.pool?.capacity ?? poolSlots.value.length)
 const boundSlotCount = computed(() => poolSlots.value.filter((slot) => slot.state === 'bound').length)
-
-const slotRows = computed(() =>
-  poolSlots.value.map((slot) => {
-    const profile = slot.profile
-    const family = profile && typeof profile === 'object' ? stringifyValue(profile.family) : '-'
-    const source = profile && typeof profile === 'object' ? stringifyValue(profile.source) : '-'
-    const platform = profile && typeof profile === 'object' ? stringifyValue(profile.platform) : '-'
-    return {
-      key: `${slot.slot}-${slot.environment}`,
-      title: t('admin.accounts.environmentProfile.slotTitle', {
-        slot: slot.slot + 1,
-        environment: slot.environment
-      }),
-      state: slot.state,
-      detail: `${family} · ${source} · ${platform}`
-    }
-  })
-)
-
 const profileRows = computed<ProfileRow[]>(() => {
   const profile = props.profile
   if (!profile) return []

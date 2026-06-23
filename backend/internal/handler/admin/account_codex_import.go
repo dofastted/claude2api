@@ -163,8 +163,9 @@ func (h *AccountHandler) importCodexSessions(ctx context.Context, req CodexSessi
 	if req.UpdateExisting != nil {
 		updateExisting = *req.UpdateExisting
 	}
-	concurrency := 3
-	if req.Concurrency != nil {
+	manualConcurrency := req.Concurrency != nil
+	concurrency := 0
+	if manualConcurrency {
 		concurrency = *req.Concurrency
 	}
 	priority := 50
@@ -217,6 +218,17 @@ func (h *AccountHandler) importCodexSessions(ctx context.Context, req CodexSessi
 		}
 		credentials := mergeCodexImportMap(item.Credentials, credentialExtras)
 		extra := mergeCodexImportMap(req.Extra, item.Extra)
+		itemConcurrency := concurrency
+		if !manualConcurrency {
+			itemConcurrency = service.AccountEnvironmentProfileCapacity(&service.Account{
+				Platform:    service.PlatformOpenAI,
+				Type:        service.AccountTypeOAuth,
+				Credentials: credentials,
+				Extra:       extra,
+				Concurrency: concurrency,
+			})
+		}
+
 		for _, warning := range item.WarningTexts {
 			result.Warnings = append(result.Warnings, CodexSessionImportMessage{
 				Index:   entry.Index,
@@ -249,7 +261,7 @@ func (h *AccountHandler) importCodexSessions(ctx context.Context, req CodexSessi
 			updateInput := &service.UpdateAccountInput{
 				Credentials:        mergedCredentials,
 				Extra:              mergedExtra,
-				Concurrency:        req.Concurrency,
+				Concurrency:        &itemConcurrency,
 				Priority:           req.Priority,
 				RateMultiplier:     req.RateMultiplier,
 				LoadFactor:         req.LoadFactor,
@@ -306,7 +318,7 @@ func (h *AccountHandler) importCodexSessions(ctx context.Context, req CodexSessi
 			Credentials:           credentials,
 			Extra:                 extra,
 			ProxyID:               req.ProxyID,
-			Concurrency:           concurrency,
+			Concurrency:           itemConcurrency,
 			Priority:              priority,
 			RateMultiplier:        req.RateMultiplier,
 			LoadFactor:            req.LoadFactor,

@@ -68,14 +68,8 @@
           color="purple"
         />
 
-        <!-- Passive sampling label + active query button -->
+        <!-- Active query button -->
         <div class="flex items-center gap-1.5 mt-0.5">
-          <span
-            v-if="usageInfo.source === 'passive'"
-            class="text-[9px] text-gray-400 dark:text-gray-500 italic"
-          >
-            {{ t('admin.accounts.usageWindow.passiveSampled') }}
-          </span>
           <button
             type="button"
             class="inline-flex items-center gap-0.5 rounded px-1.5 py-0.5 text-[9px] font-medium text-blue-600 hover:bg-blue-50 dark:text-blue-400 dark:hover:bg-blue-900/30 transition-colors"

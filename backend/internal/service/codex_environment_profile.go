@@ -32,7 +32,6 @@ const (
 	CodexClientFamilyCLI     CodexClientFamily = "cli"
 	CodexClientFamilyDesktop CodexClientFamily = "desktop"
 	CodexClientFamilyVSCode  CodexClientFamily = "vscode"
-	CodexClientFamilyCustom  CodexClientFamily = "custom"
 )
 
 type CodexEnvironmentProfile struct {
@@ -349,8 +348,6 @@ func normalizeCodexClientFamily(family CodexClientFamily) CodexClientFamily {
 		return CodexClientFamilyDesktop
 	case CodexClientFamilyVSCode:
 		return CodexClientFamilyVSCode
-	case CodexClientFamilyCustom:
-		return CodexClientFamilyCustom
 	default:
 		return ""
 	}
@@ -362,7 +359,7 @@ func normalizeCodexProfileFamilyPreference(preference string) (string, error) {
 		return "auto", nil
 	}
 	switch preference {
-	case "auto", string(CodexClientFamilyCLI), string(CodexClientFamilyDesktop), string(CodexClientFamilyVSCode), string(CodexClientFamilyCustom):
+	case "auto", string(CodexClientFamilyCLI), string(CodexClientFamilyDesktop), string(CodexClientFamilyVSCode):
 		return preference, nil
 	default:
 		return "", fmt.Errorf("invalid codex profile family preference")
