@@ -652,6 +652,10 @@ func (s *stubAdminService) UpdateClaudeEnvironmentProfile(ctx context.Context, i
 	return &service.Account{ID: id, Platform: service.PlatformAnthropic, Type: service.AccountTypeOAuth, Extra: map[string]any{"claude_environment_profile": profile}}, nil
 }
 
+func (s *stubAdminService) UpdateClaudeEnvironmentProfileSlot(ctx context.Context, id int64, slot service.EnvironmentClass, overrides *service.ClaudeEnvironmentProfile) (*service.Account, error) {
+	return &service.Account{ID: id, Platform: service.PlatformAnthropic, Type: service.AccountTypeOAuth, Extra: map[string]any{"claude_environment_profile_pool.slot": slot, "overrides": overrides}}, nil
+}
+
 func (s *stubAdminService) ResetClaudeEnvironmentProfile(ctx context.Context, id int64) (*service.Account, error) {
 	return &service.Account{ID: id, Platform: service.PlatformAnthropic, Type: service.AccountTypeOAuth, Extra: map[string]any{}}, nil
 }
@@ -662,6 +666,10 @@ func (s *stubAdminService) UpdateCodexEnvironmentProfileSettings(ctx context.Con
 
 func (s *stubAdminService) UpdateCodexEnvironmentProfile(ctx context.Context, id int64, profile *service.CodexEnvironmentProfile) (*service.Account, error) {
 	return &service.Account{ID: id, Platform: service.PlatformOpenAI, Type: service.AccountTypeOAuth, Extra: map[string]any{"codex_environment_profile": profile}}, nil
+}
+
+func (s *stubAdminService) UpdateCodexEnvironmentProfileSlot(ctx context.Context, id int64, slot service.EnvironmentClass, overrides *service.CodexEnvironmentProfile) (*service.Account, error) {
+	return &service.Account{ID: id, Platform: service.PlatformOpenAI, Type: service.AccountTypeOAuth, Extra: map[string]any{"codex_environment_profile_pool.slot": slot, "overrides": overrides}}, nil
 }
 
 func (s *stubAdminService) ResetCodexEnvironmentProfile(ctx context.Context, id int64) (*service.Account, error) {

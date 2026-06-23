@@ -24,6 +24,7 @@ const (
 	codexEnvironmentAllowOfficialClientLearnKey       = "codex_environment_allow_official_client_learn"
 	codexEnvironmentProfileFamilyPreferenceKey        = "codex_environment_profile_family_preference"
 	codexEnvironmentAllowOfficialClientLearnLegacyKey = "codex_environment_allow_desktop_learn"
+	codexEnvironmentProfileSourceSimulated            = "simulated"
 )
 
 type CodexClientFamily string
@@ -47,6 +48,7 @@ type CodexEnvironmentProfile struct {
 	Arch             string            `json:"arch"`
 	TLSProfile       string            `json:"tls_profile"`
 	Headers          map[string]string `json:"headers"`
+	FrozenAt         time.Time         `json:"frozen_at,omitempty"`
 	CreatedAt        time.Time         `json:"created_at"`
 	UpdatedAt        time.Time         `json:"updated_at"`
 }

@@ -1335,11 +1335,13 @@
         :allow-learn="claudeEnvironmentAllowDesktopLearn"
         :family-preference="claudeEnvironmentFamilyPreference"
         :resetting="profileResetting"
+        :saving-slot="savingProfileSlot"
         @update:single-environment="claudeEnvironmentSingleEnabled = $event"
         @update:locked="claudeEnvironmentProfileLocked = $event"
         @update:allow-learn="claudeEnvironmentAllowDesktopLearn = $event"
         @update:family-preference="claudeEnvironmentFamilyPreference = $event"
         @reset="resetClaudeEnvironmentProfile"
+        @save-slot="saveClaudeEnvironmentProfileSlot"
       />
 
       <EnvironmentProfileCard
@@ -1352,11 +1354,13 @@
         :allow-learn="codexEnvironmentAllowOfficialClientLearn"
         :family-preference="codexEnvironmentFamilyPreference"
         :resetting="profileResetting"
+        :saving-slot="savingProfileSlot"
         @update:single-environment="codexEnvironmentSingleEnabled = $event"
         @update:locked="codexEnvironmentProfileLocked = $event"
         @update:allow-learn="codexEnvironmentAllowOfficialClientLearn = $event"
         @update:family-preference="codexEnvironmentFamilyPreference = $event"
         @reset="resetCodexEnvironmentProfile"
+        @save-slot="saveCodexEnvironmentProfileSlot"
       />
 
       <!-- OpenAI 自动透传开关（OAuth/API Key） -->
@@ -2420,6 +2424,7 @@ import type {
   OpenAICompactMode,
   OpenAIResponsesMode,
   OpenAIEndpointCapability,
+  EnvironmentClass,
   ClaudeEnvironmentProfile,
   ClaudeEnvironmentProfilePool,
   CodexEnvironmentProfile,
@@ -3750,6 +3755,42 @@ const resetCodexEnvironmentProfile = async () => {
     appStore.showError(error.message || t('admin.accounts.environmentProfile.resetFailed'))
   } finally {
     profileResetting.value = false
+  }
+}
+
+const savingProfileSlot = ref<string | null>(null)
+
+const saveClaudeEnvironmentProfileSlot = async (slot: string, profile: Record<string, unknown>) => {
+  if (!props.account) return
+  savingProfileSlot.value = slot
+  try {
+    const updatedAccount = await adminAPI.accounts.updateClaudeEnvironmentProfileSlot(props.account.id, {
+      slot: slot as EnvironmentClass,
+      profile: profile as Partial<ClaudeEnvironmentProfile>
+    })
+    appStore.showSuccess(t('admin.accounts.environmentProfile.slotSaveSuccess'))
+    emit('updated', updatedAccount)
+  } catch (error: any) {
+    appStore.showError(error.message || t('admin.accounts.environmentProfile.slotSaveFailed'))
+  } finally {
+    savingProfileSlot.value = null
+  }
+}
+
+const saveCodexEnvironmentProfileSlot = async (slot: string, profile: Record<string, unknown>) => {
+  if (!props.account) return
+  savingProfileSlot.value = slot
+  try {
+    const updatedAccount = await adminAPI.accounts.updateCodexEnvironmentProfileSlot(props.account.id, {
+      slot: slot as EnvironmentClass,
+      profile: profile as Partial<CodexEnvironmentProfile>
+    })
+    appStore.showSuccess(t('admin.accounts.environmentProfile.slotSaveSuccess'))
+    emit('updated', updatedAccount)
+  } catch (error: any) {
+    appStore.showError(error.message || t('admin.accounts.environmentProfile.slotSaveFailed'))
+  } finally {
+    savingProfileSlot.value = null
   }
 }
 

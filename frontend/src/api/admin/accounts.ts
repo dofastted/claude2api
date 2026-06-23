@@ -22,8 +22,10 @@ import type {
   CheckMixedChannelResponse,
   ClaudeEnvironmentProfileSettingsRequest,
   ClaudeEnvironmentProfileUpdateRequest,
+  ClaudeEnvironmentProfileSlotUpdateRequest,
   CodexEnvironmentProfileSettingsRequest,
-  CodexEnvironmentProfileUpdateRequest
+  CodexEnvironmentProfileUpdateRequest,
+  CodexEnvironmentProfileSlotUpdateRequest
 } from '@/types'
 
 /**
@@ -172,6 +174,17 @@ export async function updateClaudeEnvironmentProfile(
   return data
 }
 
+export async function updateClaudeEnvironmentProfileSlot(
+  id: number,
+  request: ClaudeEnvironmentProfileSlotUpdateRequest
+): Promise<Account> {
+  const { data } = await apiClient.put<Account>(
+    `/admin/accounts/${id}/claude-environment-profile/slot`,
+    request
+  )
+  return data
+}
+
 export async function resetClaudeEnvironmentProfile(id: number): Promise<Account> {
   const { data } = await apiClient.post<Account>(
     `/admin/accounts/${id}/claude-environment-profile/reset`
@@ -196,6 +209,17 @@ export async function updateCodexEnvironmentProfile(
 ): Promise<Account> {
   const { data } = await apiClient.put<Account>(
     `/admin/accounts/${id}/codex-environment-profile`,
+    request
+  )
+  return data
+}
+
+export async function updateCodexEnvironmentProfileSlot(
+  id: number,
+  request: CodexEnvironmentProfileSlotUpdateRequest
+): Promise<Account> {
+  const { data } = await apiClient.put<Account>(
+    `/admin/accounts/${id}/codex-environment-profile/slot`,
     request
   )
   return data
@@ -845,9 +869,11 @@ export const accountsAPI = {
   update,
   updateClaudeEnvironmentProfileSettings,
   updateClaudeEnvironmentProfile,
+  updateClaudeEnvironmentProfileSlot,
   resetClaudeEnvironmentProfile,
   updateCodexEnvironmentProfileSettings,
   updateCodexEnvironmentProfile,
+  updateCodexEnvironmentProfileSlot,
   resetCodexEnvironmentProfile,
   checkMixedChannelRisk,
   delete: deleteAccount,

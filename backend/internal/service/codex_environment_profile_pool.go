@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"log/slog"
 	"net/http"
 	"strings"
 	"sync"
@@ -11,6 +12,9 @@ import (
 )
 
 const codexEnvironmentProfilePoolKey = "codex_environment_profile_pool"
+
+// codexEnvironmentProfilePoolSchemaV2 是 3 OS 槽位冻结式 pool 的 schema 标记（与 Claude v2 对齐）。
+const codexEnvironmentProfilePoolSchemaV2 = "v2"
 
 type CodexEnvironmentProfileSlot struct {
 	Slot        int                         `json:"slot"`
@@ -23,9 +27,15 @@ type CodexEnvironmentProfileSlot struct {
 
 type CodexEnvironmentProfilePool struct {
 	mu       sync.Mutex                    `json:"-"`
+	Schema   string                        `json:"schema,omitempty"`
 	Version  int                           `json:"version"`
 	Capacity int                           `json:"capacity"`
 	Slots    []CodexEnvironmentProfileSlot `json:"slots"`
+}
+
+// IsV2 报告 pool 是否为 schema v2（3 OS 槽位冻结）。
+func (p *CodexEnvironmentProfilePool) IsV2() bool {
+	return p != nil && p.Schema == codexEnvironmentProfilePoolSchemaV2
 }
 
 func DecodeCodexEnvironmentProfilePool(raw any) (*CodexEnvironmentProfilePool, error) {
@@ -261,6 +271,65 @@ func buildCodexEnvironmentProfileForClass(env EnvironmentClass) (*CodexEnvironme
 	return profile, profile.Validate()
 }
 
+// buildFrozenCodexEnvironmentProfileForSlot 为指定 OS 槽位模拟生成一份冻结 Codex profile。
+// session_seed/conversation_seed 模拟生成并冻结；originator/version/tls_profile/platform/arch 按 OS 归一。
+func buildFrozenCodexEnvironmentProfileForSlot(env EnvironmentClass) (*CodexEnvironmentProfile, error) {
+	profile, err := buildCodexEnvironmentProfileForClass(env)
+	if err != nil {
+		return nil, err
+	}
+	profile.Source = codexEnvironmentProfileSourceSimulated
+	profile.FrozenAt = nowForEnvironmentProfilePool()
+	profile.CreatedAt = profile.FrozenAt
+	profile.UpdatedAt = profile.FrozenAt
+	if err := profile.Validate(); err != nil {
+		return nil, err
+	}
+	return profile, nil
+}
+
+// newFrozenCodexEnvironmentProfilePool 一次性模拟生成 schema v2 pool（windows/macos/linux 三个冻结槽位）。
+func newFrozenCodexEnvironmentProfilePool() *CodexEnvironmentProfilePool {
+	now := nowForEnvironmentProfilePool()
+	slots := make([]CodexEnvironmentProfileSlot, len(fixedClaudeEnvironmentSlotClasses))
+	for i, env := range fixedClaudeEnvironmentSlotClasses {
+		profile, err := buildFrozenCodexEnvironmentProfileForSlot(env)
+		if err != nil {
+			// 不应发生：buildCodexEnvironmentProfileForClass 已 Validate 过
+			profile = mustBuildFallbackFrozenCodexProfile(env)
+		}
+		slots[i] = CodexEnvironmentProfileSlot{
+			Slot:        i,
+			Environment: env,
+			State:       EnvironmentProfileSlotBound,
+			Profile:     profile,
+			CreatedAt:   now,
+			UpdatedAt:   now,
+		}
+	}
+	return &CodexEnvironmentProfilePool{
+		Schema:   codexEnvironmentProfilePoolSchemaV2,
+		Version:  2,
+		Capacity: len(slots),
+		Slots:    slots,
+	}
+}
+
+func mustBuildFallbackFrozenCodexProfile(env EnvironmentClass) *CodexEnvironmentProfile {
+	profile, err := buildCodexEnvironmentProfileForClass(env)
+	if err != nil {
+		profile, _ = buildCodexEnvironmentProfileForClass(EnvironmentClassWindows)
+	}
+	profile.Source = codexEnvironmentProfileSourceSimulated
+	profile.FrozenAt = nowForEnvironmentProfilePool()
+	return profile
+}
+
+// isV2CodexEnvironmentProfile 报告 profile 是否为 schema v2 槽位冻结式（模拟生成）。
+func isV2CodexEnvironmentProfile(profile *CodexEnvironmentProfile) bool {
+	return profile != nil && profile.Source == codexEnvironmentProfileSourceSimulated && !profile.FrozenAt.IsZero()
+}
+
 func (s *OpenAIGatewayService) acquireCodexEnvironmentProfileForRequest(ctx context.Context, account *Account, headers http.Header) (*EnvironmentProfileSlotLease, *CodexEnvironmentProfile, error) {
 	if s == nil {
 		return nil, nil, nil
@@ -310,24 +379,64 @@ func acquireCodexEnvironmentProfileForRequestWithRepo(ctx context.Context, accou
 			return nil, nil, err
 		}
 	}
-	pool, err := getOrCreateCodexEnvironmentProfilePool(account)
-	if err != nil {
+
+	// v2 路径：已绑定 schema v2 pool。
+	if pool, err := DecodeCodexEnvironmentProfilePool(account.Extra[codexEnvironmentProfilePoolKey]); err != nil {
 		return nil, nil, err
+	} else if pool != nil && pool.IsV2() {
+		return acquireV2CodexEnvironmentProfileSlot(account, pool, headers)
 	}
-	env := DetectCodexEnvironmentClass(headers)
-	lease, profile, err := acquireCodexEnvironmentProfileSlot(pool, manager, account, env, "", buildCodexEnvironmentProfileForClass)
-	if err != nil {
-		if err == ErrNoEnvironmentProfileSlot {
-			return nil, nil, environmentProfileSlotExhaustedError()
+
+	// Codex 旧账号统一升级迁移：生成 v2 pool 并落库，删除旧 pool / 旧 codex_environment_profile。
+	if account.Extra != nil {
+		if _, exists := account.Extra[codexEnvironmentProfilePoolKey]; exists {
+			if deleter, ok := accountRepo.(accountExtraKeyDeleter); ok {
+				_ = deleter.DeleteExtraKeys(ctx, account.ID, []string{codexEnvironmentProfileKey})
+			}
 		}
-		return nil, nil, err
 	}
-	if lease != nil && lease.BoundNew && accountRepo != nil {
-		if err := accountRepo.UpdateExtra(ctx, account.ID, map[string]any{codexEnvironmentProfilePoolKey: pool}); err != nil {
-			lease.ReleaseFunc()
+	pool := newFrozenCodexEnvironmentProfilePool()
+	if accountRepo != nil {
+		updates := map[string]any{codexEnvironmentProfilePoolKey: pool}
+		if err := accountRepo.UpdateExtra(ctx, account.ID, updates); err != nil {
 			return nil, nil, err
 		}
 	}
+	slog.Info("codex_environment_profile_pool_generated",
+		"account_id", account.ID,
+		"schema", codexEnvironmentProfilePoolSchemaV2,
+		"reason", "unified_migration")
+	return acquireV2CodexEnvironmentProfileSlot(account, pool, headers)
+}
+
+// acquireV2CodexEnvironmentProfileSlot 在 schema v2 pool 上按客户端来源 OS 选槽。
+// v2 槽位是共享身份而非互斥资源：并发请求复用同一槽位，不占用 lease manager 串行锁。
+func acquireV2CodexEnvironmentProfileSlot(account *Account, pool *CodexEnvironmentProfilePool, headers http.Header) (*EnvironmentProfileSlotLease, *CodexEnvironmentProfile, error) {
+	env := routeToSlot(DetectCodexEnvironmentClass(headers))
+	slotIdx := slotIndexOfEnvironmentClass(env)
+	if slotIdx < 0 || slotIdx >= len(pool.Slots) {
+		return nil, nil, environmentProfileSlotExhaustedError()
+	}
+	pool.mu.Lock()
+	defer pool.mu.Unlock()
+	if err := pool.Normalize(); err != nil {
+		return nil, nil, err
+	}
+	profile := pool.Slots[slotIdx].Profile
+	if profile == nil {
+		return nil, nil, fmt.Errorf("v2 codex environment profile slot %d has no frozen profile", slotIdx)
+	}
+	lease := &EnvironmentProfileSlotLease{
+		AccountID:   account.ID,
+		Slot:        slotIdx,
+		Environment: pool.Slots[slotIdx].Environment,
+		ReleaseFunc: func() {}, // v2 无互斥，释放为 no-op
+	}
+	slog.Debug("codex_environment_profile_slot_applied",
+		"account_id", account.ID,
+		"slot", string(env),
+		"platform", profile.Platform,
+		"version", profile.Version)
 	return lease, profile, nil
 
 }
