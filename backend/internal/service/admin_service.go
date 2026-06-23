@@ -2581,6 +2581,53 @@ func (s *adminServiceImpl) GetAccountsByIDs(ctx context.Context, ids []int64) ([
 	return accounts, nil
 }
 
+func withDefaultEnvironmentProfilePool(platform, accountType string, concurrency int, extra map[string]any) map[string]any {
+	if !shouldCreateDefaultEnvironmentProfilePool(platform, accountType, extra) {
+		return extra
+	}
+	merged := make(map[string]any, len(extra)+1)
+	for key, value := range extra {
+		merged[key] = value
+	}
+	if platform == PlatformAnthropic {
+		merged[claudeEnvironmentProfilePoolKey] = newClaudeEnvironmentProfilePool(concurrency)
+		return merged
+	}
+	merged[codexEnvironmentProfilePoolKey] = newCodexEnvironmentProfilePool(concurrency)
+	return merged
+}
+
+func shouldCreateDefaultEnvironmentProfilePool(platform, accountType string, extra map[string]any) bool {
+	switch platform {
+	case PlatformAnthropic:
+		if accountType != AccountTypeOAuth && accountType != AccountTypeSetupToken {
+			return false
+		}
+		if isExplicitlyDisabled(extra, claudeSingleEnvironmentKey) {
+			return false
+		}
+		return extra == nil || extra[claudeEnvironmentProfilePoolKey] == nil && extra[claudeEnvironmentProfileKey] == nil
+	case PlatformOpenAI:
+		if accountType != AccountTypeOAuth {
+			return false
+		}
+		if isExplicitlyDisabled(extra, codexSingleEnvironmentKey) {
+			return false
+		}
+		return extra == nil || extra[codexEnvironmentProfilePoolKey] == nil && extra[codexEnvironmentProfileKey] == nil
+	default:
+		return false
+	}
+}
+
+func isExplicitlyDisabled(extra map[string]any, key string) bool {
+	if extra == nil {
+		return false
+	}
+	enabled, ok := extra[key].(bool)
+	return ok && !enabled
+}
+
 func (s *adminServiceImpl) CreateAccount(ctx context.Context, input *CreateAccountInput) (*Account, error) {
 	// 绑定分组
 	groupIDs := input.GroupIDs
@@ -2611,7 +2658,7 @@ func (s *adminServiceImpl) CreateAccount(ctx context.Context, input *CreateAccou
 		Platform:    input.Platform,
 		Type:        input.Type,
 		Credentials: input.Credentials,
-		Extra:       input.Extra,
+		Extra:       withDefaultEnvironmentProfilePool(input.Platform, input.Type, input.Concurrency, input.Extra),
 		ProxyID:     input.ProxyID,
 		Concurrency: input.Concurrency,
 		Priority:    input.Priority,

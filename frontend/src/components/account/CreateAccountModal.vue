@@ -2506,33 +2506,6 @@
         <p class="input-hint">{{ t('admin.accounts.expiresAtHint') }}</p>
       </div>
 
-      <EnvironmentProfileCard
-        v-if="form.platform === 'anthropic' && accountCategory === 'oauth-based'"
-        family="claude"
-        create-mode
-        :single-environment="claudeEnvironmentSingleEnabled"
-        :locked="claudeEnvironmentProfileLocked"
-        :allow-learn="claudeEnvironmentAllowDesktopLearn"
-        :family-preference="claudeEnvironmentFamilyPreference"
-        @update:single-environment="claudeEnvironmentSingleEnabled = $event"
-        @update:locked="claudeEnvironmentProfileLocked = $event"
-        @update:allow-learn="claudeEnvironmentAllowDesktopLearn = $event"
-        @update:family-preference="claudeEnvironmentFamilyPreference = $event"
-      />
-
-      <EnvironmentProfileCard
-        v-if="form.platform === 'openai' && accountCategory === 'oauth-based'"
-        family="codex"
-        create-mode
-        :single-environment="codexEnvironmentSingleEnabled"
-        :locked="codexEnvironmentProfileLocked"
-        :allow-learn="codexEnvironmentAllowOfficialClientLearn"
-        :family-preference="codexEnvironmentFamilyPreference"
-        @update:single-environment="codexEnvironmentSingleEnabled = $event"
-        @update:locked="codexEnvironmentProfileLocked = $event"
-        @update:allow-learn="codexEnvironmentAllowOfficialClientLearn = $event"
-        @update:family-preference="codexEnvironmentFamilyPreference = $event"
-      />
 
       <!-- OpenAI 自动透传开关（OAuth/API Key） -->
       <div
@@ -3265,7 +3238,6 @@ import ProxySelector from '@/components/common/ProxySelector.vue'
 import ProxyAdBanner from '@/components/common/ProxyAdBanner.vue'
 import GroupSelector from '@/components/common/GroupSelector.vue'
 import ModelWhitelistSelector from '@/components/account/ModelWhitelistSelector.vue'
-import EnvironmentProfileCard from '@/components/account/EnvironmentProfileCard.vue'
 import QuotaLimitCard from '@/components/account/QuotaLimitCard.vue'
 import { applyInterceptWarmup } from '@/components/account/credentialsBuilder'
 import { formatDateTimeLocalInput, parseDateTimeLocalInput } from '@/utils/format'
@@ -3450,14 +3422,6 @@ const openaiOAuthResponsesWebSocketV2Mode = ref<OpenAIWSMode>(OPENAI_WS_MODE_OFF
 const openaiAPIKeyResponsesWebSocketV2Mode = ref<OpenAIWSMode>(OPENAI_WS_MODE_OFF)
 const codexCLIOnlyEnabled = ref(false)
 const codexCLIOnlyAllowClaudeCodeEnabled = ref(false)
-const claudeEnvironmentSingleEnabled = ref(true)
-const claudeEnvironmentProfileLocked = ref(true)
-const claudeEnvironmentAllowDesktopLearn = ref(true)
-const claudeEnvironmentFamilyPreference = ref('auto')
-const codexEnvironmentSingleEnabled = ref(true)
-const codexEnvironmentProfileLocked = ref(true)
-const codexEnvironmentAllowOfficialClientLearn = ref(true)
-const codexEnvironmentFamilyPreference = ref('auto')
 const anthropicPassthroughEnabled = ref(false)
 const webSearchEmulationMode = ref('default')
 const webSearchGlobalEnabled = ref(false)
@@ -3883,26 +3847,10 @@ watch(
       openaiAPIKeyResponsesWebSocketV2Mode.value = OPENAI_WS_MODE_OFF
       codexCLIOnlyEnabled.value = false
       codexCLIOnlyAllowClaudeCodeEnabled.value = false
-  claudeEnvironmentSingleEnabled.value = true
-  claudeEnvironmentProfileLocked.value = true
-  claudeEnvironmentAllowDesktopLearn.value = true
-  claudeEnvironmentFamilyPreference.value = 'auto'
-  codexEnvironmentSingleEnabled.value = true
-  codexEnvironmentProfileLocked.value = true
-  codexEnvironmentAllowOfficialClientLearn.value = true
-  codexEnvironmentFamilyPreference.value = 'auto'
-      codexEnvironmentSingleEnabled.value = true
-      codexEnvironmentProfileLocked.value = true
-      codexEnvironmentAllowOfficialClientLearn.value = true
-      codexEnvironmentFamilyPreference.value = 'auto'
     }
     if (newPlatform !== 'anthropic') {
       anthropicPassthroughEnabled.value = false
       webSearchEmulationMode.value = 'default'
-      claudeEnvironmentSingleEnabled.value = true
-      claudeEnvironmentProfileLocked.value = true
-      claudeEnvironmentAllowDesktopLearn.value = true
-      claudeEnvironmentFamilyPreference.value = 'auto'
     }
     // Reset OAuth states
     oauth.resetState()
@@ -4351,30 +4299,11 @@ const handleClose = () => {
   emit('close')
 }
 
-const buildClaudeEnvironmentProfileExtra = (base?: Record<string, unknown>): Record<string, unknown> | undefined => {
+const buildOAuthExtra = (base?: Record<string, unknown>): Record<string, unknown> | undefined => {
   if (form.platform !== 'anthropic' || accountCategory.value !== 'oauth-based') {
     return base
   }
-
-  const extra: Record<string, unknown> = { ...(base || {}) }
-  extra.claude_single_environment = claudeEnvironmentSingleEnabled.value
-  extra.claude_environment_profile_locked = claudeEnvironmentProfileLocked.value
-  extra.claude_environment_allow_desktop_learn = claudeEnvironmentAllowDesktopLearn.value
-  extra.claude_environment_profile_family_preference = claudeEnvironmentFamilyPreference.value
-  return extra
-}
-
-const buildCodexEnvironmentProfileExtra = (base?: Record<string, unknown>): Record<string, unknown> | undefined => {
-  if (form.platform !== 'openai' || accountCategory.value !== 'oauth-based') {
-    return base
-  }
-
-  const extra: Record<string, unknown> = { ...(base || {}) }
-  extra.codex_single_environment = codexEnvironmentSingleEnabled.value
-  extra.codex_environment_profile_locked = codexEnvironmentProfileLocked.value
-  extra.codex_environment_allow_official_client_learn = codexEnvironmentAllowOfficialClientLearn.value
-  extra.codex_environment_profile_family_preference = codexEnvironmentFamilyPreference.value
-  return extra
+  return base && Object.keys(base).length > 0 ? { ...base } : undefined
 }
 
 const buildOpenAIExtra = (base?: Record<string, unknown>): Record<string, unknown> | undefined => {
@@ -4382,7 +4311,7 @@ const buildOpenAIExtra = (base?: Record<string, unknown>): Record<string, unknow
     return base
   }
 
-  const extra: Record<string, unknown> = { ...(buildCodexEnvironmentProfileExtra(base) || {}) }
+  const extra: Record<string, unknown> = { ...(base || {}) }
   if (accountCategory.value === 'oauth-based') {
     extra.openai_oauth_responses_websockets_v2_mode = openaiOAuthResponsesWebSocketV2Mode.value
     extra.openai_oauth_responses_websockets_v2_enabled = isOpenAIWSModeEnabled(openaiOAuthResponsesWebSocketV2Mode.value)
@@ -4435,7 +4364,7 @@ const buildOpenAIExtra = (base?: Record<string, unknown>): Record<string, unknow
 
 const buildAnthropicExtra = (base?: Record<string, unknown>): Record<string, unknown> | undefined => {
   if (form.platform === 'anthropic' && accountCategory.value === 'oauth-based') {
-    return buildClaudeEnvironmentProfileExtra(base)
+    return buildOAuthExtra(base)
   }
   if (form.platform !== 'anthropic' || accountCategory.value !== 'apikey') {
     return base
@@ -5373,7 +5302,7 @@ const handleAnthropicExchange = async (authCode: string) => {
 
     // Build extra with quota control settings
     const baseExtra = oauth.buildExtraInfo(tokenInfo) || {}
-    const extra: Record<string, unknown> = { ...(buildClaudeEnvironmentProfileExtra(baseExtra) || {}) }
+    const extra: Record<string, unknown> = { ...(buildOAuthExtra(baseExtra) || {}) }
 
     // Add window cost limit settings
     if (windowCostEnabled.value && windowCostLimit.value != null && windowCostLimit.value > 0) {
@@ -5496,7 +5425,7 @@ const handleCookieAuth = async (sessionKey: string) => {
 
         // Build extra with quota control settings
         const baseExtra = oauth.buildExtraInfo(tokenInfo) || {}
-        const extra: Record<string, unknown> = { ...(buildClaudeEnvironmentProfileExtra(baseExtra) || {}) }
+        const extra: Record<string, unknown> = { ...(buildOAuthExtra(baseExtra) || {}) }
 
         // Add window cost limit settings
         if (windowCostEnabled.value && windowCostLimit.value != null && windowCostLimit.value > 0) {
