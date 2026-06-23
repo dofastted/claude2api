@@ -23,6 +23,7 @@ func TestDetectEnvironmentClass(t *testing.T) {
 		{name: "macos", headers: http.Header{"User-Agent": []string{"Mozilla/5.0 (Macintosh; Intel Mac OS X 14_0)"}}, want: EnvironmentClassMacOS},
 		{name: "claude desktop", headers: http.Header{"User-Agent": []string{"Claude Desktop/1.0 Electron"}}, want: EnvironmentClassDesktop},
 		{name: "codex desktop", headers: http.Header{"Originator": []string{"codex_chatgpt_desktop"}}, want: EnvironmentClassDesktop},
+		{name: "codex tui linux", headers: http.Header{"User-Agent": []string{"codex-tui/0.142.0 (Ubuntu 22.4.0; x86_64) xterm (codex-tui; 0.142.0)"}}, want: EnvironmentClassLinux},
 		{name: "unknown defaults windows", headers: http.Header{"User-Agent": []string{"unknown-client"}}, want: EnvironmentClassWindows},
 	}
 	for _, tc := range cases {

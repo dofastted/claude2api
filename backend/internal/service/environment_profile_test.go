@@ -148,6 +148,58 @@ func TestClaudeEnvironmentProfileLearnsDesktopFirstRequest(t *testing.T) {
 	require.Equal(t, 1, repo.updateCount())
 }
 
+func TestClaudeEnvironmentProfileSkipsGenericDesktopLearning(t *testing.T) {
+	account := &Account{
+		ID:       103,
+		Platform: PlatformAnthropic,
+		Type:     AccountTypeOAuth,
+		Extra: map[string]any{
+			claudeEnvironmentProfileFamilyPreferenceKey: string(ClaudeClientFamilyDesktop),
+		},
+	}
+	repo := &environmentProfileAccountRepo{account: account}
+	svc := &GatewayService{accountRepo: repo}
+	headers := http.Header{
+		"User-Agent":            []string{"Go-http-client/1.1"},
+		"X-App":                 []string{"claude-desktop"},
+		"Anthropic-Client-Type": []string{"desktop"},
+	}
+
+	profile, err := svc.getOrCreateClaudeEnvironmentProfile(context.Background(), account, headers, nil)
+	require.NoError(t, err)
+	require.NotNil(t, profile)
+	require.Equal(t, ClaudeClientFamilyCodeCLI, profile.Family)
+	require.Equal(t, claudeEnvironmentProfileSourceAutoDefault, profile.Source)
+	require.NotContains(t, profile.UserAgent, "Go-http-client")
+	require.Equal(t, 1, repo.updateCount())
+}
+
+func TestCodexEnvironmentProfileRejectsGenericUserAgentLearning(t *testing.T) {
+	profile, learned, err := LearnCodexEnvironmentProfileFromHeaders(http.Header{
+		"User-Agent": []string{"Go-http-client/1.1"},
+		"originator": []string{"codex_cli_rs"},
+	}, nil)
+	require.NoError(t, err)
+	require.False(t, learned)
+	require.Nil(t, profile)
+}
+
+func TestCodexEnvironmentProfileLearnsCodexTUI(t *testing.T) {
+	profile, learned, err := LearnCodexEnvironmentProfileFromHeaders(http.Header{
+		"User-Agent": []string{"codex-tui/0.142.0 (Ubuntu 22.4.0; x86_64) xterm (codex-tui; 0.142.0)"},
+		"originator": []string{"codex-tui"},
+		"version":    []string{"0.142.0"},
+	}, nil)
+	require.NoError(t, err)
+	require.True(t, learned)
+	require.NotNil(t, profile)
+	require.Equal(t, CodexClientFamilyCLI, profile.Family)
+	require.Equal(t, "learned_verified_cli", profile.Source)
+	require.Contains(t, profile.UserAgent, "codex-tui/0.142.0")
+	require.Equal(t, "codex-tui", profile.Originator)
+	require.Equal(t, "0.142.0", profile.Version)
+}
+
 func TestCodexEnvironmentProfileCreatesDefaultOnce(t *testing.T) {
 	account := &Account{
 		ID:       201,

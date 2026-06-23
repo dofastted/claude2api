@@ -11,6 +11,26 @@ import (
 	"time"
 )
 
+var genericProbeUserAgentPrefixes = []string{
+	"go-http-client/",
+	"curl/",
+	"wget/",
+	"python-requests/",
+}
+
+func IsGenericProbeUserAgent(ua string) bool {
+	ua = strings.ToLower(strings.TrimSpace(ua))
+	if ua == "" {
+		return true
+	}
+	for _, prefix := range genericProbeUserAgentPrefixes {
+		if strings.HasPrefix(ua, prefix) {
+			return true
+		}
+	}
+	return false
+}
+
 type EnvironmentClass string
 
 const (
@@ -236,7 +256,7 @@ func detectEnvironmentClassFromHeaders(headers http.Header) EnvironmentClass {
 	if strings.Contains(combined, "darwin") || strings.Contains(combined, "mac os") || strings.Contains(combined, "macos") || strings.Contains(combined, "macintosh") {
 		return EnvironmentClassMacOS
 	}
-	if strings.Contains(combined, "linux") || strings.Contains(combined, "x11") {
+	if strings.Contains(combined, "linux") || strings.Contains(combined, "ubuntu") || strings.Contains(combined, "x11") {
 		return EnvironmentClassLinux
 	}
 	return EnvironmentClassWindows

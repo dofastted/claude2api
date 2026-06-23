@@ -2,11 +2,12 @@ package openai
 
 import "strings"
 
-// CodexCLIUserAgentPrefixes matches Codex CLI User-Agent patterns
-// Examples: "codex_vscode/1.0.0", "codex_cli_rs/0.1.2"
+// CodexCLIUserAgentPrefixes matches Codex CLI/TUI User-Agent patterns.
+// Examples: "codex_vscode/1.0.0", "codex_cli_rs/0.1.2", "codex-tui/0.142.0".
 var CodexCLIUserAgentPrefixes = []string{
 	"codex_vscode/",
 	"codex_cli_rs/",
+	"codex-tui/",
 }
 
 // CodexOfficialClientUserAgentPrefixes matches Codex 官方客户端家族 User-Agent 前缀。
@@ -14,6 +15,7 @@ var CodexCLIUserAgentPrefixes = []string{
 var CodexOfficialClientUserAgentPrefixes = []string{
 	"codex_cli_rs/",
 	"codex_vscode/",
+	"codex-tui/",
 	"codex_app/",
 	"codex_chatgpt_desktop/",
 	"codex_atlas/",
@@ -24,8 +26,9 @@ var CodexOfficialClientUserAgentPrefixes = []string{
 
 // CodexOfficialClientOriginatorPrefixes matches Codex 官方客户端家族 originator 前缀。
 // 说明：OpenAI 官方 Codex 客户端并不只使用固定的 codex_app 标识。
-// 例如 codex_cli_rs、codex_vscode、codex_chatgpt_desktop、codex_atlas、codex_exec、codex_sdk_ts 等。
+// 例如 codex_cli_rs、codex_vscode、codex-tui、codex_chatgpt_desktop、codex_atlas、codex_exec、codex_sdk_ts 等。
 var CodexOfficialClientOriginatorPrefixes = []string{
+	"codex-tui",
 	"codex_",
 	"codex ",
 }

@@ -22,7 +22,7 @@ const (
 	claudeEnvironmentProfileFamilyPreferenceKey  = "claude_environment_profile_family_preference"
 	claudeEnvironmentTelemetryPolicyLocalAck     = "local_ack"
 	claudeEnvironmentProfileSourceAutoDefault    = "auto_default"
-	claudeEnvironmentProfileSourceLearnedDesktop = "learned_desktop"
+	claudeEnvironmentProfileSourceLearnedDesktop = "learned_verified_desktop"
 	claudeEnvironmentProfileSourceAdmin          = "admin"
 )
 
@@ -129,7 +129,11 @@ func defaultClaudeCodeEnvironmentProfile(identityRegistry *clientidentity.Regist
 }
 
 func classifyClaudeClientFamily(headers http.Header, _ []byte) ClaudeClientFamily {
-	ua := strings.ToLower(headers.Get("User-Agent"))
+	uaRaw := strings.TrimSpace(headers.Get("User-Agent"))
+	if IsGenericProbeUserAgent(uaRaw) {
+		return ""
+	}
+	ua := strings.ToLower(uaRaw)
 	xApp := strings.ToLower(strings.TrimSpace(headers.Get("X-App")))
 	clientType := strings.ToLower(strings.TrimSpace(headers.Get("Anthropic-Client-Type")))
 	if strings.Contains(ua, "claude desktop") || strings.Contains(ua, "electron") || xApp == "claude-desktop" || clientType == "desktop" {
@@ -144,6 +148,9 @@ func classifyClaudeClientFamily(headers http.Header, _ []byte) ClaudeClientFamil
 func learnDesktopClaudeEnvironmentProfile(headers http.Header) *ClaudeEnvironmentProfile {
 	now := time.Now().UTC()
 	ua := strings.TrimSpace(headers.Get("User-Agent"))
+	if IsGenericProbeUserAgent(ua) {
+		return nil
+	}
 	deviceID := strings.TrimSpace(headers.Get("Anthropic-Client-Device-Id"))
 	if deviceID == "" {
 		deviceID = generateClientID()
@@ -262,7 +269,7 @@ func (s *GatewayService) buildInitialClaudeEnvironmentProfile(account *Account, 
 	}
 	if family == ClaudeClientFamilyDesktop && account.AllowClaudeDesktopEnvironmentLearn() {
 		profile := learnDesktopClaudeEnvironmentProfile(headers)
-		if strings.TrimSpace(profile.UserAgent) != "" {
+		if profile != nil && strings.TrimSpace(profile.UserAgent) != "" {
 			slog.Info("claude_environment_profile_learned_desktop", "account_id", account.ID)
 			return profile
 		}

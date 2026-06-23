@@ -10,6 +10,7 @@ import (
 	"sync"
 	"time"
 
+	"github.com/Wei-Shaw/sub2api/internal/pkg/claude"
 	"github.com/Wei-Shaw/sub2api/internal/service"
 
 	"github.com/gin-gonic/gin"
@@ -20,10 +21,37 @@ var claudeCodeValidator = service.NewClaudeCodeValidator()
 
 // SetClaudeCodeClientContext 检查请求是否来自 Claude Code 客户端，并设置到 context 中
 // 返回更新后的 context
+func normalizeClaudeGoHTTPEntrypointHeaders(c *gin.Context) {
+	if c == nil || c.Request == nil {
+		return
+	}
+	if !isGoHTTPDefaultUserAgent(c.GetHeader("User-Agent")) {
+		return
+	}
+	if !strings.Contains(c.Request.URL.Path, "messages") {
+		return
+	}
+	for key, value := range claude.GetHeaders(nil) {
+		value = strings.TrimSpace(value)
+		if value == "" {
+			continue
+		}
+		c.Request.Header.Set(key, value)
+	}
+	c.Request.Header.Set("anthropic-version", "2023-06-01")
+	c.Request.Header.Set("anthropic-beta", claude.DefaultBetaHeader)
+}
+
+func isGoHTTPDefaultUserAgent(ua string) bool {
+	ua = strings.ToLower(strings.TrimSpace(ua))
+	return ua == "go-http-client/1.1" || strings.HasPrefix(ua, "go-http-client/")
+}
+
 func SetClaudeCodeClientContext(c *gin.Context, body []byte, parsedReq *service.ParsedRequest) {
 	if c == nil || c.Request == nil {
 		return
 	}
+	normalizeClaudeGoHTTPEntrypointHeaders(c)
 	ua := c.GetHeader("User-Agent")
 	// Fast path：非 Claude CLI UA 直接判定 false，避免热路径二次 JSON 反序列化。
 	if !claudeCodeValidator.ValidateUserAgent(ua) {

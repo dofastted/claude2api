@@ -237,27 +237,30 @@ func newCodexEnvironmentProfile(family CodexClientFamily, source, ua, originator
 }
 
 func LearnCodexEnvironmentProfileFromHeaders(headers http.Header, registry *clientidentity.Registry) (*CodexEnvironmentProfile, bool, error) {
+	if IsGenericProbeUserAgent(headers.Get("User-Agent")) {
+		return nil, false, nil
+	}
 	family := detectCodexClientFamilyFromHeaders(headers)
 	if family == "" {
 		return nil, false, nil
 	}
 	snapshot := codexSnapshotFromRegistry(registry)
-	ua := strings.TrimSpace(headers.Get("User-Agent"))
+	ua := strings.TrimSpace(headerValueCaseInsensitive(headers, "User-Agent"))
 	if ua == "" {
 		ua = strings.TrimSpace(snapshot.Headers["User-Agent"])
 	}
-	originator := strings.TrimSpace(headers.Get("originator"))
+	originator := strings.TrimSpace(headerValueCaseInsensitive(headers, "originator"))
 	if originator == "" {
 		originator = strings.TrimSpace(snapshot.Headers["originator"])
 	}
 	if originator == "" {
 		originator = "codex_cli_rs"
 	}
-	version := strings.TrimSpace(headers.Get("version"))
+	version := strings.TrimSpace(headerValueCaseInsensitive(headers, "version"))
 	if version == "" {
 		version = strings.TrimSpace(snapshot.VersionFields.CLIVersion)
 	}
-	profile, err := newCodexEnvironmentProfile(family, "learned_"+string(family), ua, originator, version, defaultCodexTLSProfileForFamily(family), whitelistCodexLearnedHeaders(headers))
+	profile, err := newCodexEnvironmentProfile(family, "learned_verified_"+string(family), ua, originator, version, defaultCodexTLSProfileForFamily(family), whitelistCodexLearnedHeaders(headers))
 	return profile, true, err
 }
 
@@ -265,8 +268,11 @@ func detectCodexClientFamilyFromHeaders(headers http.Header) CodexClientFamily {
 	if headers == nil {
 		return ""
 	}
-	ua := strings.ToLower(strings.TrimSpace(headers.Get("User-Agent")))
-	originator := strings.ToLower(strings.TrimSpace(headers.Get("originator")))
+	if ua := strings.TrimSpace(headerValueCaseInsensitive(headers, "User-Agent")); ua != "" && IsGenericProbeUserAgent(ua) {
+		return ""
+	}
+	ua := strings.ToLower(strings.TrimSpace(headerValueCaseInsensitive(headers, "User-Agent")))
+	originator := strings.ToLower(strings.TrimSpace(headerValueCaseInsensitive(headers, "originator")))
 	combined := ua + "\n" + originator
 	if strings.Contains(combined, "codex_chatgpt_desktop") || strings.Contains(combined, "codex desktop") {
 		return CodexClientFamilyDesktop
@@ -274,7 +280,7 @@ func detectCodexClientFamilyFromHeaders(headers http.Header) CodexClientFamily {
 	if strings.Contains(combined, "codex_vscode") {
 		return CodexClientFamilyVSCode
 	}
-	if strings.Contains(combined, "codex_cli_rs") || openaiheaders.IsCodexCLIRequest(ua) || originator == "codex_cli_rs" {
+	if strings.Contains(combined, "codex_cli_rs") || strings.Contains(combined, "codex-tui") || openaiheaders.IsCodexCLIRequest(ua) || originator == "codex_cli_rs" || originator == "codex-tui" {
 		return CodexClientFamilyCLI
 	}
 	return ""
