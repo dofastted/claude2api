@@ -541,9 +541,7 @@ func logCodexEnvironmentFamilyMismatch(ctx context.Context, account *Account, pr
 }
 
 func codexProfileLogger(ctx context.Context) *zap.Logger {
-	if ctx == nil {
-		ctx = context.Background()
-	}
+	_ = ctx
 	return zap.L().WithOptions(zap.AddCallerSkip(1))
 }
 

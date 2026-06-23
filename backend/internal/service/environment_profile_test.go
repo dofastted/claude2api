@@ -111,7 +111,9 @@ func TestClaudeEnvironmentProfileCreatesDefaultOnce(t *testing.T) {
 	stored, ok := repo.account.GetClaudeEnvironmentProfile()
 	require.True(t, ok)
 	require.Equal(t, profile.ClientID, stored.ClientID)
-	require.True(t, repo.account.Extra[claudeEnvironmentProfileLockedKey].(bool))
+	locked, ok := repo.account.Extra[claudeEnvironmentProfileLockedKey].(bool)
+	require.True(t, ok)
+	require.True(t, locked)
 	require.Equal(t, 1, repo.updateCount())
 
 	again, err := svc.getOrCreateClaudeEnvironmentProfile(context.Background(), account, http.Header{"User-Agent": []string{"Claude Desktop"}}, nil)
@@ -268,7 +270,9 @@ func TestCodexEnvironmentProfileCreatesDefaultOnce(t *testing.T) {
 	storedCodex, ok := repo.account.GetCodexEnvironmentProfile()
 	require.True(t, ok)
 	require.Equal(t, profile.SessionSeed, storedCodex.SessionSeed)
-	require.True(t, repo.account.Extra[codexEnvironmentProfileLockedKey].(bool))
+	codexLocked, ok := repo.account.Extra[codexEnvironmentProfileLockedKey].(bool)
+	require.True(t, ok)
+	require.True(t, codexLocked)
 	require.Equal(t, 1, repo.updateCount())
 
 	again, err := svc.getOrCreateCodexEnvironmentProfile(context.Background(), account, http.Header{"originator": []string{"codex_chatgpt_desktop"}})

@@ -21,7 +21,7 @@ func (r *createAccountProfilePoolRepo) Create(_ context.Context, account *Accoun
 }
 
 func TestAdminServiceCreateAccountDefaultEnvironmentProfilePool(t *testing.T) {
-	t.Run("anthropic oauth gets empty claude pool", func(t *testing.T) {
+	t.Run("anthropic oauth gets frozen v2 claude pool", func(t *testing.T) {
 		repo := &createAccountProfilePoolRepo{}
 		svc := &adminServiceImpl{accountRepo: repo}
 
@@ -39,17 +39,21 @@ func TestAdminServiceCreateAccountDefaultEnvironmentProfilePool(t *testing.T) {
 		pool, err := DecodeClaudeEnvironmentProfilePool(account.Extra[claudeEnvironmentProfilePoolKey])
 		require.NoError(t, err)
 		require.NotNil(t, pool)
-		require.Equal(t, 5, pool.Capacity)
-		require.Len(t, pool.Slots, 5)
+		// v2: 固定 3 OS 槽位冻结，容量与并发解耦。
+		require.True(t, pool.IsV2())
+		require.Equal(t, 3, pool.Capacity)
+		require.Len(t, pool.Slots, 3)
 		for _, slot := range pool.Slots {
-			require.Equal(t, EnvironmentProfileSlotEmpty, slot.State)
-			require.Nil(t, slot.Profile)
+			require.Equal(t, EnvironmentProfileSlotBound, slot.State)
+			require.NotNil(t, slot.Profile)
+			require.NotEmpty(t, slot.Profile.DeviceID)
+			require.Equal(t, claudeEnvironmentProfileSourceSimulated, slot.Profile.Source)
 		}
 		require.NotContains(t, account.Extra, claudeSingleEnvironmentKey)
 		require.NotContains(t, account.Extra, claudeEnvironmentProfileLockedKey)
 	})
 
-	t.Run("openai oauth gets empty codex pool", func(t *testing.T) {
+	t.Run("openai oauth gets frozen v2 codex pool", func(t *testing.T) {
 		repo := &createAccountProfilePoolRepo{}
 		svc := &adminServiceImpl{accountRepo: repo}
 
@@ -66,17 +70,20 @@ func TestAdminServiceCreateAccountDefaultEnvironmentProfilePool(t *testing.T) {
 		pool, err := DecodeCodexEnvironmentProfilePool(account.Extra[codexEnvironmentProfilePoolKey])
 		require.NoError(t, err)
 		require.NotNil(t, pool)
+		require.True(t, pool.IsV2())
 		require.Equal(t, 3, pool.Capacity)
 		require.Len(t, pool.Slots, 3)
 		for _, slot := range pool.Slots {
-			require.Equal(t, EnvironmentProfileSlotEmpty, slot.State)
-			require.Nil(t, slot.Profile)
+			require.Equal(t, EnvironmentProfileSlotBound, slot.State)
+			require.NotNil(t, slot.Profile)
+			require.NotEmpty(t, slot.Profile.SessionSeed)
+			require.Equal(t, codexEnvironmentProfileSourceSimulated, slot.Profile.Source)
 		}
 		require.NotContains(t, account.Extra, codexSingleEnvironmentKey)
 		require.NotContains(t, account.Extra, codexEnvironmentProfileLockedKey)
 	})
 
-	t.Run("openai oauth codex tier sets default pool capacity", func(t *testing.T) {
+	t.Run("openai oauth codex tier still gets fixed 3 v2 slots", func(t *testing.T) {
 		repo := &createAccountProfilePoolRepo{}
 		svc := &adminServiceImpl{accountRepo: repo}
 
@@ -93,8 +100,10 @@ func TestAdminServiceCreateAccountDefaultEnvironmentProfilePool(t *testing.T) {
 		pool, err := DecodeCodexEnvironmentProfilePool(account.Extra[codexEnvironmentProfilePoolKey])
 		require.NoError(t, err)
 		require.NotNil(t, pool)
-		require.Equal(t, 20, pool.Capacity)
-		require.Len(t, pool.Slots, 20)
+		// v2: 即使高 tier 也固定 3 槽（容量与 tier 解耦）。
+		require.True(t, pool.IsV2())
+		require.Equal(t, 3, pool.Capacity)
+		require.Len(t, pool.Slots, 3)
 	})
 
 	t.Run("preserves explicit disabled single environment", func(t *testing.T) {
@@ -117,7 +126,7 @@ func TestAdminServiceCreateAccountDefaultEnvironmentProfilePool(t *testing.T) {
 	})
 
 	t.Run("does not overwrite existing pool", func(t *testing.T) {
-		existing := newCodexEnvironmentProfilePool(2)
+		existing := newFrozenCodexEnvironmentProfilePool()
 		repo := &createAccountProfilePoolRepo{}
 		svc := &adminServiceImpl{accountRepo: repo}
 
