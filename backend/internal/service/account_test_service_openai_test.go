@@ -73,6 +73,15 @@ type openAIAccountTestRepo struct {
 	setErrorMsg        string
 }
 
+func (r *openAIAccountTestRepo) GetByID(_ context.Context, id int64) (*Account, error) {
+	if r.accountsByID != nil {
+		if account, ok := r.accountsByID[id]; ok {
+			return account, nil
+		}
+	}
+	return nil, ErrAccountNotFound
+}
+
 func (r *openAIAccountTestRepo) UpdateExtra(_ context.Context, _ int64, updates map[string]any) error {
 	r.updatedExtra = updates
 	return nil
@@ -225,7 +234,7 @@ func TestAccountTestService_OpenAI429BodyOnlyPersistsRateLimitAndClearsStaleErro
 	require.Equal(t, StatusActive, account.Status)
 	require.Empty(t, account.ErrorMessage)
 	require.NotNil(t, account.RateLimitResetAt)
-	require.Empty(t, repo.updatedExtra)
+	require.Contains(t, repo.updatedExtra, codexEnvironmentProfilePoolKey)
 }
 
 func TestAccountTestService_OpenAI429SyncsObservedPlanType(t *testing.T) {

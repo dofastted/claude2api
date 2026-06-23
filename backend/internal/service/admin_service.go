@@ -87,9 +87,11 @@ type AdminService interface {
 	UpdateAccountExtra(ctx context.Context, id int64, updates map[string]any) error
 	UpdateClaudeEnvironmentProfileSettings(ctx context.Context, id int64, updates map[string]any) (*Account, error)
 	UpdateClaudeEnvironmentProfile(ctx context.Context, id int64, profile *ClaudeEnvironmentProfile) (*Account, error)
+	UpdateClaudeEnvironmentProfileSlot(ctx context.Context, id int64, slot EnvironmentClass, overrides *ClaudeEnvironmentProfile) (*Account, error)
 	ResetClaudeEnvironmentProfile(ctx context.Context, id int64) (*Account, error)
 	UpdateCodexEnvironmentProfileSettings(ctx context.Context, id int64, updates map[string]any) (*Account, error)
 	UpdateCodexEnvironmentProfile(ctx context.Context, id int64, profile *CodexEnvironmentProfile) (*Account, error)
+	UpdateCodexEnvironmentProfileSlot(ctx context.Context, id int64, slot EnvironmentClass, overrides *CodexEnvironmentProfile) (*Account, error)
 	ResetCodexEnvironmentProfile(ctx context.Context, id int64) (*Account, error)
 	EnableAllOpenAIWS(ctx context.Context, id int64) error
 	ResetOpenAIWS(ctx context.Context, id int64) error
@@ -2581,7 +2583,7 @@ func (s *adminServiceImpl) GetAccountsByIDs(ctx context.Context, ids []int64) ([
 	return accounts, nil
 }
 
-func withDefaultEnvironmentProfilePool(platform, accountType string, concurrency int, extra map[string]any) map[string]any {
+func withDefaultEnvironmentProfilePool(platform, accountType string, concurrency int, credentials, extra map[string]any) map[string]any {
 	if !shouldCreateDefaultEnvironmentProfilePool(platform, accountType, extra) {
 		return extra
 	}
@@ -2589,11 +2591,13 @@ func withDefaultEnvironmentProfilePool(platform, accountType string, concurrency
 	for key, value := range extra {
 		merged[key] = value
 	}
+	// v2 pool 固定 3 OS 槽位冻结，容量与并发解耦，不再依赖 environmentProfileCapacity。
+	_ = concurrency
 	if platform == PlatformAnthropic {
-		merged[claudeEnvironmentProfilePoolKey] = newClaudeEnvironmentProfilePool(concurrency)
+		merged[claudeEnvironmentProfilePoolKey] = newFrozenClaudeEnvironmentProfilePool(claude.CLICurrentVersion)
 		return merged
 	}
-	merged[codexEnvironmentProfilePoolKey] = newCodexEnvironmentProfilePool(concurrency)
+	merged[codexEnvironmentProfilePoolKey] = newFrozenCodexEnvironmentProfilePool()
 	return merged
 }
 
@@ -2652,15 +2656,26 @@ func (s *adminServiceImpl) CreateAccount(ctx context.Context, input *CreateAccou
 		}
 	}
 
+	concurrency := input.Concurrency
+	if concurrency <= 0 && shouldCreateDefaultEnvironmentProfilePool(input.Platform, input.Type, input.Extra) {
+		concurrency = environmentProfileCapacity(&Account{
+			Platform:    input.Platform,
+			Type:        input.Type,
+			Credentials: input.Credentials,
+			Extra:       input.Extra,
+			Concurrency: input.Concurrency,
+		})
+	}
+
 	account := &Account{
 		Name:        input.Name,
 		Notes:       normalizeAccountNotes(input.Notes),
 		Platform:    input.Platform,
 		Type:        input.Type,
 		Credentials: input.Credentials,
-		Extra:       withDefaultEnvironmentProfilePool(input.Platform, input.Type, input.Concurrency, input.Extra),
+		Extra:       withDefaultEnvironmentProfilePool(input.Platform, input.Type, concurrency, input.Credentials, input.Extra),
 		ProxyID:     input.ProxyID,
-		Concurrency: input.Concurrency,
+		Concurrency: concurrency,
 		Priority:    input.Priority,
 		Status:      StatusActive,
 		Schedulable: true,
@@ -2936,6 +2951,87 @@ func (s *adminServiceImpl) UpdateClaudeEnvironmentProfile(ctx context.Context, i
 	return s.accountRepo.GetByID(ctx, id)
 }
 
+// UpdateClaudeEnvironmentProfileSlot 按槽位编辑 v2 pool 中指定 OS 槽的冻结 profile 字段。
+// slot 为 "windows"|"macos"|"linux"；overrides 中的非空字段覆盖到该槽 profile，冻结语义保留（FrozenAt 不变）。
+func (s *adminServiceImpl) UpdateClaudeEnvironmentProfileSlot(ctx context.Context, id int64, slot EnvironmentClass, overrides *ClaudeEnvironmentProfile) (*Account, error) {
+	account, err := s.accountRepo.GetByID(ctx, id)
+	if err != nil {
+		return nil, err
+	}
+	if account == nil || !account.IsAnthropicOAuthOrSetupToken() {
+		return nil, errors.New("claude environment profile is only supported for Anthropic OAuth/SetupToken accounts")
+	}
+	pool, err := DecodeClaudeEnvironmentProfilePool(account.Extra[claudeEnvironmentProfilePoolKey])
+	if err != nil {
+		return nil, err
+	}
+	if pool == nil || !pool.IsV2() {
+		return nil, errors.New("claude environment profile pool is not v2; migrate or reset first")
+	}
+	slotIdx := slotIndexOfEnvironmentClass(routeToSlot(slot))
+	if slotIdx < 0 || slotIdx >= len(pool.Slots) {
+		return nil, errors.New("invalid claude environment profile slot")
+	}
+	target := pool.Slots[slotIdx].Profile
+	if target == nil {
+		return nil, errors.New("claude environment profile slot has no frozen profile")
+	}
+	applyClaudeProfileOverrides(target, overrides)
+	target.Source = claudeEnvironmentProfileSourceAdmin
+	target.UpdatedAt = time.Now().UTC()
+	if err := ValidateClaudeEnvironmentProfile(target); err != nil {
+		return nil, err
+	}
+	if err := s.accountRepo.UpdateExtra(ctx, id, map[string]any{claudeEnvironmentProfilePoolKey: pool}); err != nil {
+		return nil, err
+	}
+	slog.Info("claude_environment_profile_slot_updated", "account_id", id, "slot", string(slot))
+	return s.accountRepo.GetByID(ctx, id)
+}
+
+// applyClaudeProfileOverrides 将 overrides 中的非空字段覆盖到 target（保留冻结 device_id 除非显式覆盖）。
+func applyClaudeProfileOverrides(target, overrides *ClaudeEnvironmentProfile) {
+	if overrides == nil || target == nil {
+		return
+	}
+	if v := strings.TrimSpace(overrides.DeviceID); v != "" {
+		target.DeviceID = v
+	}
+	if v := strings.TrimSpace(overrides.ClientID); v != "" {
+		target.ClientID = v
+	}
+	if v := strings.TrimSpace(overrides.UserAgent); v != "" {
+		target.UserAgent = v
+	}
+	if v := strings.TrimSpace(overrides.ClientVersion); v != "" {
+		target.ClientVersion = v
+	}
+	if v := strings.TrimSpace(overrides.XApp); v != "" {
+		target.XApp = v
+	}
+	if v := strings.TrimSpace(overrides.Platform); v != "" {
+		target.Platform = v
+	}
+	if v := strings.TrimSpace(overrides.Arch); v != "" {
+		target.Arch = v
+	}
+	if v := strings.TrimSpace(overrides.Runtime); v != "" {
+		target.Runtime = v
+	}
+	if v := strings.TrimSpace(overrides.RuntimeVersion); v != "" {
+		target.RuntimeVersion = v
+	}
+	if v := strings.TrimSpace(overrides.ClientType); v != "" {
+		target.ClientType = v
+	}
+	if overrides.BetaSet != nil {
+		target.BetaSet = overrides.BetaSet
+	}
+	if overrides.Headers != nil {
+		target.Headers = overrides.Headers
+	}
+}
+
 func (s *adminServiceImpl) ResetClaudeEnvironmentProfile(ctx context.Context, id int64) (*Account, error) {
 	account, err := s.accountRepo.GetByID(ctx, id)
 	if err != nil {
@@ -3027,6 +3123,79 @@ func (s *adminServiceImpl) UpdateCodexEnvironmentProfile(ctx context.Context, id
 	}
 	slog.Info("codex_environment_profile_manual_updated", "account_id", id, "family", profile.Family)
 	return s.accountRepo.GetByID(ctx, id)
+}
+
+// UpdateCodexEnvironmentProfileSlot 按槽位编辑 v2 pool 中指定 OS 槽的冻结 Codex profile 字段。
+func (s *adminServiceImpl) UpdateCodexEnvironmentProfileSlot(ctx context.Context, id int64, slot EnvironmentClass, overrides *CodexEnvironmentProfile) (*Account, error) {
+	account, err := s.accountRepo.GetByID(ctx, id)
+	if err != nil {
+		return nil, err
+	}
+	if account == nil || !account.IsOpenAIOAuth() {
+		return nil, errors.New("codex environment profile is only supported for OpenAI OAuth accounts")
+	}
+	pool, err := DecodeCodexEnvironmentProfilePool(account.Extra[codexEnvironmentProfilePoolKey])
+	if err != nil {
+		return nil, err
+	}
+	if pool == nil || !pool.IsV2() {
+		return nil, errors.New("codex environment profile pool is not v2; migrate or reset first")
+	}
+	slotIdx := slotIndexOfEnvironmentClass(routeToSlot(slot))
+	if slotIdx < 0 || slotIdx >= len(pool.Slots) {
+		return nil, errors.New("invalid codex environment profile slot")
+	}
+	target := pool.Slots[slotIdx].Profile
+	if target == nil {
+		return nil, errors.New("codex environment profile slot has no frozen profile")
+	}
+	applyCodexProfileOverrides(target, overrides)
+	target.Source = "admin"
+	target.UpdatedAt = time.Now().UTC()
+	if err := target.Validate(); err != nil {
+		return nil, err
+	}
+	if err := s.accountRepo.UpdateExtra(ctx, id, map[string]any{codexEnvironmentProfilePoolKey: pool}); err != nil {
+		return nil, err
+	}
+	slog.Info("codex_environment_profile_slot_updated", "account_id", id, "slot", string(slot))
+	return s.accountRepo.GetByID(ctx, id)
+}
+
+func applyCodexProfileOverrides(target, overrides *CodexEnvironmentProfile) {
+	if overrides == nil || target == nil {
+		return
+	}
+	if v := strings.TrimSpace(overrides.UserAgent); v != "" {
+		target.UserAgent = v
+	}
+	if v := strings.TrimSpace(overrides.Originator); v != "" {
+		target.Originator = v
+	}
+	if v := strings.TrimSpace(overrides.Version); v != "" {
+		target.Version = v
+	}
+	if v := strings.TrimSpace(overrides.SessionSeed); v != "" {
+		target.SessionSeed = v
+	}
+	if v := strings.TrimSpace(overrides.ConversationSeed); v != "" {
+		target.ConversationSeed = v
+	}
+	if v := strings.TrimSpace(overrides.ClientType); v != "" {
+		target.ClientType = v
+	}
+	if v := strings.TrimSpace(overrides.Platform); v != "" {
+		target.Platform = v
+	}
+	if v := strings.TrimSpace(overrides.Arch); v != "" {
+		target.Arch = v
+	}
+	if v := strings.TrimSpace(overrides.TLSProfile); v != "" {
+		target.TLSProfile = v
+	}
+	if overrides.Headers != nil {
+		target.Headers = overrides.Headers
+	}
 }
 
 func (s *adminServiceImpl) ResetCodexEnvironmentProfile(ctx context.Context, id int64) (*Account, error) {

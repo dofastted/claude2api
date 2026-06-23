@@ -818,11 +818,11 @@ export interface TempUnschedulableStatus {
 }
 
 export type ClaudeClientFamily = 'code_cli' | 'desktop'
-export type CodexClientFamily = 'cli' | 'desktop' | 'vscode' | 'custom'
+export type CodexClientFamily = 'cli' | 'desktop' | 'vscode'
 
 export interface ClaudeEnvironmentProfile {
   family: ClaudeClientFamily
-  source: 'auto_default' | 'learned_desktop' | 'learned_code_cli' | 'admin' | string
+  source: 'auto_default' | 'learned_desktop' | 'learned_code_cli' | 'admin' | 'simulated' | string
   client_id?: string
   device_id?: string
   session_seed?: string
@@ -836,6 +836,8 @@ export interface ClaudeEnvironmentProfile {
   runtime_version?: string
   client_type?: string
   headers?: Record<string, string>
+  beta_set?: string[]
+  frozen_at?: string
   telemetry_policy?: string
   created_at?: string
   updated_at?: string
@@ -843,7 +845,7 @@ export interface ClaudeEnvironmentProfile {
 
 export interface CodexEnvironmentProfile {
   family: CodexClientFamily
-  source: 'auto_default' | 'learned_cli' | 'learned_desktop' | 'learned_vscode' | 'admin' | string
+  source: 'auto_default' | 'learned_cli' | 'learned_desktop' | 'learned_vscode' | 'admin' | 'simulated' | string
   user_agent?: string
   originator?: string
   version?: string
@@ -854,6 +856,7 @@ export interface CodexEnvironmentProfile {
   arch?: string
   tls_profile?: string
   headers?: Record<string, string>
+  frozen_at?: string
   created_at?: string
   updated_at?: string
 }
@@ -871,6 +874,7 @@ export interface ClaudeEnvironmentProfileSlot {
 }
 
 export interface ClaudeEnvironmentProfilePool {
+  schema?: string
   version?: number
   capacity: number
   slots: ClaudeEnvironmentProfileSlot[]
@@ -886,9 +890,20 @@ export interface CodexEnvironmentProfileSlot {
 }
 
 export interface CodexEnvironmentProfilePool {
+  schema?: string
   version?: number
   capacity: number
   slots: CodexEnvironmentProfileSlot[]
+}
+
+export interface ClaudeEnvironmentProfileSlotUpdateRequest {
+  slot: EnvironmentClass
+  profile: Partial<ClaudeEnvironmentProfile>
+}
+
+export interface CodexEnvironmentProfileSlotUpdateRequest {
+  slot: EnvironmentClass
+  profile: Partial<CodexEnvironmentProfile>
 }
 
 export interface ClaudeEnvironmentProfileSettingsRequest {

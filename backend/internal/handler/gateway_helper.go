@@ -19,17 +19,24 @@ import (
 // claudeCodeValidator is a singleton validator for Claude Code client detection
 var claudeCodeValidator = service.NewClaudeCodeValidator()
 
+func isClaudeCodeOrGenericEntrypoint(c *gin.Context) bool {
+	if c == nil || c.Request == nil {
+		return false
+	}
+	return service.IsClaudeCodeClient(c.Request.Context()) || service.IsGenericClaudeEntrypoint(c.Request.Context())
+}
+
 // SetClaudeCodeClientContext 检查请求是否来自 Claude Code 客户端，并设置到 context 中
 // 返回更新后的 context
-func normalizeClaudeGoHTTPEntrypointHeaders(c *gin.Context) {
+func normalizeClaudeGoHTTPEntrypointHeaders(c *gin.Context) bool {
 	if c == nil || c.Request == nil {
-		return
+		return false
 	}
 	if !isGoHTTPDefaultUserAgent(c.GetHeader("User-Agent")) {
-		return
+		return false
 	}
 	if !strings.Contains(c.Request.URL.Path, "messages") {
-		return
+		return false
 	}
 	for key, value := range claude.GetHeaders(nil) {
 		value = strings.TrimSpace(value)
@@ -40,6 +47,7 @@ func normalizeClaudeGoHTTPEntrypointHeaders(c *gin.Context) {
 	}
 	c.Request.Header.Set("anthropic-version", "2023-06-01")
 	c.Request.Header.Set("anthropic-beta", claude.DefaultBetaHeader)
+	return true
 }
 
 func isGoHTTPDefaultUserAgent(ua string) bool {
@@ -51,7 +59,13 @@ func SetClaudeCodeClientContext(c *gin.Context, body []byte, parsedReq *service.
 	if c == nil || c.Request == nil {
 		return
 	}
-	normalizeClaudeGoHTTPEntrypointHeaders(c)
+	genericEntrypoint := normalizeClaudeGoHTTPEntrypointHeaders(c)
+	if genericEntrypoint {
+		ctx := service.SetClaudeCodeClient(c.Request.Context(), false)
+		ctx = service.SetGenericClaudeEntrypoint(ctx, true)
+		c.Request = c.Request.WithContext(ctx)
+		return
+	}
 	ua := c.GetHeader("User-Agent")
 	// Fast path：非 Claude CLI UA 直接判定 false，避免热路径二次 JSON 反序列化。
 	if !claudeCodeValidator.ValidateUserAgent(ua) {

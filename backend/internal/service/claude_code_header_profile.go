@@ -1,7 +1,6 @@
 package service
 
 import (
-	"context"
 	"encoding/json"
 	"log/slog"
 	"net/http"
@@ -41,22 +40,6 @@ var sensitiveHeaderKeywords = []string{
 	"api-key",
 }
 
-func filterClaudeCodeHeaderProfile(headers http.Header) map[string]string {
-	filtered := make(map[string]string)
-	for key, values := range headers {
-		canonicalKey := strings.ToLower(strings.TrimSpace(key))
-		if canonicalKey == "" || isSensitiveClaudeCodeHeader(canonicalKey) || !isClaudeCodeHeaderAllowed(canonicalKey) {
-			continue
-		}
-		value := strings.TrimSpace(firstNonEmptyHeaderValue(values))
-		if value == "" {
-			continue
-		}
-		filtered[canonicalKey] = value
-	}
-	return filtered
-}
-
 func isSensitiveClaudeCodeHeader(key string) bool {
 	lowerKey := strings.ToLower(strings.TrimSpace(key))
 	for _, keyword := range sensitiveHeaderKeywords {
@@ -81,46 +64,6 @@ func firstNonEmptyHeaderValue(values []string) string {
 		}
 	}
 	return ""
-}
-
-func (s *GatewayService) learnClaudeCodeHeaderProfile(ctx context.Context, account *Account, headers http.Header) {
-	if s == nil || s.accountRepo == nil || account == nil || !account.IsAnthropicOAuthOrSetupToken() {
-		return
-	}
-	filteredHeaders := filterClaudeCodeHeaderProfile(headers)
-	if len(filteredHeaders) == 0 {
-		return
-	}
-	profile := ClaudeCodeHeaderProfile{
-		Headers:       filteredHeaders,
-		LearnedFrom:   "real_claude_code_request",
-		UpdatedAt:     time.Now().UTC(),
-		ClientVersion: ExtractCLIVersion(headers.Get("User-Agent")),
-		ClientFamily:  "claude-cli",
-	}
-	encoded, err := json.Marshal(profile)
-	if err != nil {
-		slog.Warn("claude_code_header_profile_marshal_failed", "account_id", account.ID, "error", err)
-		return
-	}
-	if len(encoded) > claudeCodeHeaderProfileMaxSize {
-		slog.Warn("claude_code_header_profile_too_large", "account_id", account.ID, "size", len(encoded))
-		return
-	}
-	if err := s.accountRepo.UpdateExtra(ctx, account.ID, map[string]any{claudeCodeHeaderProfileKey: profile}); err != nil {
-		slog.Warn("claude_code_header_profile_update_failed", "account_id", account.ID, "error", err)
-		return
-	}
-	if account.Extra == nil {
-		account.Extra = make(map[string]any, 1)
-	}
-	account.Extra[claudeCodeHeaderProfileKey] = profile
-	slog.Info("claude_code_header_profile_learned",
-		"account_id", account.ID,
-		"account_name", account.Name,
-		"client_version", profile.ClientVersion,
-		"headers_count", len(profile.Headers),
-	)
 }
 
 func (s *GatewayService) getClaudeCodeHeaderProfile(account *Account) *ClaudeCodeHeaderProfile {

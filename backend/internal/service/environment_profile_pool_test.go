@@ -40,6 +40,20 @@ func TestDetectEnvironmentClass(t *testing.T) {
 	}
 }
 
+func TestEnvironmentProfileCapacityUsesTierAndManualOverride(t *testing.T) {
+	manual := &Account{Platform: PlatformAnthropic, Type: AccountTypeOAuth, Concurrency: 5, Extra: map[string]any{environmentProfileManualCapacityKey: 12}}
+	require.Equal(t, 12, environmentProfileCapacity(manual))
+
+	claudeMax20 := &Account{Platform: PlatformAnthropic, Type: AccountTypeOAuth, Concurrency: 5, Credentials: map[string]any{"plan_type": "Max 20"}, Extra: map[string]any{}}
+	require.Equal(t, 20, environmentProfileCapacity(claudeMax20))
+
+	codexPro5 := &Account{Platform: PlatformOpenAI, Type: AccountTypeOAuth, Concurrency: 3, Credentials: map[string]any{"plan_type": "pro_5"}, Extra: map[string]any{}}
+	require.Equal(t, 10, environmentProfileCapacity(codexPro5))
+
+	codexPlus := &Account{Platform: PlatformOpenAI, Type: AccountTypeOAuth, Concurrency: 3, Credentials: map[string]any{"plan_type": "plus"}, Extra: map[string]any{}}
+	require.Equal(t, 5, environmentProfileCapacity(codexPlus))
+}
+
 func TestClaudeEnvironmentProfilePoolBindsFiveWindowsSlots(t *testing.T) {
 	account := &Account{ID: 701, Platform: PlatformAnthropic, Type: AccountTypeOAuth, Concurrency: 5, Extra: map[string]any{}}
 	pool, err := getOrCreateClaudeEnvironmentProfilePool(account)

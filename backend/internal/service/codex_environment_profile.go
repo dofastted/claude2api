@@ -24,6 +24,7 @@ const (
 	codexEnvironmentAllowOfficialClientLearnKey       = "codex_environment_allow_official_client_learn"
 	codexEnvironmentProfileFamilyPreferenceKey        = "codex_environment_profile_family_preference"
 	codexEnvironmentAllowOfficialClientLearnLegacyKey = "codex_environment_allow_desktop_learn"
+	codexEnvironmentProfileSourceSimulated            = "simulated"
 )
 
 type CodexClientFamily string
@@ -32,7 +33,6 @@ const (
 	CodexClientFamilyCLI     CodexClientFamily = "cli"
 	CodexClientFamilyDesktop CodexClientFamily = "desktop"
 	CodexClientFamilyVSCode  CodexClientFamily = "vscode"
-	CodexClientFamilyCustom  CodexClientFamily = "custom"
 )
 
 type CodexEnvironmentProfile struct {
@@ -48,6 +48,7 @@ type CodexEnvironmentProfile struct {
 	Arch             string            `json:"arch"`
 	TLSProfile       string            `json:"tls_profile"`
 	Headers          map[string]string `json:"headers"`
+	FrozenAt         time.Time         `json:"frozen_at,omitempty"`
 	CreatedAt        time.Time         `json:"created_at"`
 	UpdatedAt        time.Time         `json:"updated_at"`
 }
@@ -349,8 +350,6 @@ func normalizeCodexClientFamily(family CodexClientFamily) CodexClientFamily {
 		return CodexClientFamilyDesktop
 	case CodexClientFamilyVSCode:
 		return CodexClientFamilyVSCode
-	case CodexClientFamilyCustom:
-		return CodexClientFamilyCustom
 	default:
 		return ""
 	}
@@ -362,7 +361,7 @@ func normalizeCodexProfileFamilyPreference(preference string) (string, error) {
 		return "auto", nil
 	}
 	switch preference {
-	case "auto", string(CodexClientFamilyCLI), string(CodexClientFamilyDesktop), string(CodexClientFamilyVSCode), string(CodexClientFamilyCustom):
+	case "auto", string(CodexClientFamilyCLI), string(CodexClientFamilyDesktop), string(CodexClientFamilyVSCode):
 		return preference, nil
 	default:
 		return "", fmt.Errorf("invalid codex profile family preference")
@@ -542,9 +541,7 @@ func logCodexEnvironmentFamilyMismatch(ctx context.Context, account *Account, pr
 }
 
 func codexProfileLogger(ctx context.Context) *zap.Logger {
-	if ctx == nil {
-		ctx = context.Background()
-	}
+	_ = ctx
 	return zap.L().WithOptions(zap.AddCallerSkip(1))
 }
 

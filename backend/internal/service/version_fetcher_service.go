@@ -169,7 +169,7 @@ func (s *VersionFetcherService) fetchCodexVersion(ctx context.Context) (string, 
 	if err != nil {
 		return "", err
 	}
-	defer resp.Body.Close()
+	defer func() { _ = resp.Body.Close() }()
 
 	if resp.StatusCode != http.StatusOK {
 		return "", fmt.Errorf("github API status %d", resp.StatusCode)
@@ -205,7 +205,7 @@ func (s *VersionFetcherService) fetchNPMLatest(ctx context.Context, pkg string) 
 	if err != nil {
 		return "", err
 	}
-	defer resp.Body.Close()
+	defer func() { _ = resp.Body.Close() }()
 
 	if resp.StatusCode != http.StatusOK {
 		return "", fmt.Errorf("npm registry status %d", resp.StatusCode)
@@ -242,7 +242,7 @@ func (s *VersionFetcherService) fetchClaudeCodeSDKDependency(ctx context.Context
 	if err != nil {
 		return "", err
 	}
-	defer resp.Body.Close()
+	defer func() { _ = resp.Body.Close() }()
 
 	if resp.StatusCode != http.StatusOK {
 		return "", fmt.Errorf("npm package status %d", resp.StatusCode)

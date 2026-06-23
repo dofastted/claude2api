@@ -143,6 +143,11 @@ type UpdateClaudeEnvironmentProfileRequest struct {
 	Profile *service.ClaudeEnvironmentProfile `json:"profile"`
 }
 
+type UpdateClaudeEnvironmentProfileSlotRequest struct {
+	Slot    string                            `json:"slot"`
+	Profile *service.ClaudeEnvironmentProfile `json:"profile"`
+}
+
 type UpdateCodexEnvironmentProfileSettingsRequest struct {
 	SingleEnvironment        *bool   `json:"single_environment"`
 	ProfileLocked            *bool   `json:"profile_locked"`
@@ -151,6 +156,11 @@ type UpdateCodexEnvironmentProfileSettingsRequest struct {
 }
 
 type UpdateCodexEnvironmentProfileRequest struct {
+	Profile *service.CodexEnvironmentProfile `json:"profile"`
+}
+
+type UpdateCodexEnvironmentProfileSlotRequest struct {
+	Slot    string                           `json:"slot"`
 	Profile *service.CodexEnvironmentProfile `json:"profile"`
 }
 
@@ -727,6 +737,29 @@ func (h *AccountHandler) UpdateClaudeEnvironmentProfile(c *gin.Context) {
 	response.Success(c, h.buildAccountResponseWithRuntime(c.Request.Context(), account))
 }
 
+func (h *AccountHandler) UpdateClaudeEnvironmentProfileSlot(c *gin.Context) {
+	accountID, err := strconv.ParseInt(c.Param("id"), 10, 64)
+	if err != nil {
+		response.BadRequest(c, "Invalid account ID")
+		return
+	}
+	var req UpdateClaudeEnvironmentProfileSlotRequest
+	if err := c.ShouldBindJSON(&req); err != nil {
+		response.BadRequest(c, "Invalid request: "+err.Error())
+		return
+	}
+	if req.Profile == nil {
+		response.BadRequest(c, "profile is required")
+		return
+	}
+	account, err := h.adminService.UpdateClaudeEnvironmentProfileSlot(c.Request.Context(), accountID, service.EnvironmentClass(req.Slot), req.Profile)
+	if err != nil {
+		response.ErrorFrom(c, err)
+		return
+	}
+	response.Success(c, h.buildAccountResponseWithRuntime(c.Request.Context(), account))
+}
+
 func (h *AccountHandler) ResetClaudeEnvironmentProfile(c *gin.Context) {
 	accountID, err := strconv.ParseInt(c.Param("id"), 10, 64)
 	if err != nil {
@@ -793,6 +826,29 @@ func (h *AccountHandler) UpdateCodexEnvironmentProfile(c *gin.Context) {
 		return
 	}
 	account, err := h.adminService.UpdateCodexEnvironmentProfile(c.Request.Context(), accountID, req.Profile)
+	if err != nil {
+		response.ErrorFrom(c, err)
+		return
+	}
+	response.Success(c, h.buildAccountResponseWithRuntime(c.Request.Context(), account))
+}
+
+func (h *AccountHandler) UpdateCodexEnvironmentProfileSlot(c *gin.Context) {
+	accountID, err := strconv.ParseInt(c.Param("id"), 10, 64)
+	if err != nil {
+		response.BadRequest(c, "Invalid account ID")
+		return
+	}
+	var req UpdateCodexEnvironmentProfileSlotRequest
+	if err := c.ShouldBindJSON(&req); err != nil {
+		response.BadRequest(c, "Invalid request: "+err.Error())
+		return
+	}
+	if req.Profile == nil {
+		response.BadRequest(c, "profile is required")
+		return
+	}
+	account, err := h.adminService.UpdateCodexEnvironmentProfileSlot(c.Request.Context(), accountID, service.EnvironmentClass(req.Slot), req.Profile)
 	if err != nil {
 		response.ErrorFrom(c, err)
 		return

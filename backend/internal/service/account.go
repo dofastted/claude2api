@@ -1541,14 +1541,11 @@ func (a *Account) GetClaudeEnvironmentProfile() (*ClaudeEnvironmentProfile, bool
 }
 
 func (a *Account) AllowClaudeDesktopEnvironmentLearn() bool {
-	if a == nil || !a.IsAnthropicOAuthOrSetupToken() {
+	if a == nil || !a.IsAnthropicOAuthOrSetupToken() || a.Extra == nil {
 		return false
 	}
-	if a.Extra == nil {
-		return true
-	}
 	allowed, ok := a.Extra[claudeEnvironmentAllowDesktopLearnKey].(bool)
-	return !ok || allowed
+	return ok && allowed
 }
 
 func (a *Account) ClaudeEnvironmentFamilyPreference() string {
@@ -1587,17 +1584,14 @@ func (a *Account) GetCodexEnvironmentProfile() (*CodexEnvironmentProfile, bool) 
 }
 
 func (a *Account) AllowCodexOfficialClientEnvironmentLearn() bool {
-	if a == nil || !a.IsOpenAIOAuth() {
+	if a == nil || !a.IsOpenAIOAuth() || a.Extra == nil {
 		return false
-	}
-	if a.Extra == nil {
-		return true
 	}
 	if allowed, ok := a.Extra[codexEnvironmentAllowOfficialClientLearnKey].(bool); ok {
 		return allowed
 	}
 	allowed, ok := a.Extra[codexEnvironmentAllowOfficialClientLearnLegacyKey].(bool)
-	return !ok || allowed
+	return ok && allowed
 }
 
 func (a *Account) CodexEnvironmentFamilyPreference() string {
@@ -1609,6 +1603,27 @@ func (a *Account) CodexEnvironmentFamilyPreference() string {
 		return "auto"
 	}
 	return strings.TrimSpace(preference)
+}
+
+func (a *Account) ClaudeAccountTier() string {
+	return normalizeClaudeAccountTier(firstEnvironmentProfileTierValue(a, []string{
+		"claude_account_tier",
+		"claude_plan_type",
+		"plan_type",
+		"subscription_tier",
+		"tier",
+	}))
+}
+
+func (a *Account) CodexAccountTier() string {
+	return normalizeCodexAccountTier(firstEnvironmentProfileTierValue(a, []string{
+		"codex_account_tier",
+		"codex_plan_type",
+		"plan_type",
+		"chatgpt_plan_type",
+		"subscription_tier",
+		"tier",
+	}))
 }
 
 // IsCodexCLIOnlyEnabled 返回 OpenAI OAuth 账号是否启用"仅允许 Codex 官方客户端"。

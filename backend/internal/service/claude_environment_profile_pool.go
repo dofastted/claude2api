@@ -4,13 +4,22 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"log/slog"
 	"net/http"
 	"strings"
 	"sync"
 	"time"
+
+	"github.com/Wei-Shaw/sub2api/internal/pkg/claude"
+	"github.com/google/uuid"
 )
 
 const claudeEnvironmentProfilePoolKey = "claude_environment_profile_pool"
+
+// claudeEnvironmentProfilePoolSchemaV2 是 3 OS 槽位冻结式 pool 的 schema 标记。
+// v2: 固定 windows/macos/linux 三个槽位，每槽预生成冻结 profile（device_id/client_id/beta_set 终身不变）。
+// 旧 pool（无 Schema 字段或 Schema != v2）视为 legacy，回退现有逻辑，不读写不覆盖。
+const claudeEnvironmentProfilePoolSchemaV2 = "v2"
 
 type ClaudeEnvironmentProfileSlot struct {
 	Slot        int                         `json:"slot"`
@@ -23,9 +32,15 @@ type ClaudeEnvironmentProfileSlot struct {
 
 type ClaudeEnvironmentProfilePool struct {
 	mu       sync.Mutex                     `json:"-"`
+	Schema   string                         `json:"schema,omitempty"`
 	Version  int                            `json:"version"`
 	Capacity int                            `json:"capacity"`
 	Slots    []ClaudeEnvironmentProfileSlot `json:"slots"`
+}
+
+// IsV2 报告 pool 是否为 schema v2（3 OS 槽位冻结）。
+func (p *ClaudeEnvironmentProfilePool) IsV2() bool {
+	return p != nil && p.Schema == claudeEnvironmentProfilePoolSchemaV2
 }
 
 func DecodeClaudeEnvironmentProfilePool(raw any) (*ClaudeEnvironmentProfilePool, error) {
@@ -34,9 +49,6 @@ func DecodeClaudeEnvironmentProfilePool(raw any) (*ClaudeEnvironmentProfilePool,
 	}
 	if pool, ok := raw.(*ClaudeEnvironmentProfilePool); ok {
 		return pool, nil
-	}
-	if pool, ok := raw.(ClaudeEnvironmentProfilePool); ok {
-		return &pool, nil
 	}
 	encoded, err := json.Marshal(raw)
 	if err != nil {
@@ -251,6 +263,72 @@ func buildClaudeEnvironmentProfileForClass(env EnvironmentClass) *ClaudeEnvironm
 	return profile
 }
 
+// buildFrozenClaudeEnvironmentProfileForSlot 为指定 OS 槽位模拟生成一份冻结 profile。
+// device_id/client_id 模拟生成并冻结；cli_version/beta_set 取传入版本的自洽集合。
+// desktop 槽位不应出现（routeToSlot 已归并到 windows），此处仅处理 windows/macos/linux。
+func buildFrozenClaudeEnvironmentProfileForSlot(env EnvironmentClass, cliVersion string) *ClaudeEnvironmentProfile {
+	profile := buildClaudeEnvironmentProfileForClass(env)
+	if cliVersion = strings.TrimSpace(cliVersion); cliVersion == "" {
+		cliVersion = ExtractCLIVersion(profile.UserAgent)
+	}
+	profile.Source = claudeEnvironmentProfileSourceSimulated
+	profile.ClientID = generateClientID()
+	profile.DeviceID = generateClientID()
+	profile.SessionSeed = uuid.NewString()
+	profile.ClientVersion = cliVersion
+	profile.UserAgent = "claude-cli/" + cliVersion + " (external, cli)"
+	profile.XApp = "claude-code"
+	profile.ClientType = "cli"
+	profile.Family = ClaudeClientFamilyCodeCLI
+	profile.Runtime = "node"
+	if profile.RuntimeVersion == "" {
+		profile.RuntimeVersion = defaultClaudeCodeRuntimeVersion()
+	}
+	profile.BetaSet = betaSetForCLIVersion(cliVersion)
+	profile.Headers = map[string]string{}
+	profile.TelemetryPolicy = claudeEnvironmentTelemetryPolicyLocalAck
+	profile.FrozenAt = nowForEnvironmentProfilePool()
+	profile.CreatedAt = profile.FrozenAt
+	profile.UpdatedAt = profile.FrozenAt
+	return profile
+}
+
+// newFrozenClaudeEnvironmentProfilePool 一次性模拟生成 schema v2 pool（windows/macos/linux 三个冻结槽位）。
+func newFrozenClaudeEnvironmentProfilePool(cliVersion string) *ClaudeEnvironmentProfilePool {
+	now := nowForEnvironmentProfilePool()
+	slots := make([]ClaudeEnvironmentProfileSlot, len(fixedClaudeEnvironmentSlotClasses))
+	for i, env := range fixedClaudeEnvironmentSlotClasses {
+		profile := buildFrozenClaudeEnvironmentProfileForSlot(env, cliVersion)
+		slots[i] = ClaudeEnvironmentProfileSlot{
+			Slot:        i,
+			Environment: env,
+			State:       EnvironmentProfileSlotBound,
+			Profile:     profile,
+			CreatedAt:   now,
+			UpdatedAt:   now,
+		}
+	}
+	return &ClaudeEnvironmentProfilePool{
+		Schema:   claudeEnvironmentProfilePoolSchemaV2,
+		Version:  2,
+		Capacity: len(slots),
+		Slots:    slots,
+	}
+}
+
+// betaSetForCLIVersion 返回指定 CLI 版本对应的自洽 anthropic-beta 集合。
+// 当前对齐 FullClaudeCodeMimicryBetas；版本维度差异留待后续按版本细化。
+func betaSetForCLIVersion(cliVersion string) []string {
+	out := make([]string, len(claude.FullClaudeCodeMimicryBetas()))
+	copy(out, claude.FullClaudeCodeMimicryBetas())
+	return out
+}
+
+func defaultClaudeCodeRuntimeVersion() string {
+	headers := claude.GetHeaders(nil)
+	return strings.TrimPrefix(headers["X-Stainless-Runtime-Version"], "v")
+}
+
 func (s *GatewayService) acquireClaudeEnvironmentProfileForRequest(ctx context.Context, account *Account, headers http.Header, body []byte) (*EnvironmentProfileSlotLease, *ClaudeEnvironmentProfile, error) {
 	if s == nil || account == nil || !account.IsClaudeSingleEnvironmentEnabled() {
 		return nil, nil, nil
@@ -270,6 +348,72 @@ func (s *GatewayService) acquireClaudeEnvironmentProfileForRequest(ctx context.C
 			return nil, nil, err
 		}
 	}
+
+	// v2 路径：3 OS 槽位冻结式 pool。
+	if pool, err := decodeClaudeEnvironmentProfilePool(account); err != nil {
+		return nil, nil, err
+	} else if pool != nil && pool.IsV2() {
+		return s.acquireV2ClaudeEnvironmentProfileSlot(ctx, account, pool, headers, body)
+	}
+
+	// 旧账号不改动：存在 legacy pool 或旧 claude_environment_profile 时，回退现有逻辑。
+	if accountHasLegacyClaudeEnvironmentProfile(account) {
+		slog.Debug("claude_environment_profile_legacy_fallback",
+			"account_id", account.ID,
+			"reason", "legacy_schema_unmigrated")
+		return s.acquireLegacyClaudeEnvironmentProfileSlot(ctx, account, headers, body)
+	}
+
+	// 未绑定 pool 的凭证：懒生成 v2 pool 并落库。
+	cliVersion := s.claudeCLIVersion()
+	pool := newFrozenClaudeEnvironmentProfilePool(cliVersion)
+	if s.accountRepo != nil {
+		if err := s.accountRepo.UpdateExtra(ctx, account.ID, map[string]any{claudeEnvironmentProfilePoolKey: pool}); err != nil {
+			return nil, nil, err
+		}
+	}
+	slog.Info("claude_environment_profile_pool_generated",
+		"account_id", account.ID,
+		"schema", claudeEnvironmentProfilePoolSchemaV2,
+		"cli_version", cliVersion)
+	return s.acquireV2ClaudeEnvironmentProfileSlot(ctx, account, pool, headers, body)
+}
+
+// acquireV2ClaudeEnvironmentProfileSlot 在 schema v2 pool 上按客户端来源 OS 选槽。
+// v2 槽位是共享身份而非互斥资源：并发请求复用同一槽位（如 5 个 windows 请求都走 windows 槽），
+// 不占用 lease manager 的串行锁。lease.ReleaseFunc 为 no-op，仅保留 lease 结构以兼容下游
+// attachEnvironmentProfileLeaseToRequest / wrapResponseBodyWithEnvironmentProfileLease。
+func (s *GatewayService) acquireV2ClaudeEnvironmentProfileSlot(ctx context.Context, account *Account, pool *ClaudeEnvironmentProfilePool, headers http.Header, body []byte) (*EnvironmentProfileSlotLease, *ClaudeEnvironmentProfile, error) {
+	env := routeToSlot(DetectClaudeEnvironmentClass(headers, body))
+	slotIdx := slotIndexOfEnvironmentClass(env)
+	if slotIdx < 0 || slotIdx >= len(pool.Slots) {
+		return nil, nil, environmentProfileSlotExhaustedError()
+	}
+	pool.mu.Lock()
+	defer pool.mu.Unlock()
+	if err := pool.Normalize(); err != nil {
+		return nil, nil, err
+	}
+	profile := pool.Slots[slotIdx].Profile
+	if profile == nil {
+		return nil, nil, fmt.Errorf("v2 claude environment profile slot %d has no frozen profile", slotIdx)
+	}
+	lease := &EnvironmentProfileSlotLease{
+		AccountID:   account.ID,
+		Slot:        slotIdx,
+		Environment: pool.Slots[slotIdx].Environment,
+		ReleaseFunc: func() {}, // v2 无互斥，释放为 no-op
+	}
+	slog.Debug("claude_environment_profile_slot_applied",
+		"account_id", account.ID,
+		"slot", string(env),
+		"device_id", profile.DeviceID,
+		"cli_version", profile.ClientVersion)
+	return lease, profile, nil
+}
+
+// acquireLegacyClaudeEnvironmentProfileSlot 是旧 schema 账号的回退路径，保持现有动态分桶行为。
+func (s *GatewayService) acquireLegacyClaudeEnvironmentProfileSlot(ctx context.Context, account *Account, headers http.Header, body []byte) (*EnvironmentProfileSlotLease, *ClaudeEnvironmentProfile, error) {
 	pool, err := getOrCreateClaudeEnvironmentProfilePool(account)
 	if err != nil {
 		return nil, nil, err
@@ -292,6 +436,35 @@ func (s *GatewayService) acquireClaudeEnvironmentProfileForRequest(ctx context.C
 		}
 	}
 	return lease, profile, nil
+}
+
+// accountHasLegacyClaudeEnvironmentProfile 报告账号是否持有旧 schema pool 或旧 claude_environment_profile。
+// 这类账号不改动，回退现有逻辑。
+func accountHasLegacyClaudeEnvironmentProfile(account *Account) bool {
+	if account == nil || account.Extra == nil {
+		return false
+	}
+	if _, ok := account.GetClaudeEnvironmentProfile(); ok {
+		return true
+	}
+	if pool, err := DecodeClaudeEnvironmentProfilePool(account.Extra[claudeEnvironmentProfilePoolKey]); err == nil && pool != nil && !pool.IsV2() {
+		return true
+	}
+	return false
+}
+
+func decodeClaudeEnvironmentProfilePool(account *Account) (*ClaudeEnvironmentProfilePool, error) {
+	if account == nil || account.Extra == nil {
+		return nil, nil
+	}
+	return DecodeClaudeEnvironmentProfilePool(account.Extra[claudeEnvironmentProfilePoolKey])
+}
+
+// isV2ClaudeEnvironmentProfile 报告 profile 是否为 schema v2 槽位冻结式（模拟生成）。
+// 用于决定是否强制重写 device_id（透传路径也强制）。
+// 判据：source == simulated 且 FrozenAt 非零。
+func isV2ClaudeEnvironmentProfile(profile *ClaudeEnvironmentProfile) bool {
+	return profile != nil && profile.Source == claudeEnvironmentProfileSourceSimulated && !profile.FrozenAt.IsZero()
 }
 
 func environmentClassFromClaudeProfile(profile *ClaudeEnvironmentProfile) EnvironmentClass {

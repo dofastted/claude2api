@@ -2,6 +2,7 @@ package service
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
 	"io"
 	"net/http"
@@ -217,11 +218,147 @@ func normalizeEnvironmentClass(env EnvironmentClass) EnvironmentClass {
 	}
 }
 
+// AccountEnvironmentProfileCapacity returns the fixed profile slot capacity.
+// safe for concurrent calls: it only reads immutable account fields.
+func AccountEnvironmentProfileCapacity(account *Account) int {
+	return environmentProfileCapacity(account)
+}
+
 func environmentProfileCapacity(account *Account) int {
-	if account == nil || account.Concurrency <= 0 {
+	if account == nil {
 		return 1
 	}
-	return account.Concurrency
+	if capacity := parseEnvironmentProfileCapacity(account.Extra[environmentProfileManualCapacityKey]); capacity > 0 {
+		return capacity
+	}
+	if capacity := accountTierEnvironmentProfileCapacity(account); capacity > 0 {
+		return capacity
+	}
+	if account.Concurrency > 0 {
+		return account.Concurrency
+	}
+	return 1
+}
+
+const environmentProfileManualCapacityKey = "environment_profile_manual_capacity"
+
+func accountTierEnvironmentProfileCapacity(account *Account) int {
+	if account == nil {
+		return 0
+	}
+	switch account.Platform {
+	case PlatformAnthropic:
+		return claudeTierEnvironmentProfileCapacity(account.ClaudeAccountTier())
+	case PlatformOpenAI:
+		return codexTierEnvironmentProfileCapacity(account.CodexAccountTier())
+	default:
+		return 0
+	}
+}
+
+func claudeTierEnvironmentProfileCapacity(tier string) int {
+	switch normalizeClaudeAccountTier(tier) {
+	case "pro":
+		return 5
+	case "max5":
+		return 10
+	case "max20":
+		return 20
+	default:
+		return 0
+	}
+}
+
+func codexTierEnvironmentProfileCapacity(tier string) int {
+	switch normalizeCodexAccountTier(tier) {
+	case "plus":
+		return 5
+	case "pro5":
+		return 10
+	case "pro20", "team":
+		return 20
+	default:
+		return 0
+	}
+}
+
+func firstEnvironmentProfileTierValue(account *Account, keys []string) string {
+	if account == nil {
+		return ""
+	}
+	for _, key := range keys {
+		if value := strings.TrimSpace(account.GetCredential(key)); value != "" {
+			return value
+		}
+	}
+	for _, key := range keys {
+		if value := strings.TrimSpace(account.GetExtraString(key)); value != "" {
+			return value
+		}
+	}
+	return ""
+}
+
+func normalizeClaudeAccountTier(raw string) string {
+	value := normalizeEnvironmentProfileTierToken(raw)
+	switch {
+	case strings.Contains(value, "max20") || strings.Contains(value, "maxx20") || strings.Contains(value, "20x"):
+		return "max20"
+	case strings.Contains(value, "max5") || strings.Contains(value, "maxx5") || strings.Contains(value, "5x"):
+		return "max5"
+	case strings.Contains(value, "pro"):
+		return "pro"
+	default:
+		return ""
+	}
+}
+
+func normalizeCodexAccountTier(raw string) string {
+	value := normalizeEnvironmentProfileTierToken(raw)
+	switch {
+	case strings.Contains(value, "team"):
+		return "team"
+	case strings.Contains(value, "pro20") || strings.Contains(value, "20x"):
+		return "pro20"
+	case strings.Contains(value, "pro5") || strings.Contains(value, "5x"):
+		return "pro5"
+	case strings.Contains(value, "plus"):
+		return "plus"
+	default:
+		return ""
+	}
+}
+
+func normalizeEnvironmentProfileTierToken(raw string) string {
+	value := strings.ToLower(strings.TrimSpace(raw))
+	replacer := strings.NewReplacer(" ", "", "-", "", "_", "", ".", "")
+	return replacer.Replace(value)
+}
+
+func parseEnvironmentProfileCapacity(raw any) int {
+	switch v := raw.(type) {
+	case int:
+		if v > 0 {
+			return v
+		}
+	case int64:
+		if v > 0 {
+			return int(v)
+		}
+	case float64:
+		if v > 0 {
+			return int(v)
+		}
+	case json.Number:
+		if n, err := v.Int64(); err == nil && n > 0 {
+			return int(n)
+		}
+	case string:
+		if n, err := strconv.Atoi(strings.TrimSpace(v)); err == nil && n > 0 {
+			return n
+		}
+	}
+	return 0
 }
 
 func DetectClaudeEnvironmentClass(headers http.Header, body []byte) EnvironmentClass {
@@ -229,6 +366,41 @@ func DetectClaudeEnvironmentClass(headers http.Header, body []byte) EnvironmentC
 		return EnvironmentClassDesktop
 	}
 	return detectEnvironmentClassFromHeaders(headers)
+}
+
+// routeToSlot 将探测到的环境类映射到固定的 3 OS 槽位之一。
+// desktop 归并到 windows（不单独建槽），windows/macos/linux 原样。
+// 仅用于选槽，不决定出口身份。
+func routeToSlot(env EnvironmentClass) EnvironmentClass {
+	switch normalizeEnvironmentClass(env) {
+	case EnvironmentClassWindows, EnvironmentClassDesktop:
+		return EnvironmentClassWindows
+	case EnvironmentClassMacOS:
+		return EnvironmentClassMacOS
+	case EnvironmentClassLinux:
+		return EnvironmentClassLinux
+	default:
+		return EnvironmentClassWindows
+	}
+}
+
+// fixedClaudeEnvironmentSlotClasses 是 schema v2 pool 固定的 3 个 OS 槽位顺序。
+// 索引即 slot 编号：0=windows, 1=macos, 2=linux。
+var fixedClaudeEnvironmentSlotClasses = []EnvironmentClass{
+	EnvironmentClassWindows,
+	EnvironmentClassMacOS,
+	EnvironmentClassLinux,
+}
+
+// slotIndexOfEnvironmentClass 返回环境类在固定 3 槽位中的索引；未找到返回 -1。
+func slotIndexOfEnvironmentClass(env EnvironmentClass) int {
+	target := routeToSlot(env)
+	for i, class := range fixedClaudeEnvironmentSlotClasses {
+		if class == target {
+			return i
+		}
+	}
+	return -1
 }
 
 func DetectCodexEnvironmentClass(headers http.Header) EnvironmentClass {

@@ -196,13 +196,15 @@ func TestSetClaudeCodeClientContext_FastPathAndStrictPath(t *testing.T) {
 		require.False(t, service.IsClaudeCodeClient(c.Request.Context()))
 	})
 
-	t.Run("go_http_probe_headers_normalize_to_claude_code", func(t *testing.T) {
+	t.Run("go_http_probe_headers_normalize_without_real_claude_code_trust", func(t *testing.T) {
 		c, _ := newHelperTestContext(http.MethodPost, "/v1/messages")
 		c.Request.Header.Set("User-Agent", "Go-http-client/1.1")
 
 		SetClaudeCodeClientContext(c, validClaudeCodeBodyJSON(), nil)
 
-		require.True(t, service.IsClaudeCodeClient(c.Request.Context()))
+		require.False(t, service.IsClaudeCodeClient(c.Request.Context()))
+		require.True(t, service.IsGenericClaudeEntrypoint(c.Request.Context()))
+		require.True(t, isClaudeCodeOrGenericEntrypoint(c))
 		require.NotEqual(t, "Go-http-client/1.1", c.Request.Header.Get("User-Agent"))
 		require.Contains(t, c.Request.Header.Get("User-Agent"), "claude-cli/")
 		require.NotEmpty(t, c.Request.Header.Get("X-App"))

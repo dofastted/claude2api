@@ -1,6 +1,7 @@
 package service
 
 import (
+	"context"
 	"encoding/json"
 	"strings"
 	"testing"
@@ -84,6 +85,16 @@ func TestIsClaudeCodeClient(t *testing.T) {
 			require.Equal(t, tt.want, got)
 		})
 	}
+}
+
+func TestShouldTreatAsRealClaudeCodeClientRejectsGenericEntrypoint(t *testing.T) {
+	legacyUserID := "user_a1b2c3d4e5f6a1b2c3d4e5f6a1b2c3d4e5f6a1b2c3d4e5f6a1b2c3d4e5f6_account_550e8400-e29b-41d4-a716-446655440000_session_123e4567-e89b-12d3-a456-426614174000"
+	ctx := SetClaudeCodeClient(context.Background(), true)
+	ctx = SetGenericClaudeEntrypoint(ctx, true)
+
+	got := shouldTreatAsRealClaudeCodeClient(ctx, "claude-cli/2.1.161 (external, cli)", legacyUserID)
+
+	require.False(t, got)
 }
 
 func TestSystemIncludesClaudeCodePrompt(t *testing.T) {

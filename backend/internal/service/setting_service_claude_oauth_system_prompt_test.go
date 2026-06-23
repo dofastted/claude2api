@@ -19,13 +19,13 @@ func resetGatewayForwardingSettingsCacheForTest(t *testing.T) {
 }
 
 func TestSettingService_GetClaudeOAuthSystemPromptInjectionSettings(t *testing.T) {
-	t.Run("defaults to enabled with empty prompt", func(t *testing.T) {
+	t.Run("defaults to disabled with empty prompt", func(t *testing.T) {
 		resetGatewayForwardingSettingsCacheForTest(t)
 		svc := NewSettingService(&gatewayTTLSettingRepo{data: map[string]string{}}, &config.Config{})
 
 		enabled, prompt, blocks := svc.GetClaudeOAuthSystemPromptInjectionSettings(context.Background())
 
-		require.True(t, enabled)
+		require.False(t, enabled)
 		require.Empty(t, prompt)
 		require.Empty(t, blocks)
 	})
