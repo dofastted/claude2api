@@ -1,6 +1,7 @@
 package service
 
 import (
+	"context"
 	"net/http"
 	"testing"
 
@@ -95,7 +96,7 @@ func TestAcquireV2SlotRoutesByClientOS(t *testing.T) {
 	// linux 客户端 → linux 槽（slot 2）
 	hLinux := http.Header{}
 	hLinux.Set("X-Stainless-OS", "Linux")
-	lease, profile, err := svc.acquireV2ClaudeEnvironmentProfileSlot(nil, account, pool, hLinux, nil)
+	lease, profile, err := svc.acquireV2ClaudeEnvironmentProfileSlot(context.TODO(), account, pool, hLinux, nil)
 	require.NoError(t, err)
 	require.Equal(t, EnvironmentClassLinux, lease.Environment)
 	require.Equal(t, pool.Slots[2].Profile.DeviceID, profile.DeviceID)
@@ -104,7 +105,7 @@ func TestAcquireV2SlotRoutesByClientOS(t *testing.T) {
 	// windows 客户端 → windows 槽（slot 0）
 	hWin := http.Header{}
 	hWin.Set("X-Stainless-OS", "Windows")
-	lease, profile, err = svc.acquireV2ClaudeEnvironmentProfileSlot(nil, account, pool, hWin, nil)
+	lease, profile, err = svc.acquireV2ClaudeEnvironmentProfileSlot(context.TODO(), account, pool, hWin, nil)
 	require.NoError(t, err)
 	require.Equal(t, EnvironmentClassWindows, lease.Environment)
 	require.Equal(t, pool.Slots[0].Profile.DeviceID, profile.DeviceID)
@@ -113,7 +114,7 @@ func TestAcquireV2SlotRoutesByClientOS(t *testing.T) {
 	// desktop 客户端 → 归并 windows 槽（slot 0）
 	hDesk := http.Header{}
 	hDesk.Set("User-Agent", "Claude Desktop (electron)")
-	lease, profile, err = svc.acquireV2ClaudeEnvironmentProfileSlot(nil, account, pool, hDesk, nil)
+	lease, profile, err = svc.acquireV2ClaudeEnvironmentProfileSlot(context.TODO(), account, pool, hDesk, nil)
 	require.NoError(t, err)
 	require.Equal(t, EnvironmentClassWindows, lease.Environment)
 	require.Equal(t, pool.Slots[0].Profile.DeviceID, profile.DeviceID)
@@ -160,7 +161,7 @@ func TestAcquireV2SlotConcurrentReuseSameSlot(t *testing.T) {
 	go func() {
 		close(start)
 		for i := 0; i < n; i++ {
-			lease, profile, err := svc.acquireV2ClaudeEnvironmentProfileSlot(nil, account, pool, hWin, nil)
+			lease, profile, err := svc.acquireV2ClaudeEnvironmentProfileSlot(context.TODO(), account, pool, hWin, nil)
 			results[i] = result{lease, profile, err}
 		}
 		close(done)

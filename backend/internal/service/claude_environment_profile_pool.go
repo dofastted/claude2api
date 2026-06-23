@@ -50,9 +50,6 @@ func DecodeClaudeEnvironmentProfilePool(raw any) (*ClaudeEnvironmentProfilePool,
 	if pool, ok := raw.(*ClaudeEnvironmentProfilePool); ok {
 		return pool, nil
 	}
-	if pool, ok := raw.(ClaudeEnvironmentProfilePool); ok {
-		return &pool, nil
-	}
 	encoded, err := json.Marshal(raw)
 	if err != nil {
 		return nil, err

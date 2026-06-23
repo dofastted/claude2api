@@ -45,9 +45,6 @@ func DecodeCodexEnvironmentProfilePool(raw any) (*CodexEnvironmentProfilePool, e
 	if pool, ok := raw.(*CodexEnvironmentProfilePool); ok {
 		return pool, nil
 	}
-	if pool, ok := raw.(CodexEnvironmentProfilePool); ok {
-		return &pool, nil
-	}
 	encoded, err := json.Marshal(raw)
 	if err != nil {
 		return nil, err
@@ -323,11 +320,6 @@ func mustBuildFallbackFrozenCodexProfile(env EnvironmentClass) *CodexEnvironment
 	profile.Source = codexEnvironmentProfileSourceSimulated
 	profile.FrozenAt = nowForEnvironmentProfilePool()
 	return profile
-}
-
-// isV2CodexEnvironmentProfile 报告 profile 是否为 schema v2 槽位冻结式（模拟生成）。
-func isV2CodexEnvironmentProfile(profile *CodexEnvironmentProfile) bool {
-	return profile != nil && profile.Source == codexEnvironmentProfileSourceSimulated && !profile.FrozenAt.IsZero()
 }
 
 func (s *OpenAIGatewayService) acquireCodexEnvironmentProfileForRequest(ctx context.Context, account *Account, headers http.Header) (*EnvironmentProfileSlotLease, *CodexEnvironmentProfile, error) {

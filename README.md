@@ -57,14 +57,14 @@ RUN_MODE=standard
 
 ### 环境 Profile 池
 
-近期任务已将 Claude 与 Codex 环境隔离升级为按并发槽位工作的 Profile 池：
+Claude 与 Codex 环境画像已升级为 **3 OS 槽位冻结式 Profile 池(schema v2)**，对应单凭证多 device_id / 版本不自洽导致的封号风险：
 
-- Claude OAuth / Setup Token 账号支持 `claude_environment_profile_pool`，并兼容旧 `claude_environment_profile`。
-- OpenAI OAuth / Codex 账号支持 `codex_environment_profile_pool`，并兼容旧 `codex_environment_profile`。
-- 一个账号的可用槽位数优先来自账号等级，支持 Claude `pro/max5/max20` 与 Codex `plus/pro5/pro20/team` 自动映射到 5/10/20；也可用 `environment_profile_manual_capacity` 手动覆盖，最后回退到 `concurrency`。
-- 请求按 linux / windows / macos / desktop 环境绑定槽位；同环境请求优先复用匹配槽位，空槽首次绑定后不自动改绑。
-- 当前凭据冷却、限流或槽位耗尽时，调度可切换到下一个可用凭据的匹配环境槽位。
-- 管理员可在账号 UI 中查看、重置和锁定 Profile 池。
+- 凭证预生成并冻结 **windows / macos / linux** 三个出口槽位，每槽 1 个固定 `device_id` 与自洽的 `(OS, CLI 版本, beta 能力集)` 三元组，终身不变；`desktop` 归并到 windows。
+- 请求按客户端来源 OS 路由到对应槽位；**并发请求复用同一槽位**（如 5 个 windows 请求都走 windows 槽），槽位是共享身份而非互斥资源。
+- 透传路径（真实 Claude Code 客户端）与 mimic 路径**统一收口**：`metadata.user_id.device_id` 与 `anthropic-beta` 强制按槽位冻结值重写，不再透传客户端原值，消除「UA=2.1.161 却声称 2.1.186 beta」的版本不自洽。
+- 学习链路彻底移除，profile 纯模拟生成（`source: simulated`）。
+- 旧账号策略：Claude 旧 schema / 旧 `claude_environment_profile` 账号**不改动**，回退现有逻辑；Codex 旧账号**统一升级迁移**为 v2。
+- 管理员可在账号 UI 中按槽位手工编辑 `device_id` / `client_id` / `UA` / `cli_version` / `beta_set` 等字段（Codex 另有 `originator` / `version` / `tls_profile`），并支持重置与锁定。
 
 ### 客户端真实性增强
 
