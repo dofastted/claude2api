@@ -2597,7 +2597,7 @@ func withDefaultEnvironmentProfilePool(platform, accountType string, concurrency
 		Concurrency: concurrency,
 	})
 	if platform == PlatformAnthropic {
-		merged[claudeEnvironmentProfilePoolKey] = newClaudeEnvironmentProfilePool(capacity)
+		merged[claudeEnvironmentProfilePoolKey] = newFrozenClaudeEnvironmentProfilePool(claude.CLICurrentVersion)
 		return merged
 	}
 	merged[codexEnvironmentProfilePoolKey] = newCodexEnvironmentProfilePool(capacity)

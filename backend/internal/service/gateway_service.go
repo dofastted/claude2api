@@ -5481,9 +5481,8 @@ func (s *GatewayService) Forward(ctx context.Context, c *gin.Context, account *A
 		}
 	}
 
-	if isClaudeCode && resp.StatusCode >= http.StatusOK && resp.StatusCode < http.StatusMultipleChoices {
-		s.learnClaudeCodeHeaderProfile(ctx, account, c.Request.Header)
-	}
+	// R4.2 学习链路已移除：profile 改为 3 OS 槽位冻结式模拟生成，不再从真实客户端响应学习。
+	// 旧 claude_code_header_profile 字段的复用读取保留（旧账号回退），但不再写入。
 	// 触发上游接受回调（提前释放串行锁，不等流完成）
 	if parsed.OnUpstreamAccepted != nil {
 		parsed.OnUpstreamAccepted()
@@ -6772,7 +6771,17 @@ func (s *GatewayService) buildUpstreamRequest(ctx context.Context, c *gin.Contex
 			if enableFP {
 				fingerprint = fp
 			}
-			if !enableMPT {
+			// device_id 收口：当取到 v2 槽位 profile 时，强制用其冻结 device_id 重写
+			// metadata.user_id，与 enableMPT 解耦（透传路径也强制重写，不透传客户端原值）。
+			// v2 profile 携带冻结的 DeviceID；非 v2 路径保持原 enableMPT 门控。
+			if claudeEnvironmentProfile != nil && claudeEnvironmentProfile.DeviceID != "" && isV2ClaudeEnvironmentProfile(claudeEnvironmentProfile) {
+				accountUUID := account.GetExtraString("account_uuid")
+				if accountUUID != "" {
+					if newBody, err := s.identityService.RewriteUserIDWithMasking(ctx, body, account, accountUUID, claudeEnvironmentProfile.DeviceID, fp.UserAgent); err == nil && len(newBody) > 0 {
+						body = newBody
+					}
+				}
+			} else if !enableMPT {
 				accountUUID := account.GetExtraString("account_uuid")
 				if accountUUID != "" && fp.ClientID != "" {
 					if newBody, err := s.identityService.RewriteUserIDWithMasking(ctx, body, account, accountUUID, fp.ClientID, fp.UserAgent); err == nil && len(newBody) > 0 {
@@ -6802,7 +6811,7 @@ func (s *GatewayService) buildUpstreamRequest(ctx context.Context, c *gin.Contex
 	policyFilterSet := s.getBetaPolicyFilterSet(ctx, c, account, modelID)
 	effectiveDropSet := mergeDropSets(policyFilterSet)
 	finalBetaHeader, finalBetaShouldSet := s.computeFinalAnthropicBeta(
-		tokenType, mimicClaudeCode, modelID, clientHeaders, body, effectiveDropSet,
+		tokenType, mimicClaudeCode, modelID, clientHeaders, body, effectiveDropSet, claudeEnvironmentProfile,
 	)
 
 	// 能力维度 body sanitize：与最终 anthropic-beta header 对称
@@ -7126,6 +7135,7 @@ func (s *GatewayService) computeFinalAnthropicBeta(
 	clientHeaders http.Header,
 	body []byte,
 	effectiveDropSet map[string]struct{},
+	slotProfile *ClaudeEnvironmentProfile,
 ) (string, bool) {
 	clientBeta := ""
 	if clientHeaders != nil {
@@ -7142,7 +7152,12 @@ func (s *GatewayService) computeFinalAnthropicBeta(
 			}
 			return mergeAnthropicBetaDropping(requiredBetas, "", effectiveDropSet), true
 		}
-		// 真 Claude Code 客户端透传路径
+		// v2 槽位冻结 profile：透传路径也按槽位 BetaSet 归一，不透传客户端 beta。
+		// 消除 "UA=2.1.161 却声称 2.1.186 beta" 的版本不自洽。
+		if isV2ClaudeEnvironmentProfile(slotProfile) && len(slotProfile.BetaSet) > 0 {
+			return stripBetaTokensWithSet(strings.Join(slotProfile.BetaSet, ","), effectiveDropSet), true
+		}
+		// 真 Claude Code 客户端透传路径（legacy / 无 v2 profile）
 		return stripBetaTokensWithSet(s.getBetaHeader(modelID, clientBeta), effectiveDropSet), true
 	}
 
@@ -7177,6 +7192,7 @@ func (s *GatewayService) computeFinalCountTokensAnthropicBeta(
 	clientHeaders http.Header,
 	body []byte,
 	effectiveDropSet map[string]struct{},
+	slotProfile *ClaudeEnvironmentProfile,
 ) (string, bool) {
 	clientBeta := ""
 	if clientHeaders != nil {
@@ -7191,6 +7207,14 @@ func (s *GatewayService) computeFinalCountTokensAnthropicBeta(
 			// 重构后直接从 clientHeaders 拿同一个值，保持行为一致。
 			requiredBetas := append(claude.FullClaudeCodeMimicryBetas(), claude.BetaTokenCounting)
 			return mergeAnthropicBetaDropping(requiredBetas, clientBeta, effectiveDropSet), true
+		}
+		// v2 槽位冻结 profile：透传路径按槽位 BetaSet 归一 + 补 token-counting。
+		if isV2ClaudeEnvironmentProfile(slotProfile) && len(slotProfile.BetaSet) > 0 {
+			beta := strings.Join(slotProfile.BetaSet, ",")
+			if !strings.Contains(beta, claude.BetaTokenCounting) {
+				beta = beta + "," + claude.BetaTokenCounting
+			}
+			return stripBetaTokensWithSet(beta, effectiveDropSet), true
 		}
 		if clientBeta == "" {
 			return claude.CountTokensBetaHeader, true
@@ -10304,7 +10328,16 @@ func (s *GatewayService) buildCountTokensRequest(ctx context.Context, c *gin.Con
 		})
 		if err == nil {
 			ctFingerprint = fp
-			if !ctEnableMPT {
+			// device_id 收口（同 buildUpstreamRequest）：v2 槽位 profile 强制重写 device_id，
+			// 与 enableMPT 解耦；legacy 路径保持原门控。
+			if ctClaudeEnvironmentProfile != nil && ctClaudeEnvironmentProfile.DeviceID != "" && isV2ClaudeEnvironmentProfile(ctClaudeEnvironmentProfile) {
+				accountUUID := account.GetExtraString("account_uuid")
+				if accountUUID != "" {
+					if newBody, err := s.identityService.RewriteUserIDWithMasking(ctx, body, account, accountUUID, ctClaudeEnvironmentProfile.DeviceID, fp.UserAgent); err == nil && len(newBody) > 0 {
+						body = newBody
+					}
+				}
+			} else if !ctEnableMPT {
 				accountUUID := account.GetExtraString("account_uuid")
 				if accountUUID != "" && fp.ClientID != "" {
 					if newBody, err := s.identityService.RewriteUserIDWithMasking(ctx, body, account, accountUUID, fp.ClientID, fp.UserAgent); err == nil && len(newBody) > 0 {
@@ -10324,7 +10357,7 @@ func (s *GatewayService) buildCountTokensRequest(ctx context.Context, c *gin.Con
 	// 顺序约束同 buildUpstreamRequest。
 	ctEffectiveDropSet := mergeDropSets(s.getBetaPolicyFilterSet(ctx, c, account, modelID))
 	finalBetaHeader, finalBetaShouldSet := s.computeFinalCountTokensAnthropicBeta(
-		tokenType, mimicClaudeCode, modelID, clientHeaders, body, ctEffectiveDropSet,
+		tokenType, mimicClaudeCode, modelID, clientHeaders, body, ctEffectiveDropSet, ctClaudeEnvironmentProfile,
 	)
 
 	// 能力维度 body sanitize：与最终 anthropic-beta header 对称

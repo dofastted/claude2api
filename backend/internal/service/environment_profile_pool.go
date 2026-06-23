@@ -368,6 +368,41 @@ func DetectClaudeEnvironmentClass(headers http.Header, body []byte) EnvironmentC
 	return detectEnvironmentClassFromHeaders(headers)
 }
 
+// routeToSlot 将探测到的环境类映射到固定的 3 OS 槽位之一。
+// desktop 归并到 windows（不单独建槽），windows/macos/linux 原样。
+// 仅用于选槽，不决定出口身份。
+func routeToSlot(env EnvironmentClass) EnvironmentClass {
+	switch normalizeEnvironmentClass(env) {
+	case EnvironmentClassWindows, EnvironmentClassDesktop:
+		return EnvironmentClassWindows
+	case EnvironmentClassMacOS:
+		return EnvironmentClassMacOS
+	case EnvironmentClassLinux:
+		return EnvironmentClassLinux
+	default:
+		return EnvironmentClassWindows
+	}
+}
+
+// fixedClaudeEnvironmentSlotClasses 是 schema v2 pool 固定的 3 个 OS 槽位顺序。
+// 索引即 slot 编号：0=windows, 1=macos, 2=linux。
+var fixedClaudeEnvironmentSlotClasses = []EnvironmentClass{
+	EnvironmentClassWindows,
+	EnvironmentClassMacOS,
+	EnvironmentClassLinux,
+}
+
+// slotIndexOfEnvironmentClass 返回环境类在固定 3 槽位中的索引；未找到返回 -1。
+func slotIndexOfEnvironmentClass(env EnvironmentClass) int {
+	target := routeToSlot(env)
+	for i, class := range fixedClaudeEnvironmentSlotClasses {
+		if class == target {
+			return i
+		}
+	}
+	return -1
+}
+
 func DetectCodexEnvironmentClass(headers http.Header) EnvironmentClass {
 	if detectCodexClientFamilyFromHeaders(headers) == CodexClientFamilyDesktop {
 		return EnvironmentClassDesktop

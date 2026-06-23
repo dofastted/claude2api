@@ -123,7 +123,10 @@ func TestClaudeJSONLReplayMockEnvironmentBuildsRequests(t *testing.T) {
 	pool, err := DecodeClaudeEnvironmentProfilePool(repo.account.Extra[claudeEnvironmentProfilePoolKey])
 	require.NoError(t, err)
 	require.NotNil(t, pool)
-	require.Equal(t, account.Concurrency, pool.Capacity)
+	// v2 schema：固定 3 OS 槽位冻结（windows/macos/linux），容量与并发解耦。
+	require.True(t, pool.IsV2(), "pool should be schema v2")
+	require.Equal(t, 3, pool.Capacity)
+	require.Len(t, pool.Slots, 3)
 	require.Equal(t, 0, svc.claudeEnvironmentProfileSlotLeases.activeCount())
 	require.Len(t, upstream.requests, len(cases))
 }

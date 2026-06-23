@@ -24,6 +24,7 @@ const (
 	claudeEnvironmentProfileSourceAutoDefault    = "auto_default"
 	claudeEnvironmentProfileSourceLearnedDesktop = "learned_verified_desktop"
 	claudeEnvironmentProfileSourceAdmin          = "admin"
+	claudeEnvironmentProfileSourceSimulated      = "simulated"
 )
 
 type ClaudeClientFamily string
@@ -49,6 +50,8 @@ type ClaudeEnvironmentProfile struct {
 	RuntimeVersion  string             `json:"runtime_version"`
 	ClientType      string             `json:"client_type"`
 	Headers         map[string]string  `json:"headers"`
+	BetaSet         []string           `json:"beta_set,omitempty"`
+	FrozenAt        time.Time          `json:"frozen_at,omitempty"`
 	TelemetryPolicy string             `json:"telemetry_policy"`
 	CreatedAt       time.Time          `json:"created_at"`
 	UpdatedAt       time.Time          `json:"updated_at"`
