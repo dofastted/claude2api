@@ -95,6 +95,14 @@ func (s *GatewayService) rewriteMessageCacheControlIfEnabled(ctx context.Context
 	return addMessageCacheBreakpoints(body)
 }
 
+func rewriteMessageCacheControlForProfile(profile *ClaudeEnvironmentProfile, body []byte) []byte {
+	if !claudeEnvironmentProfileManagesCache(profile) {
+		return body
+	}
+	body = stripMessageCacheControl(body)
+	return addMessageCacheBreakpoints(body)
+}
+
 func (s *GatewayService) isRewriteMessageCacheControlEnabled(ctx context.Context) bool {
 	if s == nil {
 		return false

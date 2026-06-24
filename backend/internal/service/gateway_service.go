@@ -4774,6 +4774,14 @@ func forceEphemeralCacheControlTTL(body []byte, ttl string) []byte {
 	return out
 }
 
+func rewriteCacheControlForClaudeEnvironmentProfile(profile *ClaudeEnvironmentProfile, body []byte) []byte {
+	if !claudeEnvironmentProfileManagesCache(profile) {
+		return body
+	}
+	body = rewriteMessageCacheControlForProfile(profile, body)
+	return forceEphemeralCacheControlTTL(body, cacheTTLTarget1h)
+}
+
 func (s *GatewayService) shouldInjectAnthropicCacheTTL1h(ctx context.Context, account *Account) bool {
 	if account == nil || !account.IsAnthropicOAuthOrSetupToken() || s == nil || s.settingService == nil {
 		return false
@@ -6814,6 +6822,10 @@ func (s *GatewayService) buildUpstreamRequest(ctx context.Context, c *gin.Contex
 		tokenType, mimicClaudeCode, modelID, clientHeaders, body, effectiveDropSet, claudeEnvironmentProfile,
 	)
 
+	if next := rewriteCacheControlForClaudeEnvironmentProfile(claudeEnvironmentProfile, body); len(next) > 0 {
+		body = next
+	}
+
 	// 能力维度 body sanitize：与最终 anthropic-beta header 对称
 	if sanitized, changed := sanitizeAnthropicBodyForBetaTokens(body, finalBetaHeader); changed {
 		body = sanitized
@@ -8709,6 +8721,9 @@ func (s *GatewayService) resolveCacheTTLUsageOverrideTarget(ctx context.Context,
 	}
 	if account.IsCacheTTLOverrideEnabled() {
 		return account.GetCacheTTLOverrideTarget(), true
+	}
+	if profile, ok := account.GetClaudeEnvironmentProfile(); ok && claudeEnvironmentProfileManagesCache(profile) {
+		return cacheTTLTarget1h, true
 	}
 	if account.IsAnthropicOAuthOrSetupToken() && s != nil && s.settingService != nil && s.settingService.IsAnthropicCacheTTL1hInjectionEnabled(ctx) {
 		return cacheTTLTarget5m, true

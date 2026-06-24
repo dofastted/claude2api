@@ -100,10 +100,20 @@ func TestAutoresearchProfileConflictWorkload(t *testing.T) {
 		require.Equal(t, tlsfingerprint.ProfileNameClaudeCLIDefault, tlsProfileForRequest(req, legacy).Name)
 	})
 
+	t.Run("profile cache policy overrides legacy cache switches", func(t *testing.T) {
+		body := []byte(`{"messages":[{"role":"user","content":[{"type":"text","text":"first","cache_control":{"type":"ephemeral","ttl":"5m"}}]},{"role":"assistant","content":[{"type":"text","text":"ok"}]},{"role":"user","content":[{"type":"text","text":"middle"}]},{"role":"user","content":[{"type":"text","text":"last"}]}]}`)
+
+		out := rewriteCacheControlForClaudeEnvironmentProfile(profile, body)
+
+		require.False(t, gjson.GetBytes(out, "messages.0.content.0.cache_control").Exists())
+		require.Equal(t, "1h", gjson.GetBytes(out, "messages.2.content.0.cache_control.ttl").String())
+		require.Equal(t, "1h", gjson.GetBytes(out, "messages.3.content.0.cache_control.ttl").String())
+	})
+
 	conflicts := countAutoresearchLegacyExitPoints(t)
 	fmt.Printf("METRIC profile_conflict_count=%d\n", conflicts)
 	fmt.Printf("METRIC profile_alignment_checks=%d\n", 3)
-	fmt.Printf("METRIC profile_workload_cases=%d\n", conflicts+4)
+	fmt.Printf("METRIC profile_workload_cases=%d\n", conflicts+5)
 }
 
 func fixedAutoresearchClaudeProfile() *ClaudeEnvironmentProfile {
@@ -127,10 +137,11 @@ func fixedAutoresearchClaudeProfile() *ClaudeEnvironmentProfile {
 			"slot-beta-2026-01-01",
 			"context-management-2025-06-27",
 		},
-		TLSProfile: tlsfingerprint.ProfileNameClaudeCLIDefault,
-		FrozenAt:   time.Unix(1700000000, 0).UTC(),
-		CreatedAt:  time.Unix(1700000000, 0).UTC(),
-		UpdatedAt:  time.Unix(1700000000, 0).UTC(),
+		TLSProfile:  tlsfingerprint.ProfileNameClaudeCLIDefault,
+		CachePolicy: claudeEnvironmentCachePolicyProfileManaged,
+		FrozenAt:    time.Unix(1700000000, 0).UTC(),
+		CreatedAt:   time.Unix(1700000000, 0).UTC(),
+		UpdatedAt:   time.Unix(1700000000, 0).UTC(),
 	}
 }
 
@@ -151,8 +162,8 @@ func countAutoresearchLegacyExitPoints(t *testing.T) int {
 	}{
 		{name: "tls fingerprint extra", file: "account.go", pattern: "enable_tls_fingerprint", resolved: true},
 		{name: "session id masking extra", file: "account.go", pattern: "session_id_masking_enabled", resolved: true},
-		{name: "message cache rewrite setting", file: "gateway_messages_cache.go", pattern: "rewriteMessageCacheControlIfEnabled"},
-		{name: "cache ttl 1h injection setting", file: "gateway_service.go", pattern: "shouldInjectAnthropicCacheTTL1h"},
+		{name: "message cache rewrite setting", file: "gateway_messages_cache.go", pattern: "rewriteMessageCacheControlIfEnabled", resolved: true},
+		{name: "cache ttl 1h injection setting", file: "gateway_service.go", pattern: "shouldInjectAnthropicCacheTTL1h", resolved: true},
 		{name: "legacy claude header profile", file: "claude_code_header_profile.go", pattern: "claude_code_header_profile", resolved: false},
 	}
 

@@ -26,6 +26,8 @@ const (
 	claudeEnvironmentProfileSourceLearnedDesktop = "learned_verified_desktop"
 	claudeEnvironmentProfileSourceAdmin          = "admin"
 	claudeEnvironmentProfileSourceSimulated      = "simulated"
+	claudeEnvironmentCachePolicyPreserveClient   = "preserve_client"
+	claudeEnvironmentCachePolicyProfileManaged   = "profile_managed"
 )
 
 type ClaudeClientFamily string
@@ -53,6 +55,7 @@ type ClaudeEnvironmentProfile struct {
 	Headers         map[string]string  `json:"headers"`
 	BetaSet         []string           `json:"beta_set,omitempty"`
 	TLSProfile      string             `json:"tls_profile,omitempty"`
+	CachePolicy     string             `json:"cache_policy,omitempty"`
 	FrozenAt        time.Time          `json:"frozen_at,omitempty"`
 	TelemetryPolicy string             `json:"telemetry_policy"`
 	CreatedAt       time.Time          `json:"created_at"`
@@ -107,6 +110,9 @@ func ValidateClaudeEnvironmentProfile(profile *ClaudeEnvironmentProfile) error {
 	if strings.TrimSpace(profile.TLSProfile) == "" {
 		profile.TLSProfile = defaultClaudeEnvironmentTLSProfileForFamily(profile.Family)
 	}
+	if strings.TrimSpace(profile.CachePolicy) == "" {
+		profile.CachePolicy = claudeEnvironmentCachePolicyPreserveClient
+	}
 	return nil
 }
 
@@ -131,6 +137,7 @@ func defaultClaudeCodeEnvironmentProfile(identityRegistry *clientidentity.Regist
 		ClientType:      "cli",
 		Headers:         map[string]string{},
 		TLSProfile:      tlsfingerprint.ProfileNameClaudeCLIDefault,
+		CachePolicy:     claudeEnvironmentCachePolicyPreserveClient,
 		TelemetryPolicy: claudeEnvironmentTelemetryPolicyLocalAck,
 		CreatedAt:       now,
 		UpdatedAt:       now,
@@ -169,6 +176,10 @@ func tlsProfileForRequest(req *http.Request, fallback *tlsfingerprint.Profile) *
 		}
 	}
 	return fallback
+}
+
+func claudeEnvironmentProfileManagesCache(profile *ClaudeEnvironmentProfile) bool {
+	return isV2ClaudeEnvironmentProfile(profile) && strings.TrimSpace(profile.CachePolicy) == claudeEnvironmentCachePolicyProfileManaged
 }
 
 func classifyClaudeClientFamily(headers http.Header, _ []byte) ClaudeClientFamily {
