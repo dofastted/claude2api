@@ -5647,7 +5647,7 @@ func (s *GatewayService) forwardAnthropicAPIKeyPassthroughWithInput(
 			input.Body = input.Parsed.Body.Bytes()
 		}
 
-		resp, err = s.httpUpstream.DoWithTLS(upstreamReq, proxyURL, account.ID, account.Concurrency, s.tlsFPProfileService.ResolveTLSProfile(account))
+		resp, err = s.httpUpstream.DoWithTLS(upstreamReq, proxyURL, account.ID, account.Concurrency, tlsProfileForRequest(upstreamReq, s.tlsFPProfileService.ResolveTLSProfile(account)))
 		if err != nil {
 			if resp != nil && resp.Body != nil {
 				_ = resp.Body.Close()
@@ -8721,11 +8721,11 @@ func (s *GatewayService) resolveCacheTTLUsageOverrideTarget(ctx context.Context,
 	if account == nil {
 		return "", false
 	}
-	if account.IsCacheTTLOverrideEnabled() {
-		return account.GetCacheTTLOverrideTarget(), true
-	}
 	if profile, ok := account.GetClaudeEnvironmentProfile(); ok && claudeEnvironmentProfileManagesCache(profile) {
 		return cacheTTLTarget1h, true
+	}
+	if account.IsCacheTTLOverrideEnabled() {
+		return account.GetCacheTTLOverrideTarget(), true
 	}
 	if account.IsAnthropicOAuthOrSetupToken() && s != nil && s.settingService != nil && s.settingService.IsAnthropicCacheTTL1hInjectionEnabled(ctx) {
 		return cacheTTLTarget5m, true
@@ -10003,7 +10003,7 @@ func (s *GatewayService) ForwardCountTokens(ctx context.Context, c *gin.Context,
 	}
 
 	// 发送请求
-	resp, err := s.httpUpstream.DoWithTLS(upstreamReq, proxyURL, account.ID, account.Concurrency, s.tlsFPProfileService.ResolveTLSProfile(account))
+	resp, err := s.httpUpstream.DoWithTLS(upstreamReq, proxyURL, account.ID, account.Concurrency, tlsProfileForRequest(upstreamReq, s.tlsFPProfileService.ResolveTLSProfile(account)))
 	if err != nil {
 		releaseEnvironmentProfileLeaseFromRequest(upstreamReq)
 	} else {
@@ -10035,7 +10035,7 @@ func (s *GatewayService) ForwardCountTokens(ctx context.Context, c *gin.Context,
 		filteredBody := FilterThinkingBlocksForRetry(body, reqModel)
 		retryReq, retryWireBody, buildErr := s.buildCountTokensRequest(ctx, c, account, filteredBody, token, tokenType, reqModel, shouldMimicClaudeCode)
 		if buildErr == nil {
-			retryResp, retryErr := s.httpUpstream.DoWithTLS(retryReq, proxyURL, account.ID, account.Concurrency, s.tlsFPProfileService.ResolveTLSProfile(account))
+			retryResp, retryErr := s.httpUpstream.DoWithTLS(retryReq, proxyURL, account.ID, account.Concurrency, tlsProfileForRequest(retryReq, s.tlsFPProfileService.ResolveTLSProfile(account)))
 			if retryErr != nil {
 				releaseEnvironmentProfileLeaseFromRequest(retryReq)
 			} else {
@@ -10379,6 +10379,10 @@ func (s *GatewayService) buildCountTokensRequest(ctx context.Context, c *gin.Con
 	finalBetaHeader, finalBetaShouldSet := s.computeFinalCountTokensAnthropicBeta(
 		tokenType, mimicClaudeCode, modelID, clientHeaders, body, ctEffectiveDropSet, ctClaudeEnvironmentProfile,
 	)
+
+	if next := rewriteCacheControlForClaudeEnvironmentProfile(ctClaudeEnvironmentProfile, body); len(next) > 0 {
+		body = next
+	}
 
 	// 能力维度 body sanitize：与最终 anthropic-beta header 对称
 	if sanitized, changed := sanitizeAnthropicBodyForBetaTokens(body, finalBetaHeader); changed {

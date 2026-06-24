@@ -110,10 +110,36 @@ func TestAutoresearchProfileConflictWorkload(t *testing.T) {
 		require.Equal(t, "1h", gjson.GetBytes(out, "messages.3.content.0.cache_control.ttl").String())
 	})
 
+	t.Run("profile cache policy wins over account ttl override", func(t *testing.T) {
+		account := &Account{
+			Platform: PlatformAnthropic,
+			Type:     AccountTypeOAuth,
+			Extra: map[string]any{
+				claudeEnvironmentProfileKey:  profile,
+				"cache_ttl_override_enabled": true,
+				"cache_ttl_override_target":  cacheTTLTarget5m,
+			},
+		}
+		target, ok := (&GatewayService{}).resolveCacheTTLUsageOverrideTarget(context.Background(), account)
+
+		require.True(t, ok)
+		require.Equal(t, cacheTTLTarget1h, target)
+	})
+
+	t.Run("profile cache policy applies before count_tokens sanitize", func(t *testing.T) {
+		body := []byte(`{"temperature":0.7,"messages":[{"role":"user","content":[{"type":"text","text":"first","cache_control":{"type":"ephemeral","ttl":"5m"}}]},{"role":"user","content":[{"type":"text","text":"last"}]}]}`)
+
+		out := sanitizeCountTokensRequestBody(rewriteCacheControlForClaudeEnvironmentProfile(profile, body))
+
+		require.False(t, gjson.GetBytes(out, "temperature").Exists())
+		require.False(t, gjson.GetBytes(out, "messages.0.content.0.cache_control").Exists())
+		require.Equal(t, "1h", gjson.GetBytes(out, "messages.1.content.0.cache_control.ttl").String())
+	})
+
 	conflicts := countAutoresearchLegacyExitPoints(t)
 	fmt.Printf("METRIC profile_conflict_count=%d\n", conflicts)
 	fmt.Printf("METRIC profile_alignment_checks=%d\n", 3)
-	fmt.Printf("METRIC profile_workload_cases=%d\n", conflicts+5)
+	fmt.Printf("METRIC profile_workload_cases=%d\n", conflicts+7)
 }
 
 func fixedAutoresearchClaudeProfile() *ClaudeEnvironmentProfile {
@@ -165,6 +191,8 @@ func countAutoresearchLegacyExitPoints(t *testing.T) int {
 		{name: "message cache rewrite setting", file: "gateway_messages_cache.go", pattern: "rewriteMessageCacheControlIfEnabled", resolved: true},
 		{name: "cache ttl 1h injection setting", file: "gateway_service.go", pattern: "shouldInjectAnthropicCacheTTL1h", resolved: true},
 		{name: "legacy claude header profile", file: "claude_code_header_profile.go", pattern: "claude_code_header_profile", resolved: true},
+		{name: "chat completions direct tls fallback", file: "gateway_forward_as_chat_completions.go", pattern: "Concurrency, s.tlsFPProfileService.ResolveTLSProfile(account)", resolved: false},
+		{name: "responses direct tls fallback", file: "gateway_forward_as_responses.go", pattern: "Concurrency, s.tlsFPProfileService.ResolveTLSProfile(account)", resolved: false},
 	}
 
 	count := 0
