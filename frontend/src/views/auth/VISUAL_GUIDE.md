@@ -40,7 +40,7 @@ Centered: Both horizontally and vertically
 ┌─────────────────────────────────────────────┐
 │                                             │
 │         🔷 claude2api                          │
-│    Subscription to API Conversion Platform  │
+│    Local-first AI API gateway  │
 │                                             │
 │  ┌─────────────────────────────────────┐   │
 │  │                                     │   │
@@ -134,7 +134,7 @@ Centered: Both horizontally and vertically
 ┌─────────────────────────────────────────────┐
 │                                             │
 │         🔷 claude2api                          │
-│    Subscription to API Conversion Platform  │
+│    Local-first AI API gateway  │
 │                                             │
 │  ┌─────────────────────────────────────┐   │
 │  │                                     │   │

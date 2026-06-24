@@ -20,6 +20,7 @@ import (
 	"sync/atomic"
 	"time"
 
+	"github.com/cespare/xxhash/v2"
 	"github.com/dofastted/claude2api/internal/config"
 	"github.com/dofastted/claude2api/internal/pkg/apicompat"
 	"github.com/dofastted/claude2api/internal/pkg/clientidentity"
@@ -29,7 +30,6 @@ import (
 	"github.com/dofastted/claude2api/internal/pkg/openai_compat"
 	"github.com/dofastted/claude2api/internal/util/responseheaders"
 	"github.com/dofastted/claude2api/internal/util/urlvalidator"
-	"github.com/cespare/xxhash/v2"
 	"github.com/gin-gonic/gin"
 	"github.com/google/uuid"
 	"github.com/tidwall/gjson"

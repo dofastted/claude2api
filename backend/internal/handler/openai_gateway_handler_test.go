@@ -11,12 +11,12 @@ import (
 	"testing"
 	"time"
 
+	coderws "github.com/coder/websocket"
 	"github.com/dofastted/claude2api/internal/config"
 	pkghttputil "github.com/dofastted/claude2api/internal/pkg/httputil"
 	"github.com/dofastted/claude2api/internal/pkg/pagination"
 	"github.com/dofastted/claude2api/internal/server/middleware"
 	"github.com/dofastted/claude2api/internal/service"
-	coderws "github.com/coder/websocket"
 	"github.com/gin-gonic/gin"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"

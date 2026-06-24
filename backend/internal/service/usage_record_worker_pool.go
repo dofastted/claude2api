@@ -8,9 +8,9 @@ import (
 	"sync/atomic"
 	"time"
 
+	"github.com/alitto/pond/v2"
 	"github.com/dofastted/claude2api/internal/config"
 	"github.com/dofastted/claude2api/internal/pkg/logger"
-	"github.com/alitto/pond/v2"
 	"go.uber.org/zap"
 )
 

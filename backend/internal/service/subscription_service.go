@@ -11,11 +11,11 @@ import (
 	"strings"
 	"time"
 
+	"github.com/dgraph-io/ristretto"
 	dbent "github.com/dofastted/claude2api/ent"
 	"github.com/dofastted/claude2api/internal/config"
 	infraerrors "github.com/dofastted/claude2api/internal/pkg/errors"
 	"github.com/dofastted/claude2api/internal/pkg/pagination"
-	"github.com/dgraph-io/ristretto"
 	"golang.org/x/sync/singleflight"
 )
 

@@ -10,8 +10,8 @@ import (
 	"testing"
 	"time"
 
-	"github.com/dofastted/claude2api/internal/pkg/pagination"
 	coderws "github.com/coder/websocket"
+	"github.com/dofastted/claude2api/internal/pkg/pagination"
 	"github.com/gin-gonic/gin"
 	"github.com/gorilla/websocket"
 	"github.com/stretchr/testify/require"

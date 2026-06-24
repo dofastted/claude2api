@@ -7,8 +7,8 @@ import (
 	"strconv"
 	"strings"
 
-	"github.com/dofastted/claude2api/internal/pkg/antigravity"
 	"github.com/cespare/xxhash/v2"
+	"github.com/dofastted/claude2api/internal/pkg/antigravity"
 )
 
 // shortHash 使用 XXHash64 + Base36 生成短 hash（16 字符）

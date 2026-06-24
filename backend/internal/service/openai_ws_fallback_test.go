@@ -7,8 +7,8 @@ import (
 	"testing"
 	"time"
 
-	"github.com/dofastted/claude2api/internal/config"
 	coderws "github.com/coder/websocket"
+	"github.com/dofastted/claude2api/internal/config"
 	"github.com/stretchr/testify/require"
 )
 

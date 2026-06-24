@@ -10,8 +10,8 @@ import (
 	"math/rand/v2"
 	"time"
 
-	"github.com/dofastted/claude2api/internal/config"
 	"github.com/dgraph-io/ristretto"
+	"github.com/dofastted/claude2api/internal/config"
 )
 
 const apiKeyAuthSnapshotVersion = 12 // v12: include exclusive group authorization fields
