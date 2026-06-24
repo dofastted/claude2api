@@ -6885,8 +6885,10 @@ func (s *GatewayService) buildUpstreamRequest(ctx context.Context, c *gin.Contex
 	// Legacy claude_code_header_profile is applied only as compatibility; the new account environment profile wins last.
 	if tokenType == "oauth" && mimicClaudeCode {
 		applyClaudeCodeMimicHeaders(req, reqStream, s.identityRegistry)
-		if profile := s.getClaudeCodeHeaderProfile(account); profile != nil {
-			s.applyClaudeCodeHeaderProfile(req, account, profile)
+		if claudeEnvironmentProfile == nil {
+			if profile := s.getClaudeCodeHeaderProfile(account); profile != nil {
+				s.applyClaudeCodeHeaderProfile(req, account, profile)
+			}
 		}
 	}
 	if claudeEnvironmentProfile != nil {
@@ -10430,8 +10432,10 @@ func (s *GatewayService) buildCountTokensRequest(ctx context.Context, c *gin.Con
 	// OAuth + mimic Claude Code：强制注入 CLI 指纹 header。
 	if tokenType == "oauth" && mimicClaudeCode {
 		applyClaudeCodeMimicHeaders(req, false, s.identityRegistry)
-		if profile := s.getClaudeCodeHeaderProfile(account); profile != nil {
-			s.applyClaudeCodeHeaderProfile(req, account, profile)
+		if ctClaudeEnvironmentProfile == nil {
+			if profile := s.getClaudeCodeHeaderProfile(account); profile != nil {
+				s.applyClaudeCodeHeaderProfile(req, account, profile)
+			}
 		}
 	}
 	if ctClaudeEnvironmentProfile != nil {

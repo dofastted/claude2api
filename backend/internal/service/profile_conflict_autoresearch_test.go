@@ -50,7 +50,7 @@ func TestAutoresearchProfileConflictWorkload(t *testing.T) {
 		require.NotContains(t, beta, "client-beta")
 	})
 
-	t.Run("profile headers override legacy header profile", func(t *testing.T) {
+	t.Run("profile headers bypass legacy header profile fallback", func(t *testing.T) {
 		svc := &GatewayService{}
 		req, err := http.NewRequest(http.MethodPost, "https://api.anthropic.com/v1/messages", nil)
 		require.NoError(t, err)
@@ -164,7 +164,7 @@ func countAutoresearchLegacyExitPoints(t *testing.T) int {
 		{name: "session id masking extra", file: "account.go", pattern: "session_id_masking_enabled", resolved: true},
 		{name: "message cache rewrite setting", file: "gateway_messages_cache.go", pattern: "rewriteMessageCacheControlIfEnabled", resolved: true},
 		{name: "cache ttl 1h injection setting", file: "gateway_service.go", pattern: "shouldInjectAnthropicCacheTTL1h", resolved: true},
-		{name: "legacy claude header profile", file: "claude_code_header_profile.go", pattern: "claude_code_header_profile", resolved: false},
+		{name: "legacy claude header profile", file: "claude_code_header_profile.go", pattern: "claude_code_header_profile", resolved: true},
 	}
 
 	count := 0
