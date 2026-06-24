@@ -846,7 +846,6 @@ router.beforeEach(async (to, _from, next) => {
       '/admin/announcements',
       '/admin/subscriptions',
       '/admin/redeem',
-      '/admin/risk-control',
       '/admin/affiliates',
       '/subscriptions',
       '/redeem',

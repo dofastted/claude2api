@@ -17,7 +17,7 @@ build-backend:
 
 # 编译前端（需要已安装依赖）
 build-frontend:
-	@pnpm --dir frontend run build
+	@corepack pnpm@9.15.9 --dir frontend run build
 
 
 # 运行测试（后端 + 前端）
@@ -27,10 +27,10 @@ test-backend:
 	@$(MAKE) -C backend test
 
 test-frontend:
-	@pnpm --dir frontend run lint:check
-	@pnpm --dir frontend run typecheck
+	@corepack pnpm@9.15.9 --dir frontend run lint:check
+	@corepack pnpm@9.15.9 --dir frontend run typecheck
 	@$(MAKE) test-frontend-critical
 
 test-frontend-critical:
-	@pnpm --dir frontend exec vitest run $(FRONTEND_CRITICAL_VITEST)
+	@corepack pnpm@9.15.9 --dir frontend exec vitest run $(FRONTEND_CRITICAL_VITEST)
 

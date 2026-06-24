@@ -596,8 +596,8 @@ describe("admin SettingsView payment visible method controls", () => {
     await wrapper.find("form").trigger("submit.prevent");
     await flushPromises();
 
-    expect(wrapper.text()).not.toContain("admin.settings.tabs.payment");
-    expect(wrapper.text()).not.toContain("admin.settings.tabs.features");
+    expect(wrapper.text()).toContain("admin.settings.tabs.features");
+    expect(wrapper.text()).toContain("admin.settings.features.riskControl.title");
     expect(wrapper.text()).not.toContain("admin.settings.registration.promoCode");
     expect(wrapper.text()).not.toContain("admin.settings.defaults.defaultBalance");
     expect(wrapper.text()).not.toContain("admin.settings.defaults.defaultSubscriptions");
@@ -618,6 +618,9 @@ describe("admin SettingsView payment visible method controls", () => {
     expect(payload).not.toHaveProperty("subscription_expiry_notify_enabled");
     expect(payload).not.toHaveProperty("account_quota_notify_enabled");
     expect(payload).not.toHaveProperty("affiliate_enabled");
+    expect(payload).toHaveProperty("risk_control_enabled");
+    expect(payload).toHaveProperty("cyber_session_block_enabled");
+    expect(payload).toHaveProperty("cyber_session_block_ttl_seconds");
     expect(payload).not.toHaveProperty("auth_source_default_email_balance");
     expect(payload).not.toHaveProperty("auth_source_default_email_subscriptions");
     expect(payload).toHaveProperty("default_concurrency");

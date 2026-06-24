@@ -121,7 +121,6 @@ function simulateGuard(
       '/admin/subscriptions',
       '/admin/redeem',
       '/admin/channels/monitor',
-      '/admin/risk-control',
       '/admin/affiliates',
       '/subscriptions',
       '/redeem',
@@ -351,7 +350,6 @@ describe('路由守卫逻辑', () => {
       }
       for (const path of [
         '/admin/channels/monitor',
-        '/admin/risk-control',
         '/admin/affiliates/invites',
       ]) {
         expect(simulateGuard(path, { requiresAdmin: true }, authState)).toBe('/admin/dashboard')

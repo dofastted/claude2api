@@ -5414,9 +5414,9 @@
         <!-- /Tab: Login Agreement -->
 
 	        <!-- Tab: Features (功能开关) -->
-        <div v-if="!isSimpleMode" v-show="activeTab === 'features'" class="space-y-6">
+        <div v-show="activeTab === 'features'" class="space-y-6">
 
-        <div class="card">
+        <div v-if="!isSimpleMode" class="card">
           <div class="border-b border-gray-100 px-6 py-4 dark:border-dark-700">
             <h2 class="text-lg font-semibold text-gray-900 dark:text-white">
               {{ t('admin.settings.features.channelMonitor.title') }}
@@ -5466,7 +5466,7 @@
           </div>
         </div>
 
-        <div class="card">
+        <div v-if="!isSimpleMode" class="card">
           <div class="border-b border-gray-100 px-6 py-4 dark:border-dark-700">
             <h2 class="text-lg font-semibold text-gray-900 dark:text-white">
               {{ t('admin.settings.features.availableChannels.title') }}
@@ -5558,7 +5558,7 @@
         </div>
 
         <!-- Affiliate (邀请返利) feature card -->
-        <div class="card">
+        <div v-if="!isSimpleMode" class="card">
           <div class="border-b border-gray-100 px-6 py-4 dark:border-dark-700">
             <h2 class="text-lg font-semibold text-gray-900 dark:text-white">
               {{ t('admin.settings.features.affiliate.title') }}
@@ -5790,7 +5790,7 @@
 
         <!-- Affiliate add/edit modal -->
         <div
-          v-if="affiliateModal.open"
+          v-if="!isSimpleMode && affiliateModal.open"
           class="fixed inset-0 z-50 flex items-center justify-center bg-black/50 p-4"
           @click.self="closeAffiliateModal"
         >
@@ -5915,7 +5915,7 @@
 
         <!-- Affiliate batch rate modal -->
         <div
-          v-if="affiliateBatchModal.open"
+          v-if="!isSimpleMode && affiliateBatchModal.open"
           class="fixed inset-0 z-50 flex items-center justify-center bg-black/50 p-4"
           @click.self="affiliateBatchModal.open = false"
         >
@@ -7044,7 +7044,7 @@ type SettingsTab =
 const allSettingsTabs = [
   { key: "general" as SettingsTab, icon: "home" as const },
   { key: "agreement" as SettingsTab, icon: "document" as const },
-  { key: "features" as SettingsTab, icon: "bolt" as const, hideInSimpleMode: true },
+  { key: "features" as SettingsTab, icon: "bolt" as const },
   { key: "security" as SettingsTab, icon: "shield" as const },
   { key: "users" as SettingsTab, icon: "user" as const },
   { key: "gateway" as SettingsTab, icon: "server" as const },
