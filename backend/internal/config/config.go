@@ -726,7 +726,7 @@ type GatewayConfig struct {
 	OpenAIHTTP2 GatewayOpenAIHTTP2Config `mapstructure:"openai_http2"`
 	// ImageConcurrency: 图片生成独立并发限制配置（默认关闭）
 	ImageConcurrency ImageConcurrencyConfig `mapstructure:"image_concurrency"`
-	// UAAutoFetch: Claude/Codex 客户端身份版本后台拉取配置（默认关闭）
+	// UAAutoFetch: Claude/Codex 客户端身份版本后台拉取配置（默认开启，拉取结果持久化到 setting 表，重启不丢）
 	UAAutoFetch UAAutoFetchConfig `mapstructure:"ua_auto_fetch"`
 
 	// HTTP 上游连接池配置（性能优化：支持高并发场景调优）
@@ -1889,7 +1889,7 @@ func setDefaults() {
 	viper.SetDefault("gateway.image_concurrency.overflow_mode", ImageConcurrencyOverflowModeReject)
 	viper.SetDefault("gateway.image_concurrency.wait_timeout_seconds", 30)
 	viper.SetDefault("gateway.image_concurrency.max_waiting_requests", 100)
-	viper.SetDefault("gateway.ua_auto_fetch.enabled", false)
+	viper.SetDefault("gateway.ua_auto_fetch.enabled", true)
 	viper.SetDefault("gateway.ua_auto_fetch.interval", time.Hour)
 	viper.SetDefault("gateway.antigravity_fallback_cooldown_minutes", 1)
 	viper.SetDefault("gateway.antigravity_extra_retries", 10)

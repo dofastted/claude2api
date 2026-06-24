@@ -410,6 +410,11 @@ const (
 	// SettingKeyMaxClaudeCodeVersion 最高 Claude Code 版本号限制 (semver, 如 "3.0.0"，空值=不检查)
 	SettingKeyMaxClaudeCodeVersion = "max_claude_code_version"
 
+	// UA 自动拉取持久化的 CLI 版本（VersionFetcherService 写入，启动时回灌 registry）。
+	// claude 值为 JSON {"cli":"x","sdk":"y"}；codex 值为版本字符串。
+	SettingKeyClaudeCLIVersion = "claude_cli_version"
+	SettingKeyCodexCLIVersion  = "codex_cli_version"
+
 	// SettingKeyAllowUngroupedKeyScheduling 允许未分组 API Key 调度（默认 false：未分组 Key 返回 403）
 	SettingKeyAllowUngroupedKeyScheduling = "allow_ungrouped_key_scheduling"
 

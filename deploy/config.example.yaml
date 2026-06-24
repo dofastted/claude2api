@@ -391,10 +391,10 @@ gateway:
     # Max image requests waiting in this process when overflow_mode=wait, 0=unlimited
     # wait 模式当前进程允许排队等待的图片请求数，0=不限制
     max_waiting_requests: 100
-  # Claude/Codex UA auto fetcher. Default false keeps built-in hardcoded identity.
-  # Claude/Codex UA 自动拉取。默认 false，保持内置硬编码身份。
+  # Claude/Codex UA auto fetcher. Default true keeps CLI identity versions fresh.
+  # Claude/Codex UA 自动拉取。默认 true，启动即拉取并持久化到 setting 表，重启不丢；离线时回退内置硬编码身份。
   ua_auto_fetch:
-    enabled: false
+    enabled: true
     interval: 1h
   # SSE max line size in bytes (default: 40MB)
   # SSE 单行最大字节数（默认 40MB）

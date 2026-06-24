@@ -3,6 +3,7 @@ package service
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"log/slog"
 	"net/http"
@@ -23,23 +24,25 @@ const (
 )
 
 type VersionFetcherService struct {
-	registry *clientidentity.Registry
-	cfg      *config.Config
-	client   *http.Client
-	npmURL   string
-	codexURL string
-	stopCh   chan struct{}
-	stopOnce sync.Once
+	registry    *clientidentity.Registry
+	cfg         *config.Config
+	settingRepo SettingRepository
+	client      *http.Client
+	npmURL      string
+	codexURL    string
+	stopCh      chan struct{}
+	stopOnce    sync.Once
 }
 
-func NewVersionFetcherService(registry *clientidentity.Registry, cfg *config.Config) *VersionFetcherService {
+func NewVersionFetcherService(registry *clientidentity.Registry, cfg *config.Config, settingRepo SettingRepository) *VersionFetcherService {
 	return &VersionFetcherService{
-		registry: registry,
-		cfg:      cfg,
-		client:   http.DefaultClient,
-		npmURL:   defaultNPMRegistryBaseURL,
-		codexURL: defaultCodexReleaseURL,
-		stopCh:   make(chan struct{}),
+		registry:    registry,
+		cfg:         cfg,
+		settingRepo: settingRepo,
+		client:      http.DefaultClient,
+		npmURL:      defaultNPMRegistryBaseURL,
+		codexURL:    defaultCodexReleaseURL,
+		stopCh:      make(chan struct{}),
 	}
 }
 
@@ -49,12 +52,18 @@ func (s *VersionFetcherService) Start() {
 		return
 	}
 
+	// 启动即用上次持久化的版本回灌 registry，避免进程重启后退回硬编码默认值、
+	// 也不必等满一个 interval 才首次拉取。
+	s.bootstrapFromDB()
+
 	interval := s.cfg.Gateway.UAAutoFetch.Interval
 	if interval == 0 {
 		interval = defaultVersionFetchInterval
 	}
 
 	go func() {
+		// 启动后立即拉取一次，刷新为最新版本；随后按 ticker 周期更新。
+		s.fetchAndUpdate()
 		ticker := time.NewTicker(interval)
 		defer ticker.Stop()
 
@@ -87,12 +96,22 @@ func (s *VersionFetcherService) fetchAndUpdate() {
 	defer cancel()
 
 	claudeVersion, claudeSDKVersion, codexVersion := s.fetchVersions(ctx)
-	if claudeVersion == "" || claudeSDKVersion == "" || codexVersion == "" {
+
+	// 拆分“全有或全无”：claude 与 codex 各自成功各自合并进当前快照并持久化，
+	// 避免一侧失败导致另一侧的新版本也被丢弃。
+	if claudeVersion == "" && codexVersion == "" {
 		return
 	}
 
-	s.registry.Swap(&clientidentity.Snapshots{
-		Claude: clientidentity.ClaudeSnapshot{
+	current := s.registry.Get()
+	claude := current.Claude
+	codex := current.Codex
+
+	if claudeVersion != "" {
+		if claudeSDKVersion == "" {
+			claudeSDKVersion = claude.VersionFields.SDKVersion
+		}
+		claude = clientidentity.ClaudeSnapshot{
 			Headers: s.buildClaudeHeaders(claudeVersion, claudeSDKVersion),
 			VersionFields: clientidentity.VersionFields{
 				CLIVersion: claudeVersion,
@@ -100,15 +119,117 @@ func (s *VersionFetcherService) fetchAndUpdate() {
 				CCVersion:  claudeVersion,
 			},
 			TLSProfileName: clientidentity.TLSProfileClaudeCLIDefault,
-		},
-		Codex: clientidentity.CodexSnapshot{
+		}
+	}
+	if codexVersion != "" {
+		codex = clientidentity.CodexSnapshot{
 			Headers: s.buildCodexHeaders(codexVersion),
 			VersionFields: clientidentity.VersionFields{
 				CLIVersion: codexVersion,
 			},
 			TLSProfileName: clientidentity.TLSProfileCodexCLIDefault,
-		},
-	})
+		}
+	}
+
+	s.registry.Swap(&clientidentity.Snapshots{Claude: claude, Codex: codex})
+	s.persistVersions(ctx, claudeVersion, claudeSDKVersion, codexVersion)
+}
+
+// bootstrapFromDB 在启动时把 DB 里持久化的版本回灌 registry，使进程一启动即用
+// 上次拉取到的版本，无需等待首次 ticker 触发。任一字段缺失则保留硬编码默认。
+func (s *VersionFetcherService) bootstrapFromDB() {
+	if s == nil || s.registry == nil || s.settingRepo == nil {
+		return
+	}
+	ctx, cancel := context.WithTimeout(context.Background(), versionFetchTimeout)
+	defer cancel()
+
+	claudeVersion, claudeSDKVersion, codexVersion := s.loadPersistedVersions(ctx)
+	if claudeVersion == "" && codexVersion == "" {
+		return
+	}
+
+	current := s.registry.Get()
+	claude := current.Claude
+	codex := current.Codex
+
+	if claudeVersion != "" {
+		if claudeSDKVersion == "" {
+			claudeSDKVersion = claude.VersionFields.SDKVersion
+		}
+		claude = clientidentity.ClaudeSnapshot{
+			Headers: s.buildClaudeHeaders(claudeVersion, claudeSDKVersion),
+			VersionFields: clientidentity.VersionFields{
+				CLIVersion: claudeVersion,
+				SDKVersion: claudeSDKVersion,
+				CCVersion:  claudeVersion,
+			},
+			TLSProfileName: clientidentity.TLSProfileClaudeCLIDefault,
+		}
+	}
+	if codexVersion != "" {
+		codex = clientidentity.CodexSnapshot{
+			Headers: s.buildCodexHeaders(codexVersion),
+			VersionFields: clientidentity.VersionFields{
+				CLIVersion: codexVersion,
+			},
+			TLSProfileName: clientidentity.TLSProfileCodexCLIDefault,
+		}
+	}
+
+	s.registry.Swap(&clientidentity.Snapshots{Claude: claude, Codex: codex})
+	slog.Info("version_fetcher_bootstrap_from_db", "claude", claudeVersion, "claude_sdk", claudeSDKVersion, "codex", codexVersion)
+}
+
+// persistVersions 把本次拉取到的版本写入 setting 表，空值跳过对应 key。
+// 写入失败仅告警，不影响内存快照。
+func (s *VersionFetcherService) persistVersions(ctx context.Context, claudeVer, claudeSDKVer, codexVer string) {
+	if s == nil || s.settingRepo == nil {
+		return
+	}
+	if claudeVer != "" {
+		payload, err := json.Marshal(struct {
+			CLI string `json:"cli"`
+			SDK string `json:"sdk"`
+		}{CLI: claudeVer, SDK: claudeSDKVer})
+		if err == nil {
+			if err := s.settingRepo.Set(ctx, SettingKeyClaudeCLIVersion, string(payload)); err != nil {
+				slog.Warn("version_fetcher_persist_claude_failed", "error", err)
+			}
+		}
+	}
+	if codexVer != "" {
+		if err := s.settingRepo.Set(ctx, SettingKeyCodexCLIVersion, codexVer); err != nil {
+			slog.Warn("version_fetcher_persist_codex_failed", "error", err)
+		}
+	}
+}
+
+// loadPersistedVersions 从 setting 表读取持久化版本。缺失（ErrSettingNotFound）视为空值。
+func (s *VersionFetcherService) loadPersistedVersions(ctx context.Context) (claudeVer, claudeSDKVer, codexVer string) {
+	if s == nil || s.settingRepo == nil {
+		return "", "", ""
+	}
+
+	if raw, err := s.settingRepo.GetValue(ctx, SettingKeyClaudeCLIVersion); err == nil {
+		var parsed struct {
+			CLI string `json:"cli"`
+			SDK string `json:"sdk"`
+		}
+		if json.Unmarshal([]byte(raw), &parsed) == nil {
+			claudeVer = strings.TrimSpace(parsed.CLI)
+			claudeSDKVer = strings.TrimSpace(parsed.SDK)
+		}
+	} else if !errors.Is(err, ErrSettingNotFound) {
+		slog.Warn("version_fetcher_load_claude_failed", "error", err)
+	}
+
+	if raw, err := s.settingRepo.GetValue(ctx, SettingKeyCodexCLIVersion); err == nil {
+		codexVer = strings.TrimSpace(raw)
+	} else if !errors.Is(err, ErrSettingNotFound) {
+		slog.Warn("version_fetcher_load_codex_failed", "error", err)
+	}
+	return claudeVer, claudeSDKVer, codexVer
 }
 
 func (s *VersionFetcherService) fetchVersions(ctx context.Context) (claudeVersion, claudeSDKVersion, codexVersion string) {
@@ -130,9 +251,15 @@ func (s *VersionFetcherService) fetchVersions(ctx context.Context) (claudeVersio
 
 	wg.Wait()
 
-	if claudeErr != nil || codexErr != nil {
-		slog.Warn("version_fetcher_discard_update", "claude_error", claudeErr, "codex_error", codexErr)
-		return "", "", ""
+	// 拆分后的语义：各自返回各自拉到的版本，失败侧返回空串。
+	// 仅在两侧都失败时记录一次诊断日志，调用方据空串决定是否跳过 Swap/持久化。
+	if claudeErr != nil {
+		slog.Warn("version_fetcher_claude_failed", "error", claudeErr)
+		claudeVer, claudeSDKVer = "", ""
+	}
+	if codexErr != nil {
+		slog.Warn("version_fetcher_codex_failed", "error", codexErr)
+		codexVer = ""
 	}
 
 	return claudeVer, claudeSDKVer, codexVer
