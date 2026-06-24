@@ -71,28 +71,21 @@ func TestAutoresearchProfileConflictWorkload(t *testing.T) {
 		require.Equal(t, profile.Platform, getHeaderRaw(req.Header, "X-Stainless-OS"))
 	})
 
-	t.Run("session masking composes after profile device rewrite", func(t *testing.T) {
+	t.Run("profile session seed overrides legacy session masking", func(t *testing.T) {
 		cache := &autoresearchIdentityCache{maskedSessionID: "11111111-2222-4333-8444-555555555555"}
 		svc := NewIdentityService(cache, nil)
-		account := &Account{
-			ID:       77,
-			Platform: PlatformAnthropic,
-			Type:     AccountTypeOAuth,
-			Extra: map[string]any{
-				"session_id_masking_enabled": true,
-			},
-		}
 		original := FormatMetadataUserID(strings.Repeat("b", 64), "old-account", "aaaaaaaa-bbbb-4ccc-8ddd-eeeeeeeeeeee", ExtractCLIVersion(profile.UserAgent))
 		body := []byte(`{"metadata":{"user_id":` + fmt.Sprintf("%q", original) + `},"messages":[]}`)
 
-		out, err := svc.RewriteUserIDWithMasking(context.Background(), body, account, "profile-account", profile.DeviceID, profile.UserAgent)
+		out, err := svc.RewriteUserIDWithSessionID(body, 77, "profile-account", profile.DeviceID, profile.UserAgent, profile.SessionSeed)
 		require.NoError(t, err)
 
 		parsed := parseAutoresearchMetadataUserID(gjson.GetBytes(out, "metadata.user_id"))
 		require.NotNil(t, parsed)
 		require.Equal(t, profile.DeviceID, parsed.DeviceID)
 		require.Equal(t, "profile-account", parsed.AccountUUID)
-		require.Equal(t, cache.maskedSessionID, parsed.SessionID)
+		require.Equal(t, profile.SessionSeed, parsed.SessionID)
+		require.NotEqual(t, cache.maskedSessionID, parsed.SessionID)
 	})
 
 	t.Run("profile tls overrides legacy account switch", func(t *testing.T) {
@@ -157,7 +150,7 @@ func countAutoresearchLegacyExitPoints(t *testing.T) int {
 		resolved bool
 	}{
 		{name: "tls fingerprint extra", file: "account.go", pattern: "enable_tls_fingerprint", resolved: true},
-		{name: "session id masking extra", file: "account.go", pattern: "session_id_masking_enabled"},
+		{name: "session id masking extra", file: "account.go", pattern: "session_id_masking_enabled", resolved: true},
 		{name: "message cache rewrite setting", file: "gateway_messages_cache.go", pattern: "rewriteMessageCacheControlIfEnabled"},
 		{name: "cache ttl 1h injection setting", file: "gateway_service.go", pattern: "shouldInjectAnthropicCacheTTL1h"},
 		{name: "legacy claude header profile", file: "claude_code_header_profile.go", pattern: "claude_code_header_profile", resolved: false},

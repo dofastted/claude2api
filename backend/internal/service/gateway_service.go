@@ -6777,7 +6777,7 @@ func (s *GatewayService) buildUpstreamRequest(ctx context.Context, c *gin.Contex
 			if claudeEnvironmentProfile != nil && claudeEnvironmentProfile.DeviceID != "" && isV2ClaudeEnvironmentProfile(claudeEnvironmentProfile) {
 				accountUUID := account.GetExtraString("account_uuid")
 				if accountUUID != "" {
-					if newBody, err := s.identityService.RewriteUserIDWithMasking(ctx, body, account, accountUUID, claudeEnvironmentProfile.DeviceID, fp.UserAgent); err == nil && len(newBody) > 0 {
+					if newBody, err := s.identityService.RewriteUserIDWithSessionID(body, account.ID, accountUUID, claudeEnvironmentProfile.DeviceID, fp.UserAgent, claudeEnvironmentProfile.SessionSeed); err == nil && len(newBody) > 0 {
 						body = newBody
 					}
 				}
@@ -10336,7 +10336,7 @@ func (s *GatewayService) buildCountTokensRequest(ctx context.Context, c *gin.Con
 			if ctClaudeEnvironmentProfile != nil && ctClaudeEnvironmentProfile.DeviceID != "" && isV2ClaudeEnvironmentProfile(ctClaudeEnvironmentProfile) {
 				accountUUID := account.GetExtraString("account_uuid")
 				if accountUUID != "" {
-					if newBody, err := s.identityService.RewriteUserIDWithMasking(ctx, body, account, accountUUID, ctClaudeEnvironmentProfile.DeviceID, fp.UserAgent); err == nil && len(newBody) > 0 {
+					if newBody, err := s.identityService.RewriteUserIDWithSessionID(body, account.ID, accountUUID, ctClaudeEnvironmentProfile.DeviceID, fp.UserAgent, ctClaudeEnvironmentProfile.SessionSeed); err == nil && len(newBody) > 0 {
 						body = newBody
 					}
 				}

@@ -339,6 +339,42 @@ func (s *IdentityService) RewriteUserID(body []byte, accountID int64, accountUUI
 	return newBody, nil
 }
 
+func (s *IdentityService) RewriteUserIDWithSessionID(body []byte, accountID int64, accountUUID, cachedClientID, fingerprintUA, sessionID string) ([]byte, error) {
+	newBody, err := s.RewriteUserID(body, accountID, accountUUID, cachedClientID, fingerprintUA)
+	if err != nil {
+		return newBody, err
+	}
+	sessionID = strings.TrimSpace(sessionID)
+	if sessionID == "" {
+		return newBody, nil
+	}
+	metadata := gjson.GetBytes(newBody, "metadata")
+	if !metadata.Exists() || metadata.Type == gjson.Null {
+		return newBody, nil
+	}
+	if !strings.HasPrefix(strings.TrimSpace(metadata.Raw), "{") {
+		return newBody, nil
+	}
+	userIDResult := metadata.Get("user_id")
+	if !userIDResult.Exists() || userIDResult.Type != gjson.String {
+		return newBody, nil
+	}
+	uidParsed := ParseMetadataUserID(userIDResult.String())
+	if uidParsed == nil {
+		return newBody, nil
+	}
+	version := ExtractCLIVersion(fingerprintUA)
+	newUserID := FormatMetadataUserID(uidParsed.DeviceID, uidParsed.AccountUUID, sessionID, version)
+	if newUserID == userIDResult.String() {
+		return newBody, nil
+	}
+	maskedBody, setErr := sjson.SetBytes(newBody, "metadata.user_id", newUserID)
+	if setErr != nil {
+		return newBody, nil
+	}
+	return maskedBody, nil
+}
+
 // RewriteUserIDWithMasking 重写body中的metadata.user_id，支持会话ID伪装
 // 如果账号启用了会话ID伪装（session_id_masking_enabled），
 // 则在完成常规重写后，将 session 部分替换为固定的伪装ID（15分钟内保持不变）
