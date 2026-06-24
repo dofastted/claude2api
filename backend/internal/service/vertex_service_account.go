@@ -16,8 +16,8 @@ import (
 	"strings"
 	"time"
 
-	"github.com/Wei-Shaw/sub2api/internal/pkg/proxyurl"
-	"github.com/Wei-Shaw/sub2api/internal/pkg/proxyutil"
+	"github.com/dofastted/claude2api/internal/pkg/proxyurl"
+	"github.com/dofastted/claude2api/internal/pkg/proxyutil"
 	"github.com/golang-jwt/jwt/v5"
 )
 

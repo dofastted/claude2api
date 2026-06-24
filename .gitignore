@@ -12,7 +12,7 @@ docs/claude-relay-service/
 *.dylib
 backend/bin/
 backend/server
-backend/sub2api
+backend/claude2api
 backend/main
 
 # Go 测试二进制
@@ -128,9 +128,6 @@ deploy/docker-compose.override.yml
 .gocache/
 vite.config.js
 docs/*
-!docs/PAYMENT.md
-!docs/PAYMENT_CN.md
-!docs/ADMIN_PAYMENT_INTEGRATION_API.md
 !docs/legal/
 !docs/legal/*.md
 .serena/
@@ -140,7 +137,8 @@ aicodex
 output/
 
 
-# Local AI/Trellis workspace scaffolding
+# Local AI workspace scaffolding
 .agents/
 .cursor/
 .trellis/
+.pi/

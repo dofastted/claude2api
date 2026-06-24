@@ -5,7 +5,7 @@ package service
 import (
 	"context"
 
-	dbent "github.com/Wei-Shaw/sub2api/ent"
+	dbent "github.com/dofastted/claude2api/ent"
 )
 
 type PaymentConfig struct {

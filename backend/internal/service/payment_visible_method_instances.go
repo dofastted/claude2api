@@ -8,10 +8,10 @@ import (
 	"fmt"
 	"strings"
 
-	dbent "github.com/Wei-Shaw/sub2api/ent"
-	"github.com/Wei-Shaw/sub2api/ent/paymentproviderinstance"
-	"github.com/Wei-Shaw/sub2api/internal/payment"
-	infraerrors "github.com/Wei-Shaw/sub2api/internal/pkg/errors"
+	dbent "github.com/dofastted/claude2api/ent"
+	"github.com/dofastted/claude2api/ent/paymentproviderinstance"
+	"github.com/dofastted/claude2api/internal/payment"
+	infraerrors "github.com/dofastted/claude2api/internal/pkg/errors"
 )
 
 func enabledVisibleMethodsForProvider(providerKey, supportedTypes string) []string {

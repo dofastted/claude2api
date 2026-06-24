@@ -9,8 +9,8 @@ import (
 	"sync/atomic"
 	"time"
 
-	infraerrors "github.com/Wei-Shaw/sub2api/internal/pkg/errors"
-	"github.com/Wei-Shaw/sub2api/internal/pkg/websearch"
+	infraerrors "github.com/dofastted/claude2api/internal/pkg/errors"
+	"github.com/dofastted/claude2api/internal/pkg/websearch"
 	"golang.org/x/sync/singleflight"
 )
 

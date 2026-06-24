@@ -6,10 +6,10 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/Wei-Shaw/sub2api/internal/config"
-	"github.com/Wei-Shaw/sub2api/internal/handler"
-	servermiddleware "github.com/Wei-Shaw/sub2api/internal/server/middleware"
-	"github.com/Wei-Shaw/sub2api/internal/service"
+	"github.com/dofastted/claude2api/internal/config"
+	"github.com/dofastted/claude2api/internal/handler"
+	servermiddleware "github.com/dofastted/claude2api/internal/server/middleware"
+	"github.com/dofastted/claude2api/internal/service"
 	"github.com/gin-gonic/gin"
 	"github.com/stretchr/testify/require"
 )

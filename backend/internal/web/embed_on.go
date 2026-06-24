@@ -15,7 +15,7 @@ import (
 	"strings"
 	"time"
 
-	"github.com/Wei-Shaw/sub2api/internal/server/middleware"
+	"github.com/dofastted/claude2api/internal/server/middleware"
 	"github.com/gin-gonic/gin"
 )
 

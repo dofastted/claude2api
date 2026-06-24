@@ -15,8 +15,8 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/Wei-Shaw/sub2api/internal/config"
-	"github.com/Wei-Shaw/sub2api/internal/pkg/tlsfingerprint"
+	"github.com/dofastted/claude2api/internal/config"
+	"github.com/dofastted/claude2api/internal/pkg/tlsfingerprint"
 	"github.com/gin-gonic/gin"
 	"github.com/stretchr/testify/require"
 	"github.com/tidwall/gjson"
@@ -139,7 +139,7 @@ func loadClaudeJSONLReplayCases(t *testing.T, limit int) []claudeJSONLReplayCase
 		if err != nil {
 			return nil
 		}
-		dir = filepath.Join(home, ".claude", "projects", "-mnt-x-project-sub2api")
+		dir = filepath.Join(home, ".claude", "projects", "-mnt-x-project-claude2api")
 	}
 	files, err := filepath.Glob(filepath.Join(dir, "*.jsonl"))
 	if err != nil || len(files) == 0 {

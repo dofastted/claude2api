@@ -3,8 +3,8 @@
 package handler
 
 import (
-	"github.com/Wei-Shaw/sub2api/internal/config"
-	"github.com/Wei-Shaw/sub2api/internal/payment"
+	"github.com/dofastted/claude2api/internal/config"
+	"github.com/dofastted/claude2api/internal/payment"
 )
 
 func wechatPaymentLegacyKey(cfg *config.Config) []byte {

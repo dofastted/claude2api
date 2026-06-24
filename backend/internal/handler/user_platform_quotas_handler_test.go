@@ -11,10 +11,10 @@ import (
 	"testing"
 	"time"
 
-	"github.com/Wei-Shaw/sub2api/internal/handler/quotaview"
-	"github.com/Wei-Shaw/sub2api/internal/pkg/timezone"
-	middleware2 "github.com/Wei-Shaw/sub2api/internal/server/middleware"
-	"github.com/Wei-Shaw/sub2api/internal/service"
+	"github.com/dofastted/claude2api/internal/handler/quotaview"
+	"github.com/dofastted/claude2api/internal/pkg/timezone"
+	middleware2 "github.com/dofastted/claude2api/internal/server/middleware"
+	"github.com/dofastted/claude2api/internal/service"
 	"github.com/gin-gonic/gin"
 )
 

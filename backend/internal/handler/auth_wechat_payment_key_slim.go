@@ -2,7 +2,7 @@
 
 package handler
 
-import "github.com/Wei-Shaw/sub2api/internal/config"
+import "github.com/dofastted/claude2api/internal/config"
 
 func wechatPaymentLegacyKey(*config.Config) []byte {
 	return nil

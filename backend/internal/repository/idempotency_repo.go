@@ -6,8 +6,8 @@ import (
 	"errors"
 	"time"
 
-	dbent "github.com/Wei-Shaw/sub2api/ent"
-	"github.com/Wei-Shaw/sub2api/internal/service"
+	dbent "github.com/dofastted/claude2api/ent"
+	"github.com/dofastted/claude2api/internal/service"
 )
 
 type idempotencyRepository struct {

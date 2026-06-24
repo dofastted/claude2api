@@ -8,11 +8,11 @@ import (
 	"strings"
 	"time"
 
-	pkghttputil "github.com/Wei-Shaw/sub2api/internal/pkg/httputil"
-	"github.com/Wei-Shaw/sub2api/internal/pkg/ip"
-	"github.com/Wei-Shaw/sub2api/internal/pkg/logger"
-	middleware2 "github.com/Wei-Shaw/sub2api/internal/server/middleware"
-	"github.com/Wei-Shaw/sub2api/internal/service"
+	pkghttputil "github.com/dofastted/claude2api/internal/pkg/httputil"
+	"github.com/dofastted/claude2api/internal/pkg/ip"
+	"github.com/dofastted/claude2api/internal/pkg/logger"
+	middleware2 "github.com/dofastted/claude2api/internal/server/middleware"
+	"github.com/dofastted/claude2api/internal/service"
 	"github.com/gin-gonic/gin"
 	"go.uber.org/zap"
 )

@@ -3,7 +3,7 @@
 package routes
 
 import (
-	"github.com/Wei-Shaw/sub2api/internal/handler"
+	"github.com/dofastted/claude2api/internal/handler"
 
 	"github.com/gin-gonic/gin"
 )

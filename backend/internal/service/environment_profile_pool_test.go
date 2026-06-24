@@ -375,8 +375,8 @@ func TestEnvironmentProfilePoolContinuousTenMinuteRequestsHandlesErrors(t *testi
 }
 
 func TestEnvironmentProfilePoolRealTenMinuteRequestsHandlesErrors(t *testing.T) {
-	if os.Getenv("SUB2API_REAL_TEN_MINUTE_PROFILE_POOL_TEST") != "1" {
-		t.Skip("set SUB2API_REAL_TEN_MINUTE_PROFILE_POOL_TEST=1 to run the real 10-minute profile pool test")
+	if os.Getenv("CLAUDE2API_REAL_TEN_MINUTE_PROFILE_POOL_TEST") != "1" {
+		t.Skip("set CLAUDE2API_REAL_TEN_MINUTE_PROFILE_POOL_TEST=1 to run the real 10-minute profile pool test")
 	}
 
 	const duration = 10 * time.Minute

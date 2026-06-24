@@ -8,10 +8,10 @@ import (
 	"sync/atomic"
 	"time"
 
-	"github.com/Wei-Shaw/sub2api/internal/config"
-	infraerrors "github.com/Wei-Shaw/sub2api/internal/pkg/errors"
-	"github.com/Wei-Shaw/sub2api/internal/pkg/logger"
-	"github.com/Wei-Shaw/sub2api/internal/pkg/timezone"
+	"github.com/dofastted/claude2api/internal/config"
+	infraerrors "github.com/dofastted/claude2api/internal/pkg/errors"
+	"github.com/dofastted/claude2api/internal/pkg/logger"
+	"github.com/dofastted/claude2api/internal/pkg/timezone"
 	"golang.org/x/sync/singleflight"
 )
 

@@ -15,13 +15,13 @@ import (
 	"syscall"
 	"time"
 
-	_ "github.com/Wei-Shaw/sub2api/ent/runtime"
-	"github.com/Wei-Shaw/sub2api/internal/config"
-	"github.com/Wei-Shaw/sub2api/internal/handler"
-	"github.com/Wei-Shaw/sub2api/internal/pkg/logger"
-	"github.com/Wei-Shaw/sub2api/internal/server/middleware"
-	"github.com/Wei-Shaw/sub2api/internal/setup"
-	"github.com/Wei-Shaw/sub2api/internal/web"
+	_ "github.com/dofastted/claude2api/ent/runtime"
+	"github.com/dofastted/claude2api/internal/config"
+	"github.com/dofastted/claude2api/internal/handler"
+	"github.com/dofastted/claude2api/internal/pkg/logger"
+	"github.com/dofastted/claude2api/internal/server/middleware"
+	"github.com/dofastted/claude2api/internal/setup"
+	"github.com/dofastted/claude2api/internal/web"
 
 	"github.com/gin-gonic/gin"
 )
@@ -62,7 +62,7 @@ func main() {
 	flag.Parse()
 
 	if *showVersion {
-		log.Printf("Sub2API %s (commit: %s, built: %s)\n", Version, Commit, Date)
+		log.Printf("claude2api %s (commit: %s, built: %s)\n", Version, Commit, Date)
 		return
 	}
 
@@ -112,7 +112,7 @@ func runSetupServer() {
 	// This allows users to run setup on a different address if needed
 	addr := config.GetServerAddress()
 	log.Printf("Setup wizard available at http://%s", addr)
-	log.Println("Complete the setup wizard to configure Sub2API")
+	log.Println("Complete the setup wizard to configure claude2api")
 
 	protocols := new(http.Protocols)
 	protocols.SetHTTP1(true)

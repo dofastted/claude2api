@@ -314,7 +314,7 @@ const baseSettingsResponse = {
   default_balance: 0,
   default_concurrency: 1,
   default_subscriptions: [],
-  site_name: "Sub2API",
+  site_name: "claude2api",
   site_logo: "",
   site_subtitle: "",
   api_base_url: "",
@@ -634,7 +634,7 @@ describe("admin SettingsView payment visible method controls", () => {
     expect(wrapper.text()).not.toContain("支付来源");
   });
 
-  it("links payment guidance to README sections instead of removed payment docs", async () => {
+  it("links payment guidance to the public README", async () => {
     const wrapper = mountView();
 
     await flushPromises();
@@ -647,14 +647,10 @@ describe("admin SettingsView payment visible method controls", () => {
       );
 
     expect(paymentLinks).toHaveLength(2);
-    expect(paymentLinks[0]?.attributes("href")).toBe(
-      "https://github.com/Wei-Shaw/sub2api/blob/main/docs/PAYMENT_CN.md",
-    );
-    expect(paymentLinks[1]?.attributes("href")).toBe(
-      "https://github.com/Wei-Shaw/sub2api/blob/main/docs/PAYMENT_CN.md#支持的支付方式",
-    );
     for (const link of paymentLinks) {
-      expect(link.attributes("href")).toContain("docs/PAYMENT");
+      expect(link.attributes("href")).toBe(
+        "https://github.com/dofastted/claude2api#readme",
+      );
     }
   });
 

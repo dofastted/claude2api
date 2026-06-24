@@ -14,13 +14,13 @@ import (
 	"testing"
 	"time"
 
-	"github.com/Wei-Shaw/sub2api/internal/config"
-	"github.com/Wei-Shaw/sub2api/internal/pkg/tlsfingerprint"
+	"github.com/dofastted/claude2api/internal/config"
+	"github.com/dofastted/claude2api/internal/pkg/tlsfingerprint"
 	"github.com/stretchr/testify/require"
 )
 
 const (
-	mockUpstreamLoadEnv      = "SUB2API_MOCK_UPSTREAM_LOAD_TEST"
+	mockUpstreamLoadEnv      = "CLAUDE2API_MOCK_UPSTREAM_LOAD_TEST"
 	mockUpstreamLoadDuration = 10 * time.Minute
 	mockUpstreamLoadInterval = 50 * time.Millisecond
 	mockUpstreamLoadAccounts = 20
@@ -128,7 +128,7 @@ func TestClaudeProfilePoolMockUpstreamLoadSmoke(t *testing.T) {
 
 func TestClaudeProfilePoolMockUpstreamLoad100Concurrent10Minutes(t *testing.T) {
 	if os.Getenv(mockUpstreamLoadEnv) != "1" {
-		t.Skip("set SUB2API_MOCK_UPSTREAM_LOAD_TEST=1 to run the 100-concurrent 10-minute mock upstream load test")
+		t.Skip("set CLAUDE2API_MOCK_UPSTREAM_LOAD_TEST=1 to run the 100-concurrent 10-minute mock upstream load test")
 	}
 	runClaudeProfilePoolMockUpstreamLoad(t, 100, mockUpstreamLoadDuration, mockUpstreamLoadInterval)
 }

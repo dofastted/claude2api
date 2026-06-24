@@ -1,6 +1,6 @@
 # Layout Components
 
-Vue 3 layout components for the Sub2API frontend, built with Composition API, TypeScript, and TailwindCSS.
+Vue 3 layout components for the claude2api frontend, built with Composition API, TypeScript, and TailwindCSS.
 
 ## Components
 

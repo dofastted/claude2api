@@ -1,6 +1,6 @@
 package service
 
-import "github.com/Wei-Shaw/sub2api/internal/pkg/clientidentity"
+import "github.com/dofastted/claude2api/internal/pkg/clientidentity"
 
 func defaultCodexTestUserAgent() string {
 	return clientidentity.NewRegistry().Get().Codex.Headers["User-Agent"]

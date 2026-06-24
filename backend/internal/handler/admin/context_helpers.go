@@ -1,7 +1,7 @@
 package admin
 
 import (
-	middleware2 "github.com/Wei-Shaw/sub2api/internal/server/middleware"
+	middleware2 "github.com/dofastted/claude2api/internal/server/middleware"
 
 	"github.com/gin-gonic/gin"
 )

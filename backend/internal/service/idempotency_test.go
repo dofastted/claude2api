@@ -10,7 +10,7 @@ import (
 	"time"
 	"unicode/utf8"
 
-	infraerrors "github.com/Wei-Shaw/sub2api/internal/pkg/errors"
+	infraerrors "github.com/dofastted/claude2api/internal/pkg/errors"
 	"github.com/stretchr/testify/require"
 )
 

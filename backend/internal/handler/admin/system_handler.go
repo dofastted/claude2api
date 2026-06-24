@@ -8,10 +8,10 @@ import (
 	"strings"
 	"time"
 
-	"github.com/Wei-Shaw/sub2api/internal/pkg/response"
-	"github.com/Wei-Shaw/sub2api/internal/pkg/sysutil"
-	middleware2 "github.com/Wei-Shaw/sub2api/internal/server/middleware"
-	"github.com/Wei-Shaw/sub2api/internal/service"
+	"github.com/dofastted/claude2api/internal/pkg/response"
+	"github.com/dofastted/claude2api/internal/pkg/sysutil"
+	middleware2 "github.com/dofastted/claude2api/internal/server/middleware"
+	"github.com/dofastted/claude2api/internal/service"
 
 	"github.com/gin-gonic/gin"
 )

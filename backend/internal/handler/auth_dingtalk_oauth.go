@@ -10,13 +10,13 @@ import (
 	"strings"
 	"time"
 
-	dbent "github.com/Wei-Shaw/sub2api/ent"
-	dbuser "github.com/Wei-Shaw/sub2api/ent/user"
-	"github.com/Wei-Shaw/sub2api/internal/config"
-	infraerrors "github.com/Wei-Shaw/sub2api/internal/pkg/errors"
-	"github.com/Wei-Shaw/sub2api/internal/pkg/oauth"
-	"github.com/Wei-Shaw/sub2api/internal/pkg/response"
-	"github.com/Wei-Shaw/sub2api/internal/service"
+	dbent "github.com/dofastted/claude2api/ent"
+	dbuser "github.com/dofastted/claude2api/ent/user"
+	"github.com/dofastted/claude2api/internal/config"
+	infraerrors "github.com/dofastted/claude2api/internal/pkg/errors"
+	"github.com/dofastted/claude2api/internal/pkg/oauth"
+	"github.com/dofastted/claude2api/internal/pkg/response"
+	"github.com/dofastted/claude2api/internal/service"
 
 	"github.com/gin-gonic/gin"
 )

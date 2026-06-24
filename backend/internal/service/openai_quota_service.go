@@ -10,7 +10,7 @@ import (
 	"strings"
 	"time"
 
-	infraerrors "github.com/Wei-Shaw/sub2api/internal/pkg/errors"
+	infraerrors "github.com/dofastted/claude2api/internal/pkg/errors"
 )
 
 // Endpoints used by the OpenAI/ChatGPT/Codex quota query and reset feature.

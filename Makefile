@@ -1,4 +1,4 @@
-.PHONY: build build-backend build-frontend build-datamanagementd test test-backend test-frontend test-frontend-critical test-datamanagementd secret-scan
+.PHONY: build build-backend build-frontend test test-backend test-frontend test-frontend-critical
 
 FRONTEND_CRITICAL_VITEST := \
 	src/views/auth/__tests__/LinuxDoCallbackView.spec.ts \
@@ -9,19 +9,16 @@ FRONTEND_CRITICAL_VITEST := \
 	src/views/admin/__tests__/SettingsView.spec.ts
 
 # 一键编译前后端
-build: build-backend build-frontend
+build: build-frontend build-backend
 
 # 编译后端（复用 backend/Makefile）
 build-backend:
-	@$(MAKE) -C backend build
+	@cd backend && go build -tags embed -trimpath -o bin/claude2api ./cmd/server
 
 # 编译前端（需要已安装依赖）
 build-frontend:
 	@pnpm --dir frontend run build
 
-# 编译 datamanagementd（宿主机数据管理进程）
-build-datamanagementd:
-	@cd datamanagement && go build -o datamanagementd ./cmd/datamanagementd
 
 # 运行测试（后端 + 前端）
 test: test-backend test-frontend
@@ -37,8 +34,3 @@ test-frontend:
 test-frontend-critical:
 	@pnpm --dir frontend exec vitest run $(FRONTEND_CRITICAL_VITEST)
 
-test-datamanagementd:
-	@cd datamanagement && go test ./...
-
-secret-scan:
-	@python3 tools/secret_scan.py

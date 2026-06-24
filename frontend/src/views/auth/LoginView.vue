@@ -219,7 +219,7 @@ import { clearAllAffiliateReferralCodes } from '@/utils/oauthAffiliate'
 import { resolveAdminHomePath } from '@/router/setupRedirect'
 
 const { t } = useI18n()
-const LOGIN_AGREEMENT_STORAGE_KEY = 'sub2api_login_agreement_consent'
+const LOGIN_AGREEMENT_STORAGE_KEY = 'claude2api_login_agreement_consent'
 
 // ==================== Router & Stores ====================
 

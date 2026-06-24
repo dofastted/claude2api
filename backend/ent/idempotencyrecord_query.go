@@ -12,8 +12,8 @@ import (
 	"entgo.io/ent/dialect/sql"
 	"entgo.io/ent/dialect/sql/sqlgraph"
 	"entgo.io/ent/schema/field"
-	"github.com/Wei-Shaw/sub2api/ent/idempotencyrecord"
-	"github.com/Wei-Shaw/sub2api/ent/predicate"
+	"github.com/dofastted/claude2api/ent/idempotencyrecord"
+	"github.com/dofastted/claude2api/ent/predicate"
 )
 
 // IdempotencyRecordQuery is the builder for querying IdempotencyRecord entities.

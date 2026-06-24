@@ -8,8 +8,8 @@ import (
 	"entgo.io/ent/dialect/sql"
 	"entgo.io/ent/dialect/sql/sqlgraph"
 	"entgo.io/ent/schema/field"
-	"github.com/Wei-Shaw/sub2api/ent/channelmonitorhistory"
-	"github.com/Wei-Shaw/sub2api/ent/predicate"
+	"github.com/dofastted/claude2api/ent/channelmonitorhistory"
+	"github.com/dofastted/claude2api/ent/predicate"
 )
 
 // ChannelMonitorHistoryDelete is the builder for deleting a ChannelMonitorHistory entity.

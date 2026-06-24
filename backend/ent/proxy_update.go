@@ -11,9 +11,9 @@ import (
 	"entgo.io/ent/dialect/sql"
 	"entgo.io/ent/dialect/sql/sqlgraph"
 	"entgo.io/ent/schema/field"
-	"github.com/Wei-Shaw/sub2api/ent/account"
-	"github.com/Wei-Shaw/sub2api/ent/predicate"
-	"github.com/Wei-Shaw/sub2api/ent/proxy"
+	"github.com/dofastted/claude2api/ent/account"
+	"github.com/dofastted/claude2api/ent/predicate"
+	"github.com/dofastted/claude2api/ent/proxy"
 )
 
 // ProxyUpdate is the builder for updating Proxy entities.

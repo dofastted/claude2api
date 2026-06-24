@@ -1,5 +1,5 @@
 # =============================================================================
-# Docker Ignore File for Sub2API
+# Docker Ignore File for claude2api
 # =============================================================================
 
 # Git
@@ -64,8 +64,8 @@ temp/
 
 # Deploy files (not needed in image)
 deploy/install.sh
-deploy/sub2api.service
-deploy/sub2api-sudoers
+deploy/claude2api.service
+deploy/claude2api-sudoers
 deploy/data/
 deploy/postgres_data/
 deploy/redis_data/

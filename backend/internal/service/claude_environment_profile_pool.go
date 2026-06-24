@@ -10,7 +10,7 @@ import (
 	"sync"
 	"time"
 
-	"github.com/Wei-Shaw/sub2api/internal/pkg/claude"
+	"github.com/dofastted/claude2api/internal/pkg/claude"
 	"github.com/google/uuid"
 )
 

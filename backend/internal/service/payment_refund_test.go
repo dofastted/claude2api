@@ -8,9 +8,9 @@ import (
 	"testing"
 	"time"
 
-	dbent "github.com/Wei-Shaw/sub2api/ent"
-	"github.com/Wei-Shaw/sub2api/internal/payment"
-	infraerrors "github.com/Wei-Shaw/sub2api/internal/pkg/errors"
+	dbent "github.com/dofastted/claude2api/ent"
+	"github.com/dofastted/claude2api/internal/payment"
+	infraerrors "github.com/dofastted/claude2api/internal/pkg/errors"
 	"github.com/stretchr/testify/require"
 )
 

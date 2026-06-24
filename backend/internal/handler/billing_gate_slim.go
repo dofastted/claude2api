@@ -5,7 +5,7 @@ package handler
 import (
 	"context"
 
-	"github.com/Wei-Shaw/sub2api/internal/service"
+	"github.com/dofastted/claude2api/internal/service"
 )
 
 type billingGateSlim struct{}

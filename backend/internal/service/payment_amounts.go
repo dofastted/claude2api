@@ -5,7 +5,7 @@ package service
 import (
 	"math"
 
-	"github.com/Wei-Shaw/sub2api/internal/payment"
+	"github.com/dofastted/claude2api/internal/payment"
 	"github.com/shopspring/decimal"
 )
 

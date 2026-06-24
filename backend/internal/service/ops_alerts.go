@@ -7,7 +7,7 @@ import (
 	"strings"
 	"time"
 
-	infraerrors "github.com/Wei-Shaw/sub2api/internal/pkg/errors"
+	infraerrors "github.com/dofastted/claude2api/internal/pkg/errors"
 )
 
 func (s *OpsService) ListAlertRules(ctx context.Context) ([]*OpsAlertRule, error) {

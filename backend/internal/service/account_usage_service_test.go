@@ -6,7 +6,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/Wei-Shaw/sub2api/internal/pkg/tlsfingerprint"
+	"github.com/dofastted/claude2api/internal/pkg/tlsfingerprint"
 )
 
 type accountUsageCodexProbeRepo struct {

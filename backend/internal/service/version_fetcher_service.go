@@ -11,8 +11,8 @@ import (
 	"sync"
 	"time"
 
-	"github.com/Wei-Shaw/sub2api/internal/config"
-	"github.com/Wei-Shaw/sub2api/internal/pkg/clientidentity"
+	"github.com/dofastted/claude2api/internal/config"
+	"github.com/dofastted/claude2api/internal/pkg/clientidentity"
 )
 
 const (
@@ -163,7 +163,7 @@ func (s *VersionFetcherService) fetchCodexVersion(ctx context.Context) (string, 
 		return "", err
 	}
 	req.Header.Set("Accept", "application/vnd.github.v3+json")
-	req.Header.Set("User-Agent", "sub2api-version-fetcher")
+	req.Header.Set("User-Agent", "claude2api-version-fetcher")
 
 	resp, err := s.httpClient().Do(req)
 	if err != nil {

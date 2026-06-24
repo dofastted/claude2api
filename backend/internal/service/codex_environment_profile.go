@@ -10,9 +10,9 @@ import (
 	"strings"
 	"time"
 
-	"github.com/Wei-Shaw/sub2api/internal/pkg/clientidentity"
-	openaiheaders "github.com/Wei-Shaw/sub2api/internal/pkg/openai"
-	"github.com/Wei-Shaw/sub2api/internal/pkg/tlsfingerprint"
+	"github.com/dofastted/claude2api/internal/pkg/clientidentity"
+	openaiheaders "github.com/dofastted/claude2api/internal/pkg/openai"
+	"github.com/dofastted/claude2api/internal/pkg/tlsfingerprint"
 	"github.com/gin-gonic/gin"
 	"go.uber.org/zap"
 )

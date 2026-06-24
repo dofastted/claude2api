@@ -106,7 +106,7 @@ func TestSanitizeEmailHeader_OnlyLF(t *testing.T) {
 }
 
 func TestSanitizeEmailHeader_Clean(t *testing.T) {
-	require.Equal(t, "Sub2API", sanitizeEmailHeader("Sub2API"))
+	require.Equal(t, "claude2api", sanitizeEmailHeader("claude2api"))
 }
 
 func TestSanitizeEmailHeader_Empty(t *testing.T) {

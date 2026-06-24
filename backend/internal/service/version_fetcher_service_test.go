@@ -7,8 +7,8 @@ import (
 	"testing"
 	"time"
 
-	"github.com/Wei-Shaw/sub2api/internal/config"
-	"github.com/Wei-Shaw/sub2api/internal/pkg/clientidentity"
+	"github.com/dofastted/claude2api/internal/config"
+	"github.com/dofastted/claude2api/internal/pkg/clientidentity"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
@@ -97,7 +97,7 @@ func TestFetchCodexVersion(t *testing.T) {
 		svc, server := newVersionFetcherTestService(t, func(w http.ResponseWriter, r *http.Request) {
 			assert.Equal(t, "/repos/openai/codex/releases/latest", r.URL.Path)
 			assert.Equal(t, "application/vnd.github.v3+json", r.Header.Get("Accept"))
-			assert.Equal(t, "sub2api-version-fetcher", r.Header.Get("User-Agent"))
+			assert.Equal(t, "claude2api-version-fetcher", r.Header.Get("User-Agent"))
 			_, _ = w.Write([]byte(`{"tag_name":"v0.125.0","prerelease":false}`))
 		})
 		defer server.Close()

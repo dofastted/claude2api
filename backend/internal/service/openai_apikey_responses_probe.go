@@ -10,9 +10,9 @@ import (
 	"strings"
 	"time"
 
-	"github.com/Wei-Shaw/sub2api/internal/pkg/logger"
-	"github.com/Wei-Shaw/sub2api/internal/pkg/openai"
-	"github.com/Wei-Shaw/sub2api/internal/pkg/openai_compat"
+	"github.com/dofastted/claude2api/internal/pkg/logger"
+	"github.com/dofastted/claude2api/internal/pkg/openai"
+	"github.com/dofastted/claude2api/internal/pkg/openai_compat"
 	"github.com/tidwall/gjson"
 )
 

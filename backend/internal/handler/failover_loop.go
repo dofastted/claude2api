@@ -5,8 +5,8 @@ import (
 	"net/http"
 	"time"
 
-	"github.com/Wei-Shaw/sub2api/internal/pkg/logger"
-	"github.com/Wei-Shaw/sub2api/internal/service"
+	"github.com/dofastted/claude2api/internal/pkg/logger"
+	"github.com/dofastted/claude2api/internal/service"
 	"go.uber.org/zap"
 )
 

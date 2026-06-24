@@ -9,7 +9,7 @@ import (
 
 	"entgo.io/ent"
 	"entgo.io/ent/dialect/sql"
-	"github.com/Wei-Shaw/sub2api/ent/setting"
+	"github.com/dofastted/claude2api/ent/setting"
 )
 
 // Setting is the model entity for the Setting schema.

@@ -3,10 +3,10 @@ package handler
 import (
 	"time"
 
-	"github.com/Wei-Shaw/sub2api/internal/handler/admin"
-	"github.com/Wei-Shaw/sub2api/internal/handler/dto"
-	"github.com/Wei-Shaw/sub2api/internal/pkg/response"
-	"github.com/Wei-Shaw/sub2api/internal/service"
+	"github.com/dofastted/claude2api/internal/handler/admin"
+	"github.com/dofastted/claude2api/internal/handler/dto"
+	"github.com/dofastted/claude2api/internal/pkg/response"
+	"github.com/dofastted/claude2api/internal/service"
 
 	"github.com/gin-gonic/gin"
 )

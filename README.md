@@ -1,79 +1,43 @@
 # claude2api
 
-面向 Claude Code、Codex CLI、Gemini CLI 与 OpenAI 兼容客户端的本地优先 AI API 网关。
+> 本地优先、轻量自管的 AI API 网关。面向 Claude Code、Codex CLI、Gemini CLI，以及 OpenAI / Anthropic 兼容客户端。
 
-claude2api 由原 sub2api 代码线演进而来，现在项目目标已切换为：优先提供轻量、可自管、适合个人和内部团队使用的反代网关。默认启动即为精简模式，不再以 SaaS 分发、支付订阅运营为项目介绍重点。
+[![Build](https://github.com/dofastted/claude2api/actions/workflows/backend-ci.yml/badge.svg)](https://github.com/dofastted/claude2api/actions/workflows/backend-ci.yml)
+[![Security Scan](https://github.com/dofastted/claude2api/actions/workflows/security-scan.yml/badge.svg)](https://github.com/dofastted/claude2api/actions/workflows/security-scan.yml)
+[![License: LGPL-3.0](https://img.shields.io/badge/License-LGPL--3.0-blue.svg)](LICENSE)
+
+## 项目定位
+
+claude2api 把多类上游账号收口为一个自管网关，重点是本地部署、账号隔离、客户端身份一致性和兼容协议转发。默认运行在 `simple` 模式：隐藏 SaaS 化的支付、订阅、兑换、公告入口，保留反代、账号、密钥、分组、代理和系统设置。
 
 ## 重要说明
 
-- 本项目只用于技术研究、个人自用或内部自管场景。
-- 使用上游账号、OAuth 凭证或 API Key 时，请自行确认符合对应服务条款、当地法律法规和组织内部规则。
-- 项目不提供任何上游服务额度，不托管账号，不承诺第三方商业服务可用性。
-- 默认精简模式会跳过计费、余额和订阅校验；请只在可信环境中部署。
+- 仅用于技术研究、个人自用或内部自管场景。
+- 使用上游账号、OAuth 凭证或 API Key 前，请自行确认符合对应服务条款、当地法律法规和组织内部规则。
+- 本项目不提供上游服务额度，不托管账号，不承诺第三方商业服务可用性。
+- `simple` 模式会跳过余额、套餐、订阅额度等计费校验；请只在可信环境中部署。
 
-## 当前定位
+## 核心能力
 
-claude2api 的核心是把多类上游账号统一成稳定的 API 网关：
+| 能力 | 说明 |
+| --- | --- |
+| 多平台网关 | 提供 Anthropic Messages、OpenAI Responses、Gemini 等兼容入口。 |
+| 账号管理 | 维护 Anthropic、OpenAI、Gemini、Antigravity 等账号类型。 |
+| 本地鉴权 | 使用本地 API Key、用户状态、分组和 IP 限制保护网关。 |
+| 调度策略 | 按平台、分组、账号可用性和代理配置选择上游账号。 |
+| 客户端真实性 | 维护 Claude / Codex 客户端 UA、版本字段、会话标识和 TLS 指纹配对。 |
+| 精简模式 | 默认隐藏支付、订阅、兑换、公告等 SaaS 功能入口。 |
 
-- 对外提供 Anthropic、OpenAI Responses、Gemini 等兼容入口。
-- 通过本地 Web 管理后台维护账号、API Key、代理、分组和系统设置。
-- 为 Claude / Codex OAuth 账号固定客户端环境，减少同一账号在不同设备、UA、TLS 指纹之间来回漂移。
-- 支持更接近真实官方客户端的请求身份，包括客户端 UA、版本字段、会话标识和 TLS 指纹配对。
-- 精简模式隐藏支付、订阅、兑换、公告等 SaaS 功能，保留核心反代和管理能力。
+## 环境 Profile 池
 
-## 默认运行模式
+Claude 与 Codex 环境画像使用 **3 OS 槽位冻结式 Profile 池（schema v2）**：
 
-默认运行模式为 `simple`。
-
-```bash
-RUN_MODE=simple
-```
-
-精简模式行为：
-
-- 隐藏或禁用支付、订阅、兑换、公告等 SaaS 功能入口。
-- 网关鉴权保留 API Key 校验、用户状态、分组和 IP 限制。
-- 跳过余额、套餐、订阅额度等计费校验。
-- 使用记录仍可记录，但不作为扣费依据。
-- 管理后台的 `Settings` 仍可访问。
-
-如需恢复完整 SaaS 功能，可显式设置：
-
-```bash
-RUN_MODE=standard
-```
-
-## 功能概览
-
-### 账号与网关
-
-- 多账号管理：Anthropic、OpenAI、Gemini、Antigravity 等账号类型。
-- API Key 管理：为客户端分配本地 API Key。
-- 分组与调度：按平台、分组、账号可用性选择上游账号。
-- 代理配置：为不同账号配置网络代理。
-- OpenAI Responses / Codex WebSocket 支持。
-- Anthropic Messages 与 token 计数请求转发。
-- Gemini 兼容路径转发。
-
-### 环境 Profile 池
-
-Claude 与 Codex 环境画像已升级为 **3 OS 槽位冻结式 Profile 池(schema v2)**，对应单凭证多 device_id / 版本不自洽导致的封号风险：
-
-- 凭证预生成并冻结 **windows / macos / linux** 三个出口槽位，每槽 1 个固定 `device_id` 与自洽的 `(OS, CLI 版本, beta 能力集)` 三元组，终身不变；`desktop` 归并到 windows。
-- 请求按客户端来源 OS 路由到对应槽位；**并发请求复用同一槽位**（如 5 个 windows 请求都走 windows 槽），槽位是共享身份而非互斥资源。
-- 透传路径（真实 Claude Code 客户端）与 mimic 路径**统一收口**：`metadata.user_id.device_id` 与 `anthropic-beta` 强制按槽位冻结值重写，不再透传客户端原值，消除「UA=2.1.161 却声称 2.1.186 beta」的版本不自洽。
-- 学习链路彻底移除，profile 纯模拟生成（`source: simulated`）。
-- 旧账号策略：Claude 旧 schema / 旧 `claude_environment_profile` 账号**不改动**，回退现有逻辑；Codex 旧账号**统一升级迁移**为 v2。
-- 管理员可在账号 UI 中按槽位手工编辑 `device_id` / `client_id` / `UA` / `cli_version` / `beta_set` 等字段（Codex 另有 `originator` / `version` / `tls_profile`），并支持重置与锁定。
-
-### 客户端真实性增强
-
-项目保留并继续维护反代真实性相关能力：
-
-- Claude / Codex 客户端 UA 与版本字段一致性。
-- Codex WebSocket 相关开关集中管理。
-- Claude CLI、Claude Desktop、Codex CLI、Codex Desktop 等客户端家族的 UA 与 TLS 指纹配对。
-- 遥测、settings、diagnostics 等非模型路径按本地策略处理，避免误转发到模型上游。
+- 每个凭证预生成并冻结 `windows` / `macos` / `linux` 三个出口槽位。
+- 每个槽位固定 `device_id`，并绑定自洽的 OS、CLI 版本和 beta 能力集。
+- 请求按客户端来源 OS 路由到对应槽位；并发请求复用同一槽位。
+- 透传路径与 mimic 路径统一重写 `metadata.user_id.device_id` 和 `anthropic-beta`，避免版本字段不自洽。
+- Profile 来源固定为模拟生成，不再学习客户端上报值。
+- 管理员可在账号 UI 中按槽位手工编辑、重置或锁定关键字段。
 
 ## 技术栈
 
@@ -82,8 +46,8 @@ Claude 与 Codex 环境画像已升级为 **3 OS 槽位冻结式 Profile 池(sch
 | 后端 | Go、Gin、Ent |
 | 前端 | Vue 3、Vite、TailwindCSS、Pinia |
 | 数据库 | PostgreSQL |
-| 缓存/队列 | Redis |
-| 部署 | Docker Compose / 二进制部署 |
+| 缓存 | Redis |
+| 部署 | Docker Compose / 二进制 |
 
 ## 快速部署
 
@@ -95,7 +59,7 @@ cd claude2api/deploy
 cp .env.example .env
 ```
 
-编辑 `.env`，至少设置：
+至少设置以下环境变量：
 
 ```bash
 POSTGRES_PASSWORD=change_this_secure_password
@@ -104,13 +68,13 @@ TOTP_ENCRYPTION_KEY=change_this_to_a_32_byte_secret
 RUN_MODE=simple
 ```
 
-启动：
+启动服务：
 
 ```bash
 docker compose up -d
 ```
 
-访问：
+访问管理后台：
 
 ```text
 http://localhost:8080
@@ -119,7 +83,7 @@ http://localhost:8080
 查看日志：
 
 ```bash
-docker compose logs -f sub2api
+docker compose logs -f claude2api
 ```
 
 ### 本地开发部署
@@ -129,7 +93,7 @@ cd deploy
 cp .env.example .env
 ```
 
-确保 `.env` 中至少包含：
+确保 `.env` 至少包含：
 
 ```bash
 POSTGRES_PASSWORD=change_this_secure_password
@@ -137,19 +101,19 @@ RUN_MODE=simple
 SERVER_PORT=8080
 ```
 
-启动本地开发版：
+启动本地依赖和服务：
 
 ```bash
 docker compose -f docker-compose.dev.yml --env-file .env up -d
 ```
 
-后端健康检查：
+健康检查：
 
 ```bash
 curl http://127.0.0.1:8080/health
 ```
 
-前端开发服务器可单独启动：
+前端开发服务器：
 
 ```bash
 cd frontend
@@ -180,42 +144,25 @@ go build -tags embed -o bin/claude2api ./cmd/server
 RUN_MODE=simple ./backend/bin/claude2api
 ```
 
-## 精简版 build tag
-
-运行模式 `RUN_MODE=simple` 是默认启动行为。
-
-如果需要在编译层面剥离支付和订阅相关代码，可使用 Go build tag：
+## 常用验证
 
 ```bash
-cd backend
-go build -tags slim ./cmd/server
-```
-
-说明：
-
-- 默认构建不加 `slim` tag，仍包含完整代码路径。
-- `-tags slim` 构建用于精简产物，目标是剥离 payment / subscription 相关依赖和路由。
-- 无论是否使用 `slim` build tag，默认运行模式仍是 `simple`。
-
-## 常用命令
-
-```bash
-# 后端测试
+# 后端目标测试
 cd backend
 go test ./internal/config ./internal/setup
-
-# 前端目标测试
-cd frontend
-corepack pnpm@9.15.9 exec vitest run src/router/__tests__/guards.spec.ts src/stores/__tests__/auth.spec.ts
 
 # 前端类型检查
 cd frontend
 corepack pnpm@9.15.9 run typecheck
+
+# 前端关键测试
+cd frontend
+corepack pnpm@9.15.9 exec vitest run src/router/__tests__/guards.spec.ts src/stores/__tests__/auth.spec.ts
 ```
 
 ## Nginx 反代提示
 
-Codex CLI 会使用带下划线的 header。使用 Nginx 反代时，需要在 `http` 块中启用：
+Codex CLI 会使用带下划线的 header。使用 Nginx 反代时，需要在 `http` 块启用：
 
 ```nginx
 underscores_in_headers on;
@@ -234,14 +181,14 @@ claude2api/
 ├── frontend/                 # Vue 管理后台
 │   └── src/
 ├── deploy/                   # Docker Compose、配置示例和部署脚本
-├── docs/                     # 补充文档
-└── .trellis/                 # 项目任务和开发规范
+├── docs/legal/               # 控制台合规提示文档
+└── .github/workflows/        # GitHub Actions 构建与安全检查
 ```
 
 ## License
 
 本项目基于 [GNU Lesser General Public License v3.0](LICENSE) 或更高版本发布。
 
-## 社区支持
+## 致谢
 
-感谢 Linux.do 社区在需求讨论、问题反馈、测试验证和使用经验分享中的支持。
+感谢 Linux.do 社区在需求讨论、问题反馈、测试验证和使用经验分享中的支持。感谢原 sub2api 项目提供的基础代码与社区经验。
