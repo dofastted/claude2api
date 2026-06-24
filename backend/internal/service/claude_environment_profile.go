@@ -11,6 +11,7 @@ import (
 
 	"github.com/dofastted/claude2api/internal/pkg/claude"
 	"github.com/dofastted/claude2api/internal/pkg/clientidentity"
+	"github.com/dofastted/claude2api/internal/pkg/tlsfingerprint"
 	"github.com/google/uuid"
 )
 
@@ -51,6 +52,7 @@ type ClaudeEnvironmentProfile struct {
 	ClientType      string             `json:"client_type"`
 	Headers         map[string]string  `json:"headers"`
 	BetaSet         []string           `json:"beta_set,omitempty"`
+	TLSProfile      string             `json:"tls_profile,omitempty"`
 	FrozenAt        time.Time          `json:"frozen_at,omitempty"`
 	TelemetryPolicy string             `json:"telemetry_policy"`
 	CreatedAt       time.Time          `json:"created_at"`
@@ -102,6 +104,9 @@ func ValidateClaudeEnvironmentProfile(profile *ClaudeEnvironmentProfile) error {
 	if strings.TrimSpace(profile.SessionSeed) == "" {
 		return fmt.Errorf("claude environment profile session_seed is required")
 	}
+	if strings.TrimSpace(profile.TLSProfile) == "" {
+		profile.TLSProfile = defaultClaudeEnvironmentTLSProfileForFamily(profile.Family)
+	}
 	return nil
 }
 
@@ -125,10 +130,45 @@ func defaultClaudeCodeEnvironmentProfile(identityRegistry *clientidentity.Regist
 		RuntimeVersion:  strings.TrimPrefix(headers["X-Stainless-Runtime-Version"], "v"),
 		ClientType:      "cli",
 		Headers:         map[string]string{},
+		TLSProfile:      tlsfingerprint.ProfileNameClaudeCLIDefault,
 		TelemetryPolicy: claudeEnvironmentTelemetryPolicyLocalAck,
 		CreatedAt:       now,
 		UpdatedAt:       now,
 	}
+}
+
+func defaultClaudeEnvironmentTLSProfileForFamily(family ClaudeClientFamily) string {
+	switch family {
+	case ClaudeClientFamilyDesktop:
+		return tlsfingerprint.ProfileNameClaudeDesktopDefault
+	default:
+		return tlsfingerprint.ProfileNameClaudeCLIDefault
+	}
+}
+
+func resolveClaudeEnvironmentTLSProfile(profile *ClaudeEnvironmentProfile) *tlsfingerprint.Profile {
+	if profile == nil {
+		return nil
+	}
+	return tlsfingerprint.BuiltInProfileByName(strings.TrimSpace(profile.TLSProfile))
+}
+
+type claudeEnvironmentTLSProfileContextKey struct{}
+
+func attachClaudeEnvironmentTLSProfileToRequest(req *http.Request, profile *tlsfingerprint.Profile) *http.Request {
+	if req == nil || profile == nil {
+		return req
+	}
+	return req.WithContext(context.WithValue(req.Context(), claudeEnvironmentTLSProfileContextKey{}, profile))
+}
+
+func tlsProfileForRequest(req *http.Request, fallback *tlsfingerprint.Profile) *tlsfingerprint.Profile {
+	if req != nil {
+		if profile, ok := req.Context().Value(claudeEnvironmentTLSProfileContextKey{}).(*tlsfingerprint.Profile); ok && profile != nil {
+			return profile
+		}
+	}
+	return fallback
 }
 
 func classifyClaudeClientFamily(headers http.Header, _ []byte) ClaudeClientFamily {

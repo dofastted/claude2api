@@ -9,6 +9,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/dofastted/claude2api/internal/pkg/tlsfingerprint"
 	"github.com/stretchr/testify/require"
 	"github.com/tidwall/gjson"
 )
@@ -94,36 +95,49 @@ func TestAutoresearchProfileConflictWorkload(t *testing.T) {
 		require.Equal(t, cache.maskedSessionID, parsed.SessionID)
 	})
 
+	t.Run("profile tls overrides legacy account switch", func(t *testing.T) {
+		req, err := http.NewRequest(http.MethodPost, "https://api.anthropic.com/v1/messages", nil)
+		require.NoError(t, err)
+		legacy := &tlsfingerprint.Profile{Name: "legacy-account-tls"}
+		profileTLS := resolveClaudeEnvironmentTLSProfile(profile)
+		require.NotNil(t, profileTLS)
+
+		req = attachClaudeEnvironmentTLSProfileToRequest(req, profileTLS)
+
+		require.Equal(t, tlsfingerprint.ProfileNameClaudeCLIDefault, tlsProfileForRequest(req, legacy).Name)
+	})
+
 	conflicts := countAutoresearchLegacyExitPoints(t)
 	fmt.Printf("METRIC profile_conflict_count=%d\n", conflicts)
 	fmt.Printf("METRIC profile_alignment_checks=%d\n", 3)
-	fmt.Printf("METRIC profile_workload_cases=%d\n", conflicts+3)
+	fmt.Printf("METRIC profile_workload_cases=%d\n", conflicts+4)
 }
 
 func fixedAutoresearchClaudeProfile() *ClaudeEnvironmentProfile {
 	return &ClaudeEnvironmentProfile{
-		Family:        ClaudeClientFamilyCodeCLI,
-		Source:        claudeEnvironmentProfileSourceSimulated,
-		ClientID:      strings.Repeat("c", 64),
-		DeviceID:      strings.Repeat("d", 64),
-		SessionSeed:   "22222222-3333-4444-8555-666666666666",
-		UserAgent:     "claude-cli/2.1.88 (external, cli)",
-		XApp:          "claude-code",
-		ClientVersion: "2.1.88",
-		Platform:      "linux",
-		PlatformRaw:   "linux",
-		Arch:          "x64",
-		Runtime:       "node",
+		Family:         ClaudeClientFamilyCodeCLI,
+		Source:         claudeEnvironmentProfileSourceSimulated,
+		ClientID:       strings.Repeat("c", 64),
+		DeviceID:       strings.Repeat("d", 64),
+		SessionSeed:    "22222222-3333-4444-8555-666666666666",
+		UserAgent:      "claude-cli/2.1.88 (external, cli)",
+		XApp:           "claude-code",
+		ClientVersion:  "2.1.88",
+		Platform:       "linux",
+		PlatformRaw:    "linux",
+		Arch:           "x64",
+		Runtime:        "node",
 		RuntimeVersion: "v24.0.0",
-		ClientType:    "cli",
-		Headers:       map[string]string{},
+		ClientType:     "cli",
+		Headers:        map[string]string{},
 		BetaSet: []string{
 			"slot-beta-2026-01-01",
 			"context-management-2025-06-27",
 		},
-		FrozenAt:  time.Unix(1700000000, 0).UTC(),
-		CreatedAt: time.Unix(1700000000, 0).UTC(),
-		UpdatedAt: time.Unix(1700000000, 0).UTC(),
+		TLSProfile: tlsfingerprint.ProfileNameClaudeCLIDefault,
+		FrozenAt:   time.Unix(1700000000, 0).UTC(),
+		CreatedAt:  time.Unix(1700000000, 0).UTC(),
+		UpdatedAt:  time.Unix(1700000000, 0).UTC(),
 	}
 }
 
@@ -137,22 +151,23 @@ func parseAutoresearchMetadataUserID(value gjson.Result) *ParsedUserID {
 func countAutoresearchLegacyExitPoints(t *testing.T) int {
 	t.Helper()
 	checks := []struct {
-		name    string
-		file    string
-		pattern string
+		name     string
+		file     string
+		pattern  string
+		resolved bool
 	}{
-		{name: "tls fingerprint extra", file: "account.go", pattern: "enable_tls_fingerprint"},
+		{name: "tls fingerprint extra", file: "account.go", pattern: "enable_tls_fingerprint", resolved: true},
 		{name: "session id masking extra", file: "account.go", pattern: "session_id_masking_enabled"},
 		{name: "message cache rewrite setting", file: "gateway_messages_cache.go", pattern: "rewriteMessageCacheControlIfEnabled"},
 		{name: "cache ttl 1h injection setting", file: "gateway_service.go", pattern: "shouldInjectAnthropicCacheTTL1h"},
-		{name: "legacy claude header profile", file: "claude_code_header_profile.go", pattern: "claude_code_header_profile"},
+		{name: "legacy claude header profile", file: "claude_code_header_profile.go", pattern: "claude_code_header_profile", resolved: false},
 	}
 
 	count := 0
 	for _, check := range checks {
 		data, err := os.ReadFile(check.file)
 		require.NoErrorf(t, err, "read %s", check.file)
-		if strings.Contains(string(data), check.pattern) {
+		if strings.Contains(string(data), check.pattern) && !check.resolved {
 			count++
 		}
 	}

@@ -25,6 +25,7 @@ import (
 	"time"
 	"unsafe"
 
+	"github.com/cespare/xxhash/v2"
 	"github.com/dofastted/claude2api/internal/config"
 	"github.com/dofastted/claude2api/internal/pkg/claude"
 	"github.com/dofastted/claude2api/internal/pkg/clientidentity"
@@ -34,7 +35,6 @@ import (
 	"github.com/dofastted/claude2api/internal/pkg/usagestats"
 	"github.com/dofastted/claude2api/internal/util/responseheaders"
 	"github.com/dofastted/claude2api/internal/util/urlvalidator"
-	"github.com/cespare/xxhash/v2"
 	"github.com/google/uuid"
 	gocache "github.com/patrickmn/go-cache"
 	"github.com/tidwall/gjson"
@@ -5000,12 +5000,12 @@ func (s *GatewayService) Forward(ctx context.Context, c *gin.Context, account *A
 		}
 	}
 
-	// 解析 TLS 指纹 profile（同一请求生命周期内不变，避免重试循环中重复解析）
-	tlsProfile := s.tlsFPProfileService.ResolveTLSProfile(account)
+	// Legacy TLS profile is used only when no request environment profile is active.
+	legacyTLSProfile := s.tlsFPProfileService.ResolveTLSProfile(account)
 
 	// 调试日志：记录即将转发的账号信息
 	logger.LegacyPrintf("service.gateway", "[Forward] Using account: ID=%d Name=%s Platform=%s Type=%s TLSFingerprint=%v Proxy=%s",
-		account.ID, account.Name, account.Platform, account.Type, tlsProfile, proxyURL)
+		account.ID, account.Name, account.Platform, account.Type, legacyTLSProfile, proxyURL)
 	// Pre-filter: strip empty text blocks (including nested in tool_result) to prevent upstream 400.
 	if err := replaceBody(StripEmptyTextBlocks(body)); err != nil {
 		return nil, err
@@ -5050,7 +5050,7 @@ func (s *GatewayService) Forward(ctx context.Context, c *gin.Context, account *A
 		lastWireBody = wireBody
 
 		// 发送请求
-		resp, err = s.httpUpstream.DoWithTLS(upstreamReq, proxyURL, account.ID, account.Concurrency, tlsProfile)
+		resp, err = s.httpUpstream.DoWithTLS(upstreamReq, proxyURL, account.ID, account.Concurrency, tlsProfileForRequest(upstreamReq, legacyTLSProfile))
 		if err != nil {
 			releaseEnvironmentProfileLeaseFromRequest(upstreamReq)
 		} else {
@@ -5133,7 +5133,7 @@ func (s *GatewayService) Forward(ctx context.Context, c *gin.Context, account *A
 					retryReq, retryWireBody, buildErr := s.buildUpstreamRequest(retryCtx, c, account, filteredBody, token, tokenType, reqModel, reqStream, shouldMimicClaudeCode)
 					releaseRetryCtx()
 					if buildErr == nil {
-						retryResp, retryErr := s.httpUpstream.DoWithTLS(retryReq, proxyURL, account.ID, account.Concurrency, tlsProfile)
+						retryResp, retryErr := s.httpUpstream.DoWithTLS(retryReq, proxyURL, account.ID, account.Concurrency, tlsProfileForRequest(retryReq, legacyTLSProfile))
 						if retryErr != nil {
 							releaseEnvironmentProfileLeaseFromRequest(retryReq)
 						} else {
@@ -5179,7 +5179,7 @@ func (s *GatewayService) Forward(ctx context.Context, c *gin.Context, account *A
 									retryReq2, retryWireBody2, buildErr2 := s.buildUpstreamRequest(retryCtx2, c, account, filteredBody2, token, tokenType, reqModel, reqStream, shouldMimicClaudeCode)
 									releaseRetryCtx2()
 									if buildErr2 == nil {
-										retryResp2, retryErr2 := s.httpUpstream.DoWithTLS(retryReq2, proxyURL, account.ID, account.Concurrency, tlsProfile)
+										retryResp2, retryErr2 := s.httpUpstream.DoWithTLS(retryReq2, proxyURL, account.ID, account.Concurrency, tlsProfileForRequest(retryReq2, legacyTLSProfile))
 										if retryErr2 != nil {
 											releaseEnvironmentProfileLeaseFromRequest(retryReq2)
 										} else {
@@ -5263,7 +5263,7 @@ func (s *GatewayService) Forward(ctx context.Context, c *gin.Context, account *A
 						budgetRetryReq, budgetWireBody, buildErr := s.buildUpstreamRequest(budgetRetryCtx, c, account, rectifiedBody, token, tokenType, reqModel, reqStream, shouldMimicClaudeCode)
 						releaseBudgetRetryCtx()
 						if buildErr == nil {
-							budgetRetryResp, retryErr := s.httpUpstream.DoWithTLS(budgetRetryReq, proxyURL, account.ID, account.Concurrency, tlsProfile)
+							budgetRetryResp, retryErr := s.httpUpstream.DoWithTLS(budgetRetryReq, proxyURL, account.ID, account.Concurrency, tlsProfileForRequest(budgetRetryReq, legacyTLSProfile))
 							if retryErr != nil {
 								releaseEnvironmentProfileLeaseFromRequest(budgetRetryReq)
 							} else {
@@ -6915,6 +6915,9 @@ func (s *GatewayService) buildUpstreamRequest(ctx context.Context, c *gin.Contex
 	}
 	if s.debugClaudeMimicEnabled() {
 		logClaudeMimicDebug(req, body, account, tokenType, mimicClaudeCode)
+	}
+	if tlsProfile := resolveClaudeEnvironmentTLSProfile(claudeEnvironmentProfile); tlsProfile != nil {
+		req = attachClaudeEnvironmentTLSProfileToRequest(req, tlsProfile)
 	}
 	return attachEnvironmentProfileLeaseToRequest(req, claudeEnvironmentProfileLease), body, nil
 }
