@@ -408,8 +408,8 @@ func TestFetchAndUpdatePersistsCodexOnlyWhenClaudeFails(t *testing.T) {
 
 func TestBootstrapFromDBRestoresPersistedVersions(t *testing.T) {
 	repo := newMemorySettingRepo()
-	repo.Set(context.Background(), SettingKeyClaudeCLIVersion, `{"cli":"2.3.0","sdk":"0.96.0"}`)
-	repo.Set(context.Background(), SettingKeyCodexCLIVersion, "0.140.0")
+	require.NoError(t, repo.Set(context.Background(), SettingKeyClaudeCLIVersion, `{"cli":"2.3.0","sdk":"0.96.0"}`))
+	require.NoError(t, repo.Set(context.Background(), SettingKeyCodexCLIVersion, "0.140.0"))
 
 	registry := clientidentity.NewRegistry()
 	svc := NewVersionFetcherService(registry, &config.Config{}, repo)
