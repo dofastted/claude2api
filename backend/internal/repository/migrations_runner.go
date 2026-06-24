@@ -83,6 +83,9 @@ var migrationChecksumCompatibilityRules = map[string]migrationChecksumCompatibil
 	"002_account_type_migration.sql":     newMigrationChecksumCompatibilityRule("02fa8b90d345b288a0a1e3f2d5a8a3a569827d394f5ddae7bcadc1e7e95d89ea", "aad3816e44f58ff007ea4df8092aae580f3f85180314c1deb1b1054b20892bbf"),
 	"003_subscription.sql":               newMigrationChecksumCompatibilityRule("518aac1e666fb0358f9ac0252117795dfd08f98e4c68f2ae5c8513636a2d2a9f", "4642fcb1ccd7954b1d3eef8f795cfba2ce21431257346cc5a7568cde61a60b13"),
 	"052_migrate_upstream_to_apikey.sql": newMigrationChecksumCompatibilityRule("7662a2b3ace749ae153d9033fc4482fff40df198977a0fef38762afe85e0233f", "d2ea657ec24995664a8ddc1bfb9c3fe317646c7bcd12517dee8478bc6c36244a"),
+	// 038 与上述四个文件同属 9afaa312 命名清理：其首行注释及一处 owner 归一化 WHERE 条件由 sub2api 改为 claude2api，
+	// 改变了 trimmed-content checksum，但该迁移在历史库早已应用、不会重跑，故 schema/数据不受影响，仅需放行 checksum。
+	"038_ops_errors_resolution_retry_results_and_standardize_classification.sql": newMigrationChecksumCompatibilityRule("3281353a2e475fa22932b101160fc25bdaaaf4a6051ca5f4f974c21ec39b85a2", "4cc121d97c7f59e9def9397b7d0314d4dfbfe4cd831698359456dd49bf995ece"),
 }
 
 // ApplyMigrations 将嵌入的 SQL 迁移文件应用到指定的数据库。
