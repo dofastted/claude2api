@@ -77,6 +77,12 @@ var migrationChecksumCompatibilityRules = map[string]migrationChecksumCompatibil
 	"119_enforce_payment_orders_out_trade_no_unique.sql":      newMigrationChecksumCompatibilityRule("0bbe809ae48a9d811dabda1ba1c74955bd71c4a9cc610f9128816818dfa6c11e", "ebd2c67cce0116393fb4f1b5d5116a67c6aceb73820dfb5133d1ff6f36d72d34"),
 	"120_enforce_payment_orders_out_trade_no_unique_notx.sql": newMigrationChecksumCompatibilityRule("34aadc0db59a4e390f92a12b73bd74642d9724f33124f73638ae00089ea5e074", "e77921f79d539bc24575cb9c16cbe566d2b23ce816190343d0a7568f6a3fcf61", "707431450603e70a43ce9fbd61e0c12fa67da4875158ccefabacea069587ab22", "04b082b5a239c525154fe9185d324ee2b05ff90da9297e10dba19f9be79aa59a"),
 	"123_fix_legacy_auth_source_grant_on_signup_defaults.sql": newMigrationChecksumCompatibilityRule("2ce43c2cd89e9f9e1febd34a407ed9e84d177386c5544b6f02c1f58a21129f57", "6cd33422f215dcd1f486ab6f35c0ea5805d9ca69bb25906d94bc649156657145"),
+	// 仓库命名清理（Sub2API -> claude2api）仅改动迁移文件首行/注释文字，DDL 与 schema 完全不变；
+	// 旧库记录的是清理前 checksum，放行以兼容历史部署，避免要求人工修 checksum 或重建数据库。
+	"001_init.sql":                       newMigrationChecksumCompatibilityRule("dc7c7282d64c54248d21a39673c651f50529b712643f140e1c6150adccceb986", "9ba0369779484625edcea7a7d1d4582397e31546db9149b05004990a3f16c630"),
+	"002_account_type_migration.sql":     newMigrationChecksumCompatibilityRule("02fa8b90d345b288a0a1e3f2d5a8a3a569827d394f5ddae7bcadc1e7e95d89ea", "aad3816e44f58ff007ea4df8092aae580f3f85180314c1deb1b1054b20892bbf"),
+	"003_subscription.sql":               newMigrationChecksumCompatibilityRule("518aac1e666fb0358f9ac0252117795dfd08f98e4c68f2ae5c8513636a2d2a9f", "4642fcb1ccd7954b1d3eef8f795cfba2ce21431257346cc5a7568cde61a60b13"),
+	"052_migrate_upstream_to_apikey.sql": newMigrationChecksumCompatibilityRule("7662a2b3ace749ae153d9033fc4482fff40df198977a0fef38762afe85e0233f", "d2ea657ec24995664a8ddc1bfb9c3fe317646c7bcd12517dee8478bc6c36244a"),
 }
 
 // ApplyMigrations 将嵌入的 SQL 迁移文件应用到指定的数据库。
