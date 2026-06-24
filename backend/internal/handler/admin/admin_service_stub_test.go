@@ -660,6 +660,10 @@ func (s *stubAdminService) ResetClaudeEnvironmentProfile(ctx context.Context, id
 	return &service.Account{ID: id, Platform: service.PlatformAnthropic, Type: service.AccountTypeOAuth, Extra: map[string]any{}}, nil
 }
 
+func (s *stubAdminService) MigrateClaudeEnvironmentProfileToV2(ctx context.Context, id int64) (*service.Account, error) {
+	return &service.Account{ID: id, Platform: service.PlatformAnthropic, Type: service.AccountTypeOAuth, Extra: map[string]any{}}, nil
+}
+
 func (s *stubAdminService) UpdateCodexEnvironmentProfileSettings(ctx context.Context, id int64, updates map[string]any) (*service.Account, error) {
 	return &service.Account{ID: id, Platform: service.PlatformOpenAI, Type: service.AccountTypeOAuth, Extra: updates}, nil
 }

@@ -89,6 +89,7 @@ type AdminService interface {
 	UpdateClaudeEnvironmentProfile(ctx context.Context, id int64, profile *ClaudeEnvironmentProfile) (*Account, error)
 	UpdateClaudeEnvironmentProfileSlot(ctx context.Context, id int64, slot EnvironmentClass, overrides *ClaudeEnvironmentProfile) (*Account, error)
 	ResetClaudeEnvironmentProfile(ctx context.Context, id int64) (*Account, error)
+	MigrateClaudeEnvironmentProfileToV2(ctx context.Context, id int64) (*Account, error)
 	UpdateCodexEnvironmentProfileSettings(ctx context.Context, id int64, updates map[string]any) (*Account, error)
 	UpdateCodexEnvironmentProfile(ctx context.Context, id int64, profile *CodexEnvironmentProfile) (*Account, error)
 	UpdateCodexEnvironmentProfileSlot(ctx context.Context, id int64, slot EnvironmentClass, overrides *CodexEnvironmentProfile) (*Account, error)
@@ -3048,6 +3049,43 @@ func (s *adminServiceImpl) ResetClaudeEnvironmentProfile(ctx context.Context, id
 		return nil, err
 	}
 	slog.Info("claude_environment_profile_reset", "account_id", id)
+	return s.accountRepo.GetByID(ctx, id)
+}
+
+// MigrateClaudeEnvironmentProfileToV2 将账号的 legacy 环境 profile pool 原地升级为 schema v2，
+// 保留已有设备身份（client_id/device_id/session_seed）以维持上游指纹连续。已是 v2 则报错。
+func (s *adminServiceImpl) MigrateClaudeEnvironmentProfileToV2(ctx context.Context, id int64) (*Account, error) {
+	account, err := s.accountRepo.GetByID(ctx, id)
+	if err != nil {
+		return nil, err
+	}
+	if account == nil || !account.IsAnthropicOAuthOrSetupToken() {
+		return nil, errors.New("claude environment profile is only supported for Anthropic OAuth/SetupToken accounts")
+	}
+	pool, err := DecodeClaudeEnvironmentProfilePool(account.Extra[claudeEnvironmentProfilePoolKey])
+	if err != nil {
+		return nil, err
+	}
+	if pool == nil {
+		return nil, errors.New("claude environment profile pool not found; nothing to migrate")
+	}
+	if pool.IsV2() {
+		return nil, errors.New("claude environment profile pool is already v2")
+	}
+	upgraded := upgradeLegacyClaudePoolToV2(pool, claude.CLICurrentVersion)
+	if err := upgraded.Normalize(); err != nil {
+		return nil, err
+	}
+	// 清理可能存在的遗留单 profile 键，避免迁移后 legacy fallback 误触发。
+	if deleter, ok := s.accountRepo.(accountExtraKeyDeleter); ok {
+		if err := deleter.DeleteExtraKeys(ctx, id, []string{claudeEnvironmentProfileKey}); err != nil {
+			return nil, err
+		}
+	}
+	if err := s.accountRepo.UpdateExtra(ctx, id, map[string]any{claudeEnvironmentProfilePoolKey: upgraded}); err != nil {
+		return nil, err
+	}
+	slog.Info("claude_environment_profile_pool_migrated_v2", "account_id", id)
 	return s.accountRepo.GetByID(ctx, id)
 }
 

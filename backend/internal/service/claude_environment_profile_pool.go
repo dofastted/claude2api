@@ -316,6 +316,63 @@ func newFrozenClaudeEnvironmentProfilePool(cliVersion string) *ClaudeEnvironment
 	}
 }
 
+// upgradeLegacyClaudePoolToV2 将 legacy（auto_default_pool 等非 v2）pool 原地升级为 schema v2
+// 三 OS 槽位冻结 pool，并按 OS 复用 legacy 中已有的设备身份（client_id/device_id/session_seed），
+// 以维持上游指纹连续。legacy 中无对应 OS 身份的槽位保留模板新生成的身份。不修改入参 legacy。
+func upgradeLegacyClaudePoolToV2(legacy *ClaudeEnvironmentProfilePool, cliVersion string) *ClaudeEnvironmentProfilePool {
+	type preservedIdentity struct {
+		clientID    string
+		deviceID    string
+		sessionSeed string
+	}
+	// 按 OS 收集 legacy 身份（routeToSlot 归一到 windows/macos/linux，首个命中为准）。
+	identities := make(map[EnvironmentClass]preservedIdentity)
+	if legacy != nil {
+		for i := range legacy.Slots {
+			profile := legacy.Slots[i].Profile
+			if profile == nil {
+				continue
+			}
+			clientID := strings.TrimSpace(profile.ClientID)
+			deviceID := strings.TrimSpace(profile.DeviceID)
+			sessionSeed := strings.TrimSpace(profile.SessionSeed)
+			if clientID == "" || deviceID == "" || sessionSeed == "" {
+				continue
+			}
+			os := routeToSlot(legacy.Slots[i].Environment)
+			if _, exists := identities[os]; exists {
+				continue
+			}
+			identities[os] = preservedIdentity{clientID: clientID, deviceID: deviceID, sessionSeed: sessionSeed}
+		}
+	}
+
+	now := nowForEnvironmentProfilePool()
+	slots := make([]ClaudeEnvironmentProfileSlot, len(fixedClaudeEnvironmentSlotClasses))
+	for i, env := range fixedClaudeEnvironmentSlotClasses {
+		profile := buildFrozenClaudeEnvironmentProfileForSlot(env, cliVersion)
+		if id, ok := identities[env]; ok {
+			profile.ClientID = id.clientID
+			profile.DeviceID = id.deviceID
+			profile.SessionSeed = id.sessionSeed
+		}
+		slots[i] = ClaudeEnvironmentProfileSlot{
+			Slot:        i,
+			Environment: env,
+			State:       EnvironmentProfileSlotBound,
+			Profile:     profile,
+			CreatedAt:   now,
+			UpdatedAt:   now,
+		}
+	}
+	return &ClaudeEnvironmentProfilePool{
+		Schema:   claudeEnvironmentProfilePoolSchemaV2,
+		Version:  2,
+		Capacity: len(slots),
+		Slots:    slots,
+	}
+}
+
 // betaSetForCLIVersion 返回指定 CLI 版本对应的自洽 anthropic-beta 集合。
 // 当前对齐 FullClaudeCodeMimicryBetas；版本维度差异留待后续按版本细化。
 func betaSetForCLIVersion(cliVersion string) []string {

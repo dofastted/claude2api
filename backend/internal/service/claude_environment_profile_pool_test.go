@@ -179,3 +179,91 @@ func TestAcquireV2SlotConcurrentReuseSameSlot(t *testing.T) {
 	// v2 不占用 lease manager 的串行锁
 	require.Equal(t, 0, svc.claudeEnvironmentProfileSlotLeases.activeCount())
 }
+
+func TestUpgradeLegacyClaudePoolToV2PreservesIdentity(t *testing.T) {
+	// 构造 legacy pool：3 windows + 4 linux bound 槽位，各带模拟身份；3 个空槽。
+	winID := claudeProfilePoolTestIdentity("win")
+	linID := claudeProfilePoolTestIdentity("linux")
+	legacy := &ClaudeEnvironmentProfilePool{
+		Version:  1,
+		Capacity: 10,
+		Slots: []ClaudeEnvironmentProfileSlot{
+			{Slot: 0, Environment: EnvironmentClassWindows, State: EnvironmentProfileSlotBound, Profile: winID},
+			{Slot: 1, Environment: EnvironmentClassWindows, State: EnvironmentProfileSlotBound, Profile: claudeProfilePoolTestIdentity("win2")},
+			{Slot: 2, Environment: EnvironmentClassWindows, State: EnvironmentProfileSlotBound, Profile: claudeProfilePoolTestIdentity("win3")},
+			{Slot: 3, Environment: EnvironmentClassLinux, State: EnvironmentProfileSlotBound, Profile: linID},
+			{Slot: 4, Environment: EnvironmentClassLinux, State: EnvironmentProfileSlotBound, Profile: claudeProfilePoolTestIdentity("linux2")},
+			{Slot: 7, Environment: EnvironmentClassWindows, State: EnvironmentProfileSlotEmpty},
+		},
+	}
+
+	upgraded := upgradeLegacyClaudePoolToV2(legacy, "2.1.161")
+	require.NotNil(t, upgraded)
+	require.NoError(t, upgraded.Normalize())
+
+	// 结构对齐 v2：schema/version/capacity/3 槽
+	require.True(t, upgraded.IsV2())
+	require.Equal(t, "v2", upgraded.Schema)
+	require.Equal(t, 2, upgraded.Version)
+	require.Equal(t, 3, upgraded.Capacity)
+	require.Len(t, upgraded.Slots, 3)
+	require.Equal(t, EnvironmentClassWindows, upgraded.Slots[0].Environment)
+	require.Equal(t, EnvironmentClassMacOS, upgraded.Slots[1].Environment)
+	require.Equal(t, EnvironmentClassLinux, upgraded.Slots[2].Environment)
+
+	// 每槽均为 v2 冻结，且继承 tls/cache 模板字段
+	for i, slot := range upgraded.Slots {
+		require.NotNil(t, slot.Profile, "slot %d", i)
+		require.True(t, isV2ClaudeEnvironmentProfile(slot.Profile), "slot %d isV2", i)
+		require.Equal(t, "claude-cli-default", slot.Profile.TLSProfile, "slot %d tls", i)
+		require.Equal(t, claudeEnvironmentCachePolicyPreserveClient, slot.Profile.CachePolicy, "slot %d cache", i)
+	}
+
+	// windows 槽复用首个 windows 身份；linux 槽复用首个 linux 身份（指纹连续）
+	require.Equal(t, winID.ClientID, upgraded.Slots[0].Profile.ClientID)
+	require.Equal(t, winID.DeviceID, upgraded.Slots[0].Profile.DeviceID)
+	require.Equal(t, winID.SessionSeed, upgraded.Slots[0].Profile.SessionSeed)
+	require.Equal(t, linID.ClientID, upgraded.Slots[2].Profile.ClientID)
+	require.Equal(t, linID.DeviceID, upgraded.Slots[2].Profile.DeviceID)
+	require.Equal(t, linID.SessionSeed, upgraded.Slots[2].Profile.SessionSeed)
+
+	// macos 无 legacy 身份 → 新生成，非空且不等于其它槽
+	require.NotEmpty(t, upgraded.Slots[1].Profile.ClientID)
+	require.NotEmpty(t, upgraded.Slots[1].Profile.DeviceID)
+	require.NotEqual(t, winID.DeviceID, upgraded.Slots[1].Profile.DeviceID)
+	require.NotEqual(t, linID.DeviceID, upgraded.Slots[1].Profile.DeviceID)
+
+	// 不修改入参 legacy
+	require.Equal(t, winID.DeviceID, legacy.Slots[0].Profile.DeviceID)
+	require.False(t, legacy.IsV2())
+}
+
+func TestUpgradeLegacyClaudePoolToV2NoIdentitiesAllFresh(t *testing.T) {
+	// legacy 全空槽 → 升级后三槽均为模板新身份，仍是合法 v2 pool。
+	legacy := &ClaudeEnvironmentProfilePool{
+		Version:  1,
+		Capacity: 3,
+		Slots: []ClaudeEnvironmentProfileSlot{
+			{Slot: 0, Environment: EnvironmentClassWindows, State: EnvironmentProfileSlotEmpty},
+			{Slot: 1, Environment: EnvironmentClassLinux, State: EnvironmentProfileSlotEmpty},
+		},
+	}
+	upgraded := upgradeLegacyClaudePoolToV2(legacy, "2.1.161")
+	require.NoError(t, upgraded.Normalize())
+	require.True(t, upgraded.IsV2())
+	require.Len(t, upgraded.Slots, 3)
+	for i, slot := range upgraded.Slots {
+		require.True(t, isV2ClaudeEnvironmentProfile(slot.Profile), "slot %d", i)
+		require.NotEmpty(t, slot.Profile.DeviceID)
+	}
+}
+
+// claudeProfilePoolTestIdentity 生成带固定 client_id/device_id/session_seed 的最小 legacy profile。
+func claudeProfilePoolTestIdentity(tag string) *ClaudeEnvironmentProfile {
+	return &ClaudeEnvironmentProfile{
+		Source:      claudeEnvironmentProfileSourceAutoDefault,
+		ClientID:    "client-" + tag,
+		DeviceID:    "device-" + tag,
+		SessionSeed: "seed-" + tag,
+	}
+}

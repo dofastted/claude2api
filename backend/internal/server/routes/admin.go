@@ -308,6 +308,7 @@ func registerAccountRoutes(admin *gin.RouterGroup, h *handler.Handlers) {
 		accounts.PUT("/:id/claude-environment-profile", h.Admin.Account.UpdateClaudeEnvironmentProfile)
 		accounts.PUT("/:id/claude-environment-profile/slot", h.Admin.Account.UpdateClaudeEnvironmentProfileSlot)
 		accounts.POST("/:id/claude-environment-profile/reset", h.Admin.Account.ResetClaudeEnvironmentProfile)
+		accounts.POST("/:id/claude-environment-profile/migrate-v2", h.Admin.Account.MigrateClaudeEnvironmentProfileToV2)
 		accounts.PUT("/:id/codex-environment-profile/settings", h.Admin.Account.UpdateCodexEnvironmentProfileSettings)
 		accounts.PUT("/:id/codex-environment-profile", h.Admin.Account.UpdateCodexEnvironmentProfile)
 		accounts.PUT("/:id/codex-environment-profile/slot", h.Admin.Account.UpdateCodexEnvironmentProfileSlot)
