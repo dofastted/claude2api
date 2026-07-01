@@ -1,0 +1,145 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1200 680" role="img" aria-labelledby="title desc">
+  <title id="title">claude2api architecture</title>
+  <desc id="desc">Dark technology style architecture diagram showing clients forwarding requests through the claude2api gateway to upstream providers.</desc>
+
+  <defs>
+    <linearGradient id="bgGradient" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0%" stop-color="#0f172a"/>
+      <stop offset="52%" stop-color="#111827"/>
+      <stop offset="100%" stop-color="#020617"/>
+    </linearGradient>
+    <linearGradient id="panelGradient" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0%" stop-color="#172554" stop-opacity="0.72"/>
+      <stop offset="100%" stop-color="#020617" stop-opacity="0.88"/>
+    </linearGradient>
+    <linearGradient id="gatewayGradient" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0%" stop-color="#312e81" stop-opacity="0.82"/>
+      <stop offset="55%" stop-color="#0f172a" stop-opacity="0.9"/>
+      <stop offset="100%" stop-color="#083344" stop-opacity="0.76"/>
+    </linearGradient>
+    <filter id="softGlow" x="-30%" y="-30%" width="160%" height="160%">
+      <feGaussianBlur stdDeviation="5" result="blur"/>
+      <feMerge>
+        <feMergeNode in="blur"/>
+        <feMergeNode in="SourceGraphic"/>
+      </feMerge>
+    </filter>
+    <marker id="arrowHead" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="9" markerHeight="9" orient="auto-start-reverse">
+      <path d="M 0 1 L 9 5 L 0 9 Z" fill="#22d3ee"/>
+    </marker>
+    <style>
+      text {
+        font-family: system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+      }
+      .label {
+        fill: #e5e7eb;
+        font-size: 25px;
+        font-weight: 650;
+      }
+      .small {
+        fill: #cbd5e1;
+        font-size: 18px;
+        font-weight: 500;
+      }
+      .section-title {
+        fill: #f8fafc;
+        font-size: 28px;
+        font-weight: 750;
+      }
+      .tag-text {
+        fill: #dbeafe;
+        font-size: 18px;
+        font-weight: 620;
+      }
+      .muted {
+        fill: #94a3b8;
+        font-size: 15px;
+        font-weight: 520;
+        letter-spacing: 0.4px;
+      }
+    </style>
+  </defs>
+
+  <rect width="1200" height="680" fill="url(#bgGradient)"/>
+
+  <g opacity="0.45">
+    <path d="M 0 88 H 1200 M 0 176 H 1200 M 0 264 H 1200 M 0 352 H 1200 M 0 440 H 1200 M 0 528 H 1200" stroke="#1e293b" stroke-width="1"/>
+    <path d="M 100 0 V 580 M 220 0 V 580 M 340 0 V 580 M 460 0 V 580 M 580 0 V 580 M 700 0 V 580 M 820 0 V 580 M 940 0 V 580 M 1060 0 V 580" stroke="#1e293b" stroke-width="1"/>
+  </g>
+
+  <circle cx="208" cy="122" r="122" fill="#2563eb" opacity="0.09"/>
+  <circle cx="606" cy="272" r="154" fill="#22d3ee" opacity="0.07"/>
+  <circle cx="1008" cy="144" r="126" fill="#6366f1" opacity="0.1"/>
+
+  <g transform="translate(70 118)">
+    <rect x="0" y="0" width="300" height="310" rx="26" fill="url(#panelGradient)" stroke="#6366f1" stroke-width="2"/>
+    <rect x="18" y="18" width="264" height="52" rx="16" fill="#0f172a" stroke="#22d3ee" stroke-width="1.2" opacity="0.92"/>
+    <text x="150" y="53" text-anchor="middle" class="section-title">客户端</text>
+
+    <rect x="34" y="102" width="232" height="46" rx="14" fill="#111827" stroke="#334155" stroke-width="1.2"/>
+    <text x="150" y="133" text-anchor="middle" class="label">Claude Code</text>
+
+    <rect x="34" y="162" width="232" height="46" rx="14" fill="#111827" stroke="#334155" stroke-width="1.2"/>
+    <text x="150" y="193" text-anchor="middle" class="label">Codex CLI</text>
+
+    <rect x="34" y="222" width="232" height="46" rx="14" fill="#111827" stroke="#334155" stroke-width="1.2"/>
+    <text x="150" y="253" text-anchor="middle" class="label">Gemini CLI</text>
+
+    <text x="150" y="292" text-anchor="middle" class="small">其他 OpenAI / Anthropic</text>
+    <text x="150" y="316" text-anchor="middle" class="small">兼容客户端</text>
+  </g>
+
+  <g transform="translate(444 86)">
+    <rect x="0" y="0" width="312" height="374" rx="30" fill="url(#gatewayGradient)" stroke="#22d3ee" stroke-width="2.4" filter="url(#softGlow)"/>
+    <rect x="22" y="24" width="268" height="60" rx="18" fill="#020617" stroke="#6366f1" stroke-width="1.5" opacity="0.96"/>
+    <text x="156" y="63" text-anchor="middle" class="section-title">claude2api 网关</text>
+
+    <text x="42" y="126" class="muted">BACKEND</text>
+    <rect x="38" y="140" width="236" height="42" rx="13" fill="#172554" stroke="#60a5fa" stroke-width="1.1"/>
+    <text x="156" y="167" text-anchor="middle" class="tag-text">Go · Gin · Ent</text>
+
+    <text x="42" y="216" class="muted">FRONTEND</text>
+    <rect x="38" y="230" width="236" height="42" rx="13" fill="#1e1b4b" stroke="#818cf8" stroke-width="1.1"/>
+    <text x="156" y="257" text-anchor="middle" class="tag-text">Vue 3 · Vite · Tailwind · Pinia</text>
+
+    <g transform="translate(38 304)">
+      <rect x="0" y="0" width="112" height="44" rx="13" fill="#052e2b" stroke="#2dd4bf" stroke-width="1.1"/>
+      <text x="56" y="29" text-anchor="middle" class="tag-text">PostgreSQL</text>
+      <rect x="124" y="0" width="112" height="44" rx="13" fill="#431407" stroke="#fb923c" stroke-width="1.1"/>
+      <text x="180" y="29" text-anchor="middle" class="tag-text">Redis</text>
+    </g>
+  </g>
+
+  <g transform="translate(830 118)">
+    <rect x="0" y="0" width="300" height="310" rx="26" fill="url(#panelGradient)" stroke="#6366f1" stroke-width="2"/>
+    <rect x="18" y="18" width="264" height="52" rx="16" fill="#0f172a" stroke="#22d3ee" stroke-width="1.2" opacity="0.92"/>
+    <text x="150" y="53" text-anchor="middle" class="section-title">上游服务</text>
+
+    <rect x="42" y="102" width="216" height="42" rx="14" fill="#111827" stroke="#334155" stroke-width="1.2"/>
+    <text x="150" y="130" text-anchor="middle" class="label">Anthropic</text>
+
+    <rect x="42" y="154" width="216" height="42" rx="14" fill="#111827" stroke="#334155" stroke-width="1.2"/>
+    <text x="150" y="182" text-anchor="middle" class="label">OpenAI</text>
+
+    <rect x="42" y="206" width="216" height="42" rx="14" fill="#111827" stroke="#334155" stroke-width="1.2"/>
+    <text x="150" y="234" text-anchor="middle" class="label">Gemini</text>
+
+    <rect x="42" y="258" width="216" height="42" rx="14" fill="#111827" stroke="#334155" stroke-width="1.2"/>
+    <text x="150" y="286" text-anchor="middle" class="label">Antigravity</text>
+  </g>
+
+  <g stroke="#22d3ee" stroke-width="2.2" fill="none" stroke-linecap="round" stroke-linejoin="round" opacity="0.95">
+    <path d="M 374 273 C 400 273, 414 273, 440 273" marker-end="url(#arrowHead)"/>
+    <path d="M 760 273 C 790 273, 798 273, 826 273" marker-end="url(#arrowHead)"/>
+  </g>
+
+  <g opacity="0.7">
+    <text x="407" y="250" text-anchor="middle" fill="#67e8f9" font-size="15" font-weight="650">请求</text>
+    <text x="794" y="250" text-anchor="middle" fill="#67e8f9" font-size="15" font-weight="650">转发</text>
+  </g>
+
+  <rect x="0" y="556" width="1200" height="124" fill="#020617" opacity="0.88"/>
+  <line x1="70" y1="556" x2="1130" y2="556" stroke="#22d3ee" stroke-width="1.4" opacity="0.6"/>
+  <rect x="196" y="590" width="808" height="54" rx="18" fill="#0f172a" stroke="#f97316" stroke-width="1.2" opacity="0.92"/>
+  <text x="600" y="625" text-anchor="middle" fill="#22d3ee" font-size="25" font-weight="760" font-family="system-ui, -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif">赞助支持 · API中转站 · https://www.fkcodex.com</text>
+</svg>
