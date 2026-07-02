@@ -136,6 +136,7 @@ func (s *proxyProbeService) parseIPAPI(body []byte, latencyMs int64) (*service.P
 		RegionName  string `json:"regionName"`
 		Country     string `json:"country"`
 		CountryCode string `json:"countryCode"`
+		Timezone    string `json:"timezone"`
 	}
 
 	if err := json.Unmarshal(body, &ipInfo); err != nil {
@@ -161,7 +162,10 @@ func (s *proxyProbeService) parseIPAPI(body []byte, latencyMs int64) (*service.P
 		City:        ipInfo.City,
 		Region:      region,
 		Country:     ipInfo.Country,
-		CountryCode: ipInfo.CountryCode,
+		CountryCode: strings.ToUpper(strings.TrimSpace(ipInfo.CountryCode)),
+		Timezone:    service.NormalizeEnvironmentProfileTimezoneForCountry(ipInfo.Timezone, ipInfo.CountryCode),
+		Source:      "ip-api",
+		ObservedAt:  time.Now().UTC(),
 	}, latencyMs, nil
 }
 
@@ -177,6 +181,8 @@ func (s *proxyProbeService) parseHTTPBin(body []byte, latencyMs int64) (*service
 		return nil, latencyMs, fmt.Errorf("httpbin: no IP found in response")
 	}
 	return &service.ProxyExitInfo{
-		IP: result.Origin,
+		IP:         result.Origin,
+		Source:     "httpbin",
+		ObservedAt: time.Now().UTC(),
 	}, latencyMs, nil
 }

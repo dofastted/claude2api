@@ -1220,6 +1220,9 @@ func (s *OpenAIGatewayService) buildOpenAIWSCreatePayload(reqBody map[string]any
 		payload[k] = v
 	}
 
+	if account != nil && account.Type == AccountTypeOAuth {
+		sanitizeOAuthRequestMap(payload)
+	}
 	delete(payload, "background")
 	if _, exists := payload["stream"]; !exists {
 		payload["stream"] = true
@@ -1258,6 +1261,9 @@ func setOpenAIWSClientMetadata(payload map[string]any, meta codexProfileRequestM
 			return false
 		}
 		payload["client_metadata"] = clientMetadata
+		changed = true
+	}
+	if sanitizeOAuthMetadataMap(clientMetadata) {
 		changed = true
 	}
 	setString := func(key, value string, override bool) {

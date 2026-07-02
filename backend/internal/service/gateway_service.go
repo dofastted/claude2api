@@ -13,7 +13,6 @@ import (
 	mathrand "math/rand"
 	"net"
 	"net/http"
-	"net/url"
 	"os"
 	"path/filepath"
 	"regexp"
@@ -654,6 +653,7 @@ type GatewayService struct {
 	balanceNotifyService               *BalanceNotifyService
 	userPlatformQuotaRepo              UserPlatformQuotaRepository
 	identityRegistry                   *clientidentity.Registry
+	profileTimezoneResolver            *EnvironmentProfileTimezoneResolver
 }
 
 // NewGatewayService creates a new GatewayService
@@ -686,6 +686,7 @@ func NewGatewayService(
 	balanceNotifyService *BalanceNotifyService,
 	userPlatformQuotaRepo UserPlatformQuotaRepository,
 	identityRegistry *clientidentity.Registry,
+	profileTimezoneResolvers ...*EnvironmentProfileTimezoneResolver,
 ) *GatewayService {
 	userGroupRateTTL := resolveUserGroupRateCacheTTL(cfg)
 	modelsListTTL := resolveModelsListCacheTTL(cfg)
@@ -693,6 +694,10 @@ func NewGatewayService(
 		identityRegistry = clientidentity.NewRegistry()
 	}
 
+	var profileTimezoneResolver *EnvironmentProfileTimezoneResolver
+	if len(profileTimezoneResolvers) > 0 {
+		profileTimezoneResolver = profileTimezoneResolvers[0]
+	}
 	svc := &GatewayService{
 		accountRepo:                        accountRepo,
 		groupRepo:                          groupRepo,
@@ -727,6 +732,7 @@ func NewGatewayService(
 		userPlatformQuotaRepo:              userPlatformQuotaRepo,
 		identityRegistry:                   identityRegistry,
 		claudeEnvironmentProfileSlotLeases: NewEnvironmentProfileSlotLeaseManager(),
+		profileTimezoneResolver:            profileTimezoneResolver,
 	}
 	svc.userGroupRateResolver = newUserGroupRateResolver(
 		userGroupRateRepo,
@@ -741,6 +747,20 @@ func NewGatewayService(
 		svc.initDebugGatewayBodyFile(path)
 	}
 	return svc
+}
+
+func (s *GatewayService) resolveProfileTimezone(ctx context.Context, account *Account) string {
+	resolver := (*EnvironmentProfileTimezoneResolver)(nil)
+	if s != nil {
+		resolver = s.profileTimezoneResolver
+	}
+	if resolver == nil {
+		resolver = DefaultEnvironmentProfileTimezoneResolver()
+	}
+	if resolver == nil {
+		return EnvironmentProfileFallbackTimezone
+	}
+	return resolver.Resolve(ctx, account)
 }
 
 func (s *GatewayService) claudeCLIVersion() string {
@@ -4992,12 +5012,10 @@ func (s *GatewayService) Forward(ctx context.Context, c *gin.Context, account *A
 		return nil, err
 	}
 
-	// 获取代理URL（自定义 base URL 模式下，proxy 通过 buildCustomRelayURL 作为查询参数传递）
+	// 获取代理URL；OAuth/SetupToken 始终使用官方 Anthropic 上游，代理只影响服务端出站。
 	proxyURL := ""
 	if account.ProxyID != nil && account.Proxy != nil {
-		if !account.IsCustomBaseURLEnabled() || account.GetCustomBaseURL() == "" {
-			proxyURL = account.Proxy.URL()
-		}
+		proxyURL = account.Proxy.URL()
 	}
 
 	// Legacy TLS profile is used only when no request environment profile is active.
@@ -6724,16 +6742,6 @@ func (s *GatewayService) buildUpstreamRequest(ctx context.Context, c *gin.Contex
 			}
 			targetURL = validatedURL + "/v1/messages?beta=true"
 		}
-	} else if account.IsCustomBaseURLEnabled() {
-		customURL := account.GetCustomBaseURL()
-		if customURL == "" {
-			return nil, nil, fmt.Errorf("custom_base_url is enabled but not configured for account %d", account.ID)
-		}
-		validatedURL, err := s.validateUpstreamBaseURL(customURL)
-		if err != nil {
-			return nil, nil, err
-		}
-		targetURL = s.buildCustomRelayURL(validatedURL, "/v1/messages", account)
 	}
 
 	clientHeaders := http.Header{}
@@ -6814,6 +6822,9 @@ func (s *GatewayService) buildUpstreamRequest(ctx context.Context, c *gin.Contex
 
 	if next := rewriteCacheControlForClaudeEnvironmentProfile(claudeEnvironmentProfile, body); len(next) > 0 {
 		body = next
+	}
+	if tokenType == "oauth" {
+		body = sanitizeOAuthJSONBody(body)
 	}
 
 	// 能力维度 body sanitize：与最终 anthropic-beta header 对称
@@ -9984,12 +9995,10 @@ func (s *GatewayService) ForwardCountTokens(ctx context.Context, c *gin.Context,
 	// 先记录首发 wire body；如果后面进入 400 retry，retry 会基于未签名的逻辑 body 重新构建。
 	acceptedWireBody := wireBody
 
-	// 获取代理URL（自定义 base URL 模式下，proxy 通过 buildCustomRelayURL 作为查询参数传递）
+	// 获取代理URL；OAuth/SetupToken 始终使用官方 Anthropic 上游，代理只影响服务端出站。
 	proxyURL := ""
 	if account.ProxyID != nil && account.Proxy != nil {
-		if !account.IsCustomBaseURLEnabled() || account.GetCustomBaseURL() == "" {
-			proxyURL = account.Proxy.URL()
-		}
+		proxyURL = account.Proxy.URL()
 	}
 
 	// 发送请求
@@ -10294,16 +10303,6 @@ func (s *GatewayService) buildCountTokensRequest(ctx context.Context, c *gin.Con
 			}
 			targetURL = validatedURL + "/v1/messages/count_tokens?beta=true"
 		}
-	} else if account.IsCustomBaseURLEnabled() {
-		customURL := account.GetCustomBaseURL()
-		if customURL == "" {
-			return nil, nil, fmt.Errorf("custom_base_url is enabled but not configured for account %d", account.ID)
-		}
-		validatedURL, err := s.validateUpstreamBaseURL(customURL)
-		if err != nil {
-			return nil, nil, err
-		}
-		targetURL = s.buildCustomRelayURL(validatedURL, "/v1/messages/count_tokens", account)
 	}
 
 	clientHeaders := http.Header{}
@@ -10370,6 +10369,9 @@ func (s *GatewayService) buildCountTokensRequest(ctx context.Context, c *gin.Con
 
 	if next := rewriteCacheControlForClaudeEnvironmentProfile(ctClaudeEnvironmentProfile, body); len(next) > 0 {
 		body = next
+	}
+	if tokenType == "oauth" {
+		body = sanitizeOAuthJSONBody(body)
 	}
 
 	// 能力维度 body sanitize：与最终 anthropic-beta header 对称
@@ -10487,19 +10489,6 @@ func (s *GatewayService) countTokensError(c *gin.Context, status int, errType, m
 			"message": message,
 		},
 	})
-}
-
-// buildCustomRelayURL 构建自定义中继转发 URL
-// 在 path 后附加 beta=true 和可选的 proxy 查询参数
-func (s *GatewayService) buildCustomRelayURL(baseURL, path string, account *Account) string {
-	u := strings.TrimRight(baseURL, "/") + path + "?beta=true"
-	if account.ProxyID != nil && account.Proxy != nil {
-		proxyURL := account.Proxy.URL()
-		if proxyURL != "" {
-			u += "&proxy=" + url.QueryEscape(proxyURL)
-		}
-	}
-	return u
 }
 
 func (s *GatewayService) validateUpstreamBaseURL(raw string) (string, error) {

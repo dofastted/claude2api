@@ -55,6 +55,7 @@ type ClaudeEnvironmentProfile struct {
 	Runtime               string             `json:"runtime"`
 	RuntimeVersion        string             `json:"runtime_version"`
 	ClientType            string             `json:"client_type"`
+	Timezone              string             `json:"timezone"`
 	Headers               map[string]string  `json:"headers"`
 	BetaSet               []string           `json:"beta_set,omitempty"`
 	TLSProfile            string             `json:"tls_profile,omitempty"`
@@ -92,6 +93,7 @@ func DecodeClaudeEnvironmentProfile(raw any) (*ClaudeEnvironmentProfile, error) 
 	if strings.TrimSpace(string(profile.Family)) == "" && strings.TrimSpace(profile.UserAgent) == "" {
 		return nil, nil
 	}
+	profile.Timezone = NormalizeEnvironmentProfileTimezone(profile.Timezone)
 	return &profile, nil
 }
 
@@ -123,6 +125,7 @@ func ValidateClaudeEnvironmentProfile(profile *ClaudeEnvironmentProfile) error {
 	if strings.TrimSpace(profile.CachePolicy) == "" {
 		profile.CachePolicy = claudeEnvironmentCachePolicyPreserveClient
 	}
+	profile.Timezone = NormalizeEnvironmentProfileTimezone(profile.Timezone)
 	return nil
 }
 
@@ -145,6 +148,7 @@ func defaultClaudeCodeEnvironmentProfile(identityRegistry *clientidentity.Regist
 		Runtime:         "node",
 		RuntimeVersion:  strings.TrimPrefix(headers["X-Stainless-Runtime-Version"], "v"),
 		ClientType:      "cli",
+		Timezone:        EnvironmentProfileFallbackTimezone,
 		Headers:         map[string]string{},
 		TLSProfile:      tlsfingerprint.ProfileNameClaudeCLIDefault,
 		CachePolicy:     claudeEnvironmentCachePolicyPreserveClient,
@@ -203,6 +207,7 @@ func applyClaudeTelemetryContext(profile *ClaudeEnvironmentProfile, account *Acc
 		"app.version":    strings.TrimSpace(profile.ClientVersion),
 		"app.entrypoint": "cli",
 		"terminal.type":  profile.TerminalType,
+		"timezone":       NormalizeEnvironmentProfileTimezone(profile.Timezone),
 	}
 	if orgID := account.GetClaudeOrganizationID(); orgID != "" {
 		attrs["organization.id"] = orgID
@@ -404,6 +409,7 @@ func learnDesktopClaudeEnvironmentProfile(headers http.Header) *ClaudeEnvironmen
 		Runtime:         strings.ToLower(runtime),
 		RuntimeVersion:  runtimeVersion,
 		ClientType:      strings.TrimSpace(headers.Get("Anthropic-Client-Type")),
+		Timezone:        EnvironmentProfileFallbackTimezone,
 		Headers:         filterClaudeEnvironmentProfileHeaders(headers),
 		TelemetryPolicy: claudeEnvironmentTelemetryPolicyLocalAck,
 		TerminalType:    claudeTerminalTypeForProfile(strings.ToLower(platform), ClaudeClientFamilyDesktop),
@@ -418,7 +424,7 @@ func filterClaudeEnvironmentProfileHeaders(headers http.Header) map[string]strin
 	filtered := make(map[string]string)
 	for key, values := range headers {
 		canonicalKey := strings.ToLower(strings.TrimSpace(key))
-		if canonicalKey == "" || isSensitiveClaudeCodeHeader(canonicalKey) || !isClaudeEnvironmentHeaderAllowed(canonicalKey) {
+		if canonicalKey == "" || isSensitiveClaudeCodeHeader(canonicalKey) || isBlockedOAuthHeaderField(canonicalKey) || !isClaudeEnvironmentHeaderAllowed(canonicalKey) {
 			continue
 		}
 		value := strings.TrimSpace(firstNonEmptyHeaderValue(values))
@@ -447,6 +453,7 @@ func (s *GatewayService) getOrCreateClaudeEnvironmentProfile(ctx context.Context
 		return nil, nil
 	}
 	if profile, ok := account.GetClaudeEnvironmentProfile(); ok {
+		profile.Timezone = s.resolveProfileTimezone(ctx, account)
 		s.logClaudeEnvironmentFamilyMismatch(account, profile, classifyClaudeClientFamily(headers, body))
 		return profile, nil
 	}
@@ -456,12 +463,14 @@ func (s *GatewayService) getOrCreateClaudeEnvironmentProfile(ctx context.Context
 			fresh, freshErr := s.accountRepo.GetByID(ctx, account.ID)
 			if freshErr == nil && fresh != nil {
 				if profile, ok := fresh.GetClaudeEnvironmentProfile(); ok {
+					profile.Timezone = s.resolveProfileTimezone(ctx, fresh)
 					s.logClaudeEnvironmentFamilyMismatch(account, profile, classifyClaudeClientFamily(headers, body))
 					return profile, nil
 				}
 			}
 		}
 		profile := s.buildInitialClaudeEnvironmentProfile(account, headers, body)
+		profile.Timezone = s.resolveProfileTimezone(ctx, account)
 		applyStableClaudeTelemetryIdentity(profile, account.ID, string(routeToSlot(DetectClaudeEnvironmentClass(headers, body))))
 		if err := ValidateClaudeEnvironmentProfile(profile); err != nil {
 			return nil, err
@@ -517,7 +526,7 @@ func (s *GatewayService) applyClaudeEnvironmentProfile(req *http.Request, accoun
 	for key, value := range profile.Headers {
 		key = strings.ToLower(strings.TrimSpace(key))
 		value = strings.TrimSpace(value)
-		if key == "" || value == "" || isSensitiveClaudeCodeHeader(key) || !isClaudeEnvironmentHeaderAllowed(key) {
+		if key == "" || value == "" || isSensitiveClaudeCodeHeader(key) || isBlockedOAuthHeaderField(key) || !isClaudeEnvironmentHeaderAllowed(key) {
 			continue
 		}
 		setHeaderRaw(req.Header, resolveWireCasing(key), value)

@@ -1,0 +1,377 @@
+package service
+
+import (
+	"context"
+	"encoding/json"
+	"log/slog"
+	"strings"
+	"sync"
+	"time"
+
+	"github.com/dofastted/claude2api/internal/config"
+)
+
+const EnvironmentProfileFallbackTimezone = "America/Los_Angeles"
+
+const environmentProfileTimezoneCacheTTL = time.Hour
+
+var defaultEnvironmentProfileTimezoneResolver struct {
+	mu       sync.RWMutex
+	resolver *EnvironmentProfileTimezoneResolver
+}
+
+func DefaultEnvironmentProfileTimezoneResolver() *EnvironmentProfileTimezoneResolver {
+	defaultEnvironmentProfileTimezoneResolver.mu.RLock()
+	defer defaultEnvironmentProfileTimezoneResolver.mu.RUnlock()
+	return defaultEnvironmentProfileTimezoneResolver.resolver
+}
+
+func setDefaultEnvironmentProfileTimezoneResolver(resolver *EnvironmentProfileTimezoneResolver) {
+	if resolver == nil || resolver.prober == nil {
+		return
+	}
+	defaultEnvironmentProfileTimezoneResolver.mu.Lock()
+	defer defaultEnvironmentProfileTimezoneResolver.mu.Unlock()
+	defaultEnvironmentProfileTimezoneResolver.resolver = resolver
+}
+
+type environmentProfileTimezoneCacheEntry struct {
+	timezone  string
+	expiresAt time.Time
+}
+
+type EnvironmentProfileTimezoneResolver struct {
+	prober ProxyExitInfoProber
+	cfg    *config.Config
+
+	mu    sync.Mutex
+	cache map[string]environmentProfileTimezoneCacheEntry
+}
+
+func NewEnvironmentProfileTimezoneResolver(prober ProxyExitInfoProber, cfg *config.Config) *EnvironmentProfileTimezoneResolver {
+	resolver := &EnvironmentProfileTimezoneResolver{
+		prober: prober,
+		cfg:    cfg,
+		cache:  map[string]environmentProfileTimezoneCacheEntry{},
+	}
+	setDefaultEnvironmentProfileTimezoneResolver(resolver)
+	if prober != nil {
+		go resolver.WarmDirect(context.Background())
+	}
+	return resolver
+}
+
+func (r *EnvironmentProfileTimezoneResolver) WarmDirect(ctx context.Context) {
+	if r == nil {
+		return
+	}
+	_ = r.Resolve(ctx, nil)
+}
+
+func (r *EnvironmentProfileTimezoneResolver) Resolve(ctx context.Context, account *Account) string {
+	if r == nil || r.prober == nil {
+		return EnvironmentProfileFallbackTimezone
+	}
+	proxyURL := r.effectiveProxyURL(account)
+	cacheKey := proxyURL
+	if cacheKey == "" {
+		cacheKey = "direct"
+	}
+	if cached, ok := r.cached(cacheKey); ok {
+		return cached
+	}
+	info, _, err := r.prober.ProbeProxy(ctx, proxyURL)
+	if err != nil {
+		slog.Warn("environment_profile_timezone_probe_failed", "proxy_key", cacheKey, "error", err)
+		return r.store(cacheKey, EnvironmentProfileFallbackTimezone)
+	}
+	timezone := EnvironmentProfileFallbackTimezone
+	if info != nil {
+		timezone = NormalizeEnvironmentProfileTimezoneForCountry(info.Timezone, info.CountryCode)
+		if timezone == EnvironmentProfileFallbackTimezone && strings.TrimSpace(info.Timezone) != "" {
+			slog.Warn("environment_profile_timezone_normalized_to_fallback", "proxy_key", cacheKey, "source", info.Source, "country_code", info.CountryCode, "timezone", info.Timezone)
+		}
+	}
+	return r.store(cacheKey, timezone)
+}
+
+func (r *EnvironmentProfileTimezoneResolver) effectiveProxyURL(account *Account) string {
+	if r != nil && r.cfg != nil {
+		if global := strings.TrimSpace(r.cfg.Gateway.GlobalProxyURL); global != "" {
+			return global
+		}
+	}
+	if account != nil && account.ProxyID != nil && account.Proxy != nil {
+		return strings.TrimSpace(account.Proxy.URL())
+	}
+	return ""
+}
+
+func (r *EnvironmentProfileTimezoneResolver) cached(key string) (string, bool) {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	entry, ok := r.cache[key]
+	if !ok || time.Now().UTC().After(entry.expiresAt) {
+		return "", false
+	}
+	return entry.timezone, true
+}
+
+func (r *EnvironmentProfileTimezoneResolver) store(key, timezone string) string {
+	timezone = NormalizeEnvironmentProfileTimezone(timezone)
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	r.cache[key] = environmentProfileTimezoneCacheEntry{
+		timezone:  timezone,
+		expiresAt: time.Now().UTC().Add(environmentProfileTimezoneCacheTTL),
+	}
+	return timezone
+}
+
+func NormalizeEnvironmentProfileTimezone(timezone string) string {
+	return NormalizeEnvironmentProfileTimezoneForCountry(timezone, "")
+}
+
+func NormalizeEnvironmentProfileTimezoneForCountry(timezone, countryCode string) string {
+	timezone = strings.TrimSpace(timezone)
+	if timezone == "" || IsChinaEnvironmentProfileTimezone(timezone, countryCode) {
+		return EnvironmentProfileFallbackTimezone
+	}
+	if timezone == "Local" {
+		return EnvironmentProfileFallbackTimezone
+	}
+	if _, err := time.LoadLocation(timezone); err != nil {
+		return EnvironmentProfileFallbackTimezone
+	}
+	return timezone
+}
+
+func IsChinaEnvironmentProfileTimezone(timezone, countryCode string) bool {
+	if strings.EqualFold(strings.TrimSpace(countryCode), "CN") {
+		return true
+	}
+	switch strings.ToLower(strings.TrimSpace(timezone)) {
+	case "asia/shanghai", "asia/chongqing", "asia/chungking", "asia/harbin", "asia/urumqi", "asia/kashgar", "prc", "china":
+		return true
+	default:
+		return false
+	}
+}
+
+func sanitizeOAuthJSONBody(body []byte) []byte {
+	if len(body) == 0 || !json.Valid(body) {
+		return body
+	}
+	var payload map[string]any
+	if err := json.Unmarshal(body, &payload); err != nil {
+		return body
+	}
+	if !sanitizeOAuthRequestMap(payload) {
+		return body
+	}
+	next, err := json.Marshal(payload)
+	if err != nil {
+		return body
+	}
+	return next
+}
+
+func sanitizeOAuthRequestMap(payload map[string]any) bool {
+	if payload == nil {
+		return false
+	}
+	changed := sanitizeBlockedOAuthKeys(payload)
+	for _, key := range []string{"metadata", "client_metadata", "credential_extras", "credentials"} {
+		if child, ok := mapAny(payload[key]); ok {
+			if sanitizeBlockedOAuthKeysRecursive(child) {
+				payload[key] = child
+				changed = true
+			}
+		}
+	}
+	return changed
+}
+
+func sanitizeOAuthMetadataMap(metadata map[string]any) bool {
+	return sanitizeBlockedOAuthKeysRecursive(metadata)
+}
+
+func sanitizeCodexTurnMetadataString(raw string) string {
+	trimmed := strings.TrimSpace(raw)
+	if trimmed == "" {
+		return ""
+	}
+	var payload map[string]any
+	if err := json.Unmarshal([]byte(trimmed), &payload); err != nil {
+		if containsBlockedOAuthKeyText(trimmed) {
+			return ""
+		}
+		return trimmed
+	}
+	if !sanitizeBlockedOAuthKeysRecursive(payload) {
+		return trimmed
+	}
+	next, err := json.Marshal(payload)
+	if err != nil {
+		return ""
+	}
+	return string(next)
+}
+
+func sanitizeBlockedOAuthKeys(payload map[string]any) bool {
+	if payload == nil {
+		return false
+	}
+	changed := false
+	for key := range payload {
+		if isBlockedOAuthClientField(key) {
+			delete(payload, key)
+			changed = true
+		}
+	}
+	return changed
+}
+
+func sanitizeBlockedOAuthKeysRecursive(payload map[string]any) bool {
+	if payload == nil {
+		return false
+	}
+	changed := sanitizeBlockedOAuthKeys(payload)
+	for key, value := range payload {
+		if child, ok := mapAny(value); ok {
+			if sanitizeBlockedOAuthKeysRecursive(child) {
+				payload[key] = child
+				changed = true
+			}
+			continue
+		}
+		if values, ok := value.([]any); ok {
+			if sanitizeBlockedOAuthValueList(values) {
+				payload[key] = values
+				changed = true
+			}
+		}
+	}
+	return changed
+}
+
+func sanitizeBlockedOAuthValueList(values []any) bool {
+	changed := false
+	for i, value := range values {
+		if child, ok := mapAny(value); ok {
+			if sanitizeBlockedOAuthKeysRecursive(child) {
+				values[i] = child
+				changed = true
+			}
+			continue
+		}
+		if nested, ok := value.([]any); ok {
+			if sanitizeBlockedOAuthValueList(nested) {
+				values[i] = nested
+				changed = true
+			}
+		}
+	}
+	return changed
+}
+
+func containsBlockedOAuthKeyText(value string) bool {
+	lower := strings.ToLower(value)
+	for _, token := range []string{"base_url", "custom_base_url", "endpoint", "hostname", "api_key", "x-api-key", "authorization", "time_zone", "timezone"} {
+		if strings.Contains(lower, token) {
+			return true
+		}
+	}
+	return false
+}
+
+func isBlockedOAuthClientField(key string) bool {
+	normalized := strings.NewReplacer("-", "_", " ", "_").Replace(strings.ToLower(strings.TrimSpace(key)))
+	switch normalized {
+	case "base_url", "custom_base_url", "custom_base_url_enabled", "endpoint", "hostname", "host", "api_key", "x_api_key", "key", "authorization", "timezone", "time_zone", "tz":
+		return true
+	default:
+		return false
+	}
+}
+
+func isBlockedOAuthHeaderField(key string) bool {
+	normalized := strings.NewReplacer("-", "_", " ", "_").Replace(strings.ToLower(strings.TrimSpace(key)))
+	if isBlockedOAuthClientField(normalized) {
+		return true
+	}
+	if strings.Contains(normalized, "base_url") || strings.Contains(normalized, "custom_base_url") || strings.Contains(normalized, "endpoint") || strings.Contains(normalized, "hostname") {
+		return true
+	}
+	if normalized == "host" || strings.HasSuffix(normalized, "_host") || strings.Contains(normalized, "host_") {
+		return true
+	}
+	if strings.Contains(normalized, "api_key") || strings.Contains(normalized, "x_api_key") || strings.Contains(normalized, "authorization") {
+		return true
+	}
+	return normalized == "timezone" || normalized == "time_zone" || normalized == "tz" || strings.HasSuffix(normalized, "_timezone")
+}
+
+func mapAny(value any) (map[string]any, bool) {
+	switch typed := value.(type) {
+	case map[string]any:
+		return typed, true
+	case map[string]string:
+		out := make(map[string]any, len(typed))
+		for key, value := range typed {
+			out[key] = value
+		}
+		return out, true
+	default:
+		return nil, false
+	}
+}
+
+func SanitizeOAuthCredentialsForStorage(platform, accountType string, credentials map[string]any) map[string]any {
+	if !isOAuthProfileAccount(platform, accountType) || credentials == nil {
+		return credentials
+	}
+	out := make(map[string]any, len(credentials))
+	for key, value := range credentials {
+		if isBlockedOAuthCredentialField(key) {
+			continue
+		}
+		out[key] = value
+	}
+	return out
+}
+
+func SanitizeOAuthExtraForStorage(platform, accountType string, extra map[string]any) map[string]any {
+	if !isOAuthProfileAccount(platform, accountType) || extra == nil {
+		return extra
+	}
+	out := make(map[string]any, len(extra))
+	for key, value := range extra {
+		if isBlockedOAuthClientField(key) {
+			continue
+		}
+		out[key] = value
+	}
+	return out
+}
+
+func isOAuthProfileAccount(platform, accountType string) bool {
+	switch strings.TrimSpace(platform) {
+	case PlatformAnthropic:
+		return accountType == AccountTypeOAuth || accountType == AccountTypeSetupToken
+	case PlatformOpenAI:
+		return accountType == AccountTypeOAuth
+	default:
+		return false
+	}
+}
+
+func isBlockedOAuthCredentialField(key string) bool {
+	normalized := strings.NewReplacer("-", "_", " ", "_").Replace(strings.ToLower(strings.TrimSpace(key)))
+	switch normalized {
+	case "base_url", "custom_base_url", "custom_base_url_enabled", "endpoint", "hostname", "host", "api_key", "x_api_key", "key", "authorization", "timezone", "time_zone", "tz":
+		return true
+	default:
+		return false
+	}
+}

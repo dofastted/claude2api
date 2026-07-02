@@ -22,7 +22,7 @@ type claudeTelemetryProbeCapture struct {
 }
 
 type claudeTelemetryProbeUpstream struct {
-	client *http.Client
+	captures chan<- claudeTelemetryProbeCapture
 }
 
 func (u claudeTelemetryProbeUpstream) Do(_ *http.Request, _ string, _ int64, _ int) (*http.Response, error) {
@@ -30,21 +30,23 @@ func (u claudeTelemetryProbeUpstream) Do(_ *http.Request, _ string, _ int64, _ i
 }
 
 func (u claudeTelemetryProbeUpstream) DoWithTLS(req *http.Request, _ string, _ int64, _ int, _ *tlsfingerprint.Profile) (*http.Response, error) {
-	return u.client.Do(req)
+	body, err := io.ReadAll(req.Body)
+	if err != nil {
+		return nil, err
+	}
+	u.captures <- claudeTelemetryProbeCapture{Header: req.Header.Clone(), Body: body}
+	return &http.Response{
+		StatusCode: http.StatusOK,
+		Header:     http.Header{"Content-Type": []string{"application/json"}},
+		Body:       io.NopCloser(bytes.NewReader([]byte(`{"id":"msg_mock","type":"message","role":"assistant","content":[{"type":"text","text":"ok"}],"model":"claude-sonnet-4-6","stop_reason":"end_turn","usage":{"input_tokens":1,"output_tokens":1}}`))),
+		Request:    req,
+	}, nil
 }
 
 func TestClaudeTelemetryProbeDataReachesMockUpstream(t *testing.T) {
 	gin.SetMode(gin.TestMode)
 
 	captures := make(chan claudeTelemetryProbeCapture, 1)
-	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		body, err := io.ReadAll(r.Body)
-		require.NoError(t, err)
-		captures <- claudeTelemetryProbeCapture{Header: r.Header.Clone(), Body: body}
-		w.Header().Set("Content-Type", "application/json")
-		_, _ = w.Write([]byte(`{"id":"msg_mock","type":"message","role":"assistant","content":[{"type":"text","text":"ok"}],"model":"claude-sonnet-4-6","stop_reason":"end_turn","usage":{"input_tokens":1,"output_tokens":1}}`))
-	}))
-	defer server.Close()
 
 	account := &Account{
 		ID:          9201,
@@ -59,7 +61,7 @@ func TestClaudeTelemetryProbeDataReachesMockUpstream(t *testing.T) {
 			"account_uuid":            "acc-telemetry",
 			"org_uuid":                "org-telemetry",
 			"custom_base_url_enabled": true,
-			"custom_base_url":         server.URL,
+			"custom_base_url":         "https://relay.example.invalid",
 		},
 	}
 	repo := &environmentProfileAccountRepo{account: account}
@@ -67,7 +69,7 @@ func TestClaudeTelemetryProbeDataReachesMockUpstream(t *testing.T) {
 		cfg:                                &config.Config{},
 		accountRepo:                        repo,
 		identityService:                    NewIdentityService(&identityCacheStub{}, nil),
-		httpUpstream:                       claudeTelemetryProbeUpstream{client: server.Client()},
+		httpUpstream:                       claudeTelemetryProbeUpstream{captures: captures},
 		claudeEnvironmentProfileSlotLeases: NewEnvironmentProfileSlotLeaseManager(),
 		rateLimitService:                   &RateLimitService{},
 	}
@@ -92,6 +94,8 @@ func TestClaudeTelemetryProbeDataReachesMockUpstream(t *testing.T) {
 
 	req, wireBody, err := svc.buildUpstreamRequest(context.Background(), c, account, body, "oauth-token", "oauth", "claude-sonnet-4-6", false, false)
 	require.NoError(t, err)
+	require.Equal(t, claudeAPIURL, req.URL.String())
+	require.NotContains(t, req.URL.String(), "relay.example.invalid")
 	resp, err := svc.httpUpstream.DoWithTLS(req, "", account.ID, account.Concurrency, nil)
 	require.NoError(t, err)
 	_, err = io.ReadAll(resp.Body)
@@ -122,12 +126,12 @@ func TestClaudeTelemetryProbeDataReachesMockUpstream(t *testing.T) {
 	require.NotContains(t, string(capture.Body), clientUserID)
 	require.JSONEq(t, string(wireBody), string(capture.Body))
 
-	require.Equal(t, profile.TelemetrySessionID, capture.Header.Get("X-Claude-Code-Session-Id"))
-	require.NotEqual(t, "client-session-must-not-leak", capture.Header.Get("X-Claude-Code-Session-Id"))
-	require.Equal(t, profile.UserAgent, capture.Header.Get("User-Agent"))
-	require.Equal(t, profile.Platform, capture.Header.Get("X-Stainless-OS"))
-	require.Equal(t, profile.ClientVersion, capture.Header.Get("X-Stainless-Package-Version"))
-	require.Equal(t, profile.RuntimeVersion, capture.Header.Get("X-Stainless-Runtime-Version"))
+	require.Equal(t, profile.TelemetrySessionID, getHeaderRaw(capture.Header, "X-Claude-Code-Session-Id"))
+	require.NotEqual(t, "client-session-must-not-leak", getHeaderRaw(capture.Header, "X-Claude-Code-Session-Id"))
+	require.Equal(t, profile.UserAgent, getHeaderRaw(capture.Header, "User-Agent"))
+	require.Equal(t, profile.Platform, getHeaderRaw(capture.Header, "X-Stainless-OS"))
+	require.Equal(t, profile.ClientVersion, getHeaderRaw(capture.Header, "X-Stainless-Package-Version"))
+	require.Equal(t, profile.RuntimeVersion, getHeaderRaw(capture.Header, "X-Stainless-Runtime-Version"))
 
 	require.Equal(t, parsed.DeviceID, profile.TelemetryUserID)
 	require.Equal(t, parsed.SessionID, profile.TelemetrySessionID)

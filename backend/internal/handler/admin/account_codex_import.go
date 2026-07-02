@@ -172,7 +172,7 @@ func (h *AccountHandler) importCodexSessions(ctx context.Context, req CodexSessi
 	if req.Priority != nil {
 		priority = *req.Priority
 	}
-	credentialExtras := sanitizeCodexImportCredentialExtras(req.CredentialExtras)
+	credentialExtras := service.SanitizeOAuthCredentialsForStorage(service.PlatformOpenAI, service.AccountTypeOAuth, sanitizeCodexImportCredentialExtras(req.CredentialExtras))
 	skipDefaultGroupBind := false
 	if req.SkipDefaultGroupBind != nil {
 		skipDefaultGroupBind = *req.SkipDefaultGroupBind
@@ -216,8 +216,8 @@ func (h *AccountHandler) importCodexSessions(ctx context.Context, req CodexSessi
 		if credentialExpiresAt != nil {
 			item.Credentials["expires_at"] = credentialExpiresAt.Format(time.RFC3339)
 		}
-		credentials := mergeCodexImportMap(item.Credentials, credentialExtras)
-		extra := mergeCodexImportMap(req.Extra, item.Extra)
+		credentials := service.SanitizeOAuthCredentialsForStorage(service.PlatformOpenAI, service.AccountTypeOAuth, mergeCodexImportMap(item.Credentials, credentialExtras))
+		extra := service.SanitizeOAuthExtraForStorage(service.PlatformOpenAI, service.AccountTypeOAuth, mergeCodexImportMap(req.Extra, item.Extra))
 		itemConcurrency := concurrency
 		if !manualConcurrency {
 			itemConcurrency = service.AccountEnvironmentProfileCapacity(&service.Account{
@@ -256,8 +256,8 @@ func (h *AccountHandler) importCodexSessions(ctx context.Context, req CodexSessi
 		markCodexIdentitySeen(seenIdentity, item.IdentityKeys, entry.Index)
 
 		if existing := index.Find(item.IdentityKeys); existing != nil && updateExisting {
-			mergedCredentials := mergeCodexImportCredentials(existing.Credentials, credentials, item)
-			mergedExtra := mergeCodexImportMap(existing.Extra, extra)
+			mergedCredentials := service.SanitizeOAuthCredentialsForStorage(service.PlatformOpenAI, service.AccountTypeOAuth, mergeCodexImportCredentials(existing.Credentials, credentials, item))
+			mergedExtra := service.SanitizeOAuthExtraForStorage(service.PlatformOpenAI, service.AccountTypeOAuth, mergeCodexImportMap(existing.Extra, extra))
 			updateInput := &service.UpdateAccountInput{
 				Credentials:        mergedCredentials,
 				Extra:              mergedExtra,
@@ -808,6 +808,7 @@ func sanitizeCodexImportCredentialExtras(input map[string]any) map[string]any {
 		}
 		out[normalizedKey] = value
 	}
+	out = service.SanitizeOAuthCredentialsForStorage(service.PlatformOpenAI, service.AccountTypeOAuth, out)
 	if len(out) == 0 {
 		return nil
 	}

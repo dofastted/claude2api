@@ -47,9 +47,9 @@ type DataProxy struct {
 	ExpiryWarnDays  int    `json:"expiry_warn_days,omitempty"`
 }
 
-// DataAccount 是管理员显式备份导出使用的账号结构，故意不走 dto.Account 的脱敏路径，
-// Credentials 原文返回。这是"管理员备份"这一显式行为的一部分；如未来需要导出脱敏版本，
-// 应新增独立结构而非修改这里。
+// DataAccount 是管理员显式备份导出使用的账号结构，故意不走 dto.Account 的脱敏路径。
+// APIKey 账号保留账号自有 base_url/api_key；OAuth/SetupToken 账号导入导出时会剔除
+// 客户端来源的 endpoint/host/key/timezone 等被阻断字段，避免备份同步重新污染 profile。
 type DataAccount struct {
 	Name               string         `json:"name"`
 	Notes              *string        `json:"notes,omitempty"`
@@ -179,8 +179,8 @@ func (h *AccountHandler) ExportData(c *gin.Context) {
 			Notes:              acc.Notes,
 			Platform:           acc.Platform,
 			Type:               acc.Type,
-			Credentials:        acc.Credentials,
-			Extra:              acc.Extra,
+			Credentials:        service.SanitizeOAuthCredentialsForStorage(acc.Platform, acc.Type, acc.Credentials),
+			Extra:              service.SanitizeOAuthExtraForStorage(acc.Platform, acc.Type, acc.Extra),
 			ProxyKey:           proxyKey,
 			Concurrency:        acc.Concurrency,
 			Priority:           acc.Priority,
@@ -402,6 +402,8 @@ func (h *AccountHandler) importData(ctx context.Context, req DataImportRequest) 
 		}
 
 		enrichCredentialsFromIDToken(&item)
+		item.Credentials = service.SanitizeOAuthCredentialsForStorage(item.Platform, item.Type, item.Credentials)
+		item.Extra = service.SanitizeOAuthExtraForStorage(item.Platform, item.Type, item.Extra)
 
 		accountInput := &service.CreateAccountInput{
 			Name:                 item.Name,

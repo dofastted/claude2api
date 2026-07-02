@@ -339,31 +339,32 @@ var ErrNoAvailableCompactAccounts = errors.New("no available OpenAI accounts sup
 
 // OpenAIGatewayService handles OpenAI API gateway operations
 type OpenAIGatewayService struct {
-	accountRepo           AccountRepository
-	usageLogRepo          UsageLogRepository
-	usageBillingRepo      UsageBillingRepository
-	userRepo              UserRepository
-	userSubRepo           UserSubscriptionRepository
-	cache                 GatewayCache
-	cfg                   *config.Config
-	codexDetector         CodexClientRestrictionDetector
-	schedulerSnapshot     *SchedulerSnapshotService
-	concurrencyService    *ConcurrencyService
-	billingService        *BillingService
-	rateLimitService      *RateLimitService
-	billingCacheService   *BillingCacheService
-	userGroupRateResolver *userGroupRateResolver
-	httpUpstream          HTTPUpstream
-	deferredService       *DeferredService
-	openAITokenProvider   *OpenAITokenProvider
-	toolCorrector         *CodexToolCorrector
-	openaiWSResolver      OpenAIWSProtocolResolver
-	resolver              *ModelPricingResolver
-	channelService        *ChannelService
-	balanceNotifyService  *BalanceNotifyService
-	settingService        *SettingService
-	userPlatformQuotaRepo UserPlatformQuotaRepository
-	identityRegistry      *clientidentity.Registry
+	accountRepo             AccountRepository
+	usageLogRepo            UsageLogRepository
+	usageBillingRepo        UsageBillingRepository
+	userRepo                UserRepository
+	userSubRepo             UserSubscriptionRepository
+	cache                   GatewayCache
+	cfg                     *config.Config
+	codexDetector           CodexClientRestrictionDetector
+	schedulerSnapshot       *SchedulerSnapshotService
+	concurrencyService      *ConcurrencyService
+	billingService          *BillingService
+	rateLimitService        *RateLimitService
+	billingCacheService     *BillingCacheService
+	userGroupRateResolver   *userGroupRateResolver
+	httpUpstream            HTTPUpstream
+	deferredService         *DeferredService
+	openAITokenProvider     *OpenAITokenProvider
+	toolCorrector           *CodexToolCorrector
+	openaiWSResolver        OpenAIWSProtocolResolver
+	resolver                *ModelPricingResolver
+	channelService          *ChannelService
+	balanceNotifyService    *BalanceNotifyService
+	settingService          *SettingService
+	userPlatformQuotaRepo   UserPlatformQuotaRepository
+	identityRegistry        *clientidentity.Registry
+	profileTimezoneResolver *EnvironmentProfileTimezoneResolver
 
 	openaiWSPoolOnce              sync.Once
 	openaiWSStateStoreOnce        sync.Once
@@ -412,9 +413,14 @@ func NewOpenAIGatewayService(
 	settingService *SettingService,
 	userPlatformQuotaRepo UserPlatformQuotaRepository,
 	identityRegistry *clientidentity.Registry,
+	profileTimezoneResolvers ...*EnvironmentProfileTimezoneResolver,
 ) *OpenAIGatewayService {
 	if identityRegistry == nil {
 		identityRegistry = clientidentity.NewRegistry()
+	}
+	var profileTimezoneResolver *EnvironmentProfileTimezoneResolver
+	if len(profileTimezoneResolvers) > 0 {
+		profileTimezoneResolver = profileTimezoneResolvers[0]
 	}
 	svc := &OpenAIGatewayService{
 		accountRepo:         accountRepo,
@@ -451,6 +457,7 @@ func NewOpenAIGatewayService(
 		responseHeaderFilter:              compileResponseHeaderFilter(cfg),
 		codexSnapshotThrottle:             newAccountWriteThrottle(openAICodexSnapshotPersistMinInterval),
 		codexEnvironmentProfileSlotLeases: NewEnvironmentProfileSlotLeaseManager(),
+		profileTimezoneResolver:           profileTimezoneResolver,
 	}
 	if rateLimitService != nil {
 		rateLimitService.SetAccountRuntimeBlocker(svc)
@@ -460,6 +467,20 @@ func NewOpenAIGatewayService(
 	}
 	svc.logOpenAIWSModeBootstrap()
 	return svc
+}
+
+func (s *OpenAIGatewayService) resolveProfileTimezone(ctx context.Context, account *Account) string {
+	resolver := (*EnvironmentProfileTimezoneResolver)(nil)
+	if s != nil {
+		resolver = s.profileTimezoneResolver
+	}
+	if resolver == nil {
+		resolver = DefaultEnvironmentProfileTimezoneResolver()
+	}
+	if resolver == nil {
+		return EnvironmentProfileFallbackTimezone
+	}
+	return resolver.Resolve(ctx, account)
 }
 
 // ResolveChannelMapping 解析渠道级模型映射（代理到 ChannelService）
@@ -3498,6 +3519,9 @@ func (s *OpenAIGatewayService) buildUpstreamRequestOpenAIPassthrough(
 	req.Header.Del("authorization")
 	req.Header.Del("x-api-key")
 	req.Header.Del("x-goog-api-key")
+	if account.Type == AccountTypeOAuth {
+		req.Header.Del(openAIWSTurnMetadataHeader)
+	}
 	req.Header.Set("authorization", "Bearer "+token)
 
 	var codexProfile *CodexEnvironmentProfile
@@ -4302,6 +4326,7 @@ func (s *OpenAIGatewayService) buildUpstreamRequest(ctx context.Context, c *gin.
 		req.Header.Del(codexHeaderClientRequest)
 		req.Header.Del(codexHeaderInstallationID)
 		req.Header.Del(codexHeaderWindowID)
+		req.Header.Del(openAIWSTurnMetadataHeader)
 
 		if compatMessagesBridge {
 			req.Header.Del("OpenAI-Beta")

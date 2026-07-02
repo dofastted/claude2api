@@ -54,6 +54,7 @@ type CodexEnvironmentProfile struct {
 	Platform         string            `json:"platform"`
 	Arch             string            `json:"arch"`
 	TLSProfile       string            `json:"tls_profile"`
+	Timezone         string            `json:"timezone"`
 	Headers          map[string]string `json:"headers"`
 	FrozenAt         time.Time         `json:"frozen_at,omitempty"`
 	CreatedAt        time.Time         `json:"created_at"`
@@ -81,6 +82,7 @@ type codexProfileRequestMetadata struct {
 	SessionID      string
 	ThreadID       string
 	WindowID       string
+	Timezone       string
 	TurnMetadata   string
 }
 
@@ -188,6 +190,7 @@ func (p *CodexEnvironmentProfile) Validate() error {
 	if p.TLSProfile == "" {
 		p.TLSProfile = defaultCodexTLSProfileForFamily(p.Family)
 	}
+	p.Timezone = NormalizeEnvironmentProfileTimezone(p.Timezone)
 	p.Headers = sanitizeCodexEnvironmentProfileHeaders(p.Headers)
 	if p.CreatedAt.IsZero() {
 		p.CreatedAt = time.Now().UTC()
@@ -251,6 +254,7 @@ func newCodexEnvironmentProfile(family CodexClientFamily, source, ua, originator
 		Platform:         "darwin",
 		Arch:             "arm64",
 		TLSProfile:       strings.TrimSpace(tlsProfile),
+		Timezone:         EnvironmentProfileFallbackTimezone,
 		Headers:          sanitizeCodexEnvironmentProfileHeaders(headers),
 		CreatedAt:        now,
 		UpdatedAt:        now,
@@ -350,7 +354,7 @@ func sanitizeCodexEnvironmentProfileHeaders(headers map[string]string) map[strin
 	for key, value := range headers {
 		key = strings.TrimSpace(key)
 		value = strings.TrimSpace(value)
-		if key == "" || value == "" || isSensitiveCodexProfileHeader(key, value) {
+		if key == "" || value == "" || isBlockedOAuthHeaderField(key) || isSensitiveCodexProfileHeader(key, value) {
 			continue
 		}
 		switch strings.ToLower(key) {
@@ -458,6 +462,7 @@ func codexProfileRequestMetadataFor(account *Account, profile *CodexEnvironmentP
 	stableSession := codexProfileSessionValue(profile.SessionSeed, opts.PromptCacheKey)
 	stableThread := codexProfileSessionValue(profile.ConversationSeed, opts.PromptCacheKey)
 	meta := codexProfileRequestMetadata{
+		Timezone:       NormalizeEnvironmentProfileTimezone(profile.Timezone),
 		InstallationID: installationID,
 		SessionID:      isolateOpenAISessionID(opts.APIKeyID, stableSession),
 		ThreadID:       isolateOpenAISessionID(opts.APIKeyID, stableThread),
@@ -470,7 +475,7 @@ func codexProfileRequestMetadataFor(account *Account, profile *CodexEnvironmentP
 }
 
 func buildCodexTurnMetadata(meta codexProfileRequestMetadata, opts CodexProfileApplyOptions) string {
-	payload := make(map[string]any, 5)
+	payload := make(map[string]any, 6)
 	if meta.InstallationID != "" {
 		payload["installation_id"] = meta.InstallationID
 	}
@@ -482,6 +487,9 @@ func buildCodexTurnMetadata(meta codexProfileRequestMetadata, opts CodexProfileA
 	}
 	if meta.WindowID != "" {
 		payload["window_id"] = meta.WindowID
+	}
+	if meta.Timezone != "" {
+		payload["timezone"] = NormalizeEnvironmentProfileTimezone(meta.Timezone)
 	}
 	if opts.Compact {
 		payload["request_kind"] = "compaction"
@@ -576,6 +584,7 @@ func (s *OpenAIGatewayService) getOrCreateCodexEnvironmentProfile(ctx context.Co
 		return nil, nil
 	}
 	if profile, ok := account.GetCodexEnvironmentProfile(); ok {
+		profile.Timezone = s.resolveProfileTimezone(ctx, account)
 		logCodexEnvironmentFamilyMismatch(ctx, account, profile, headers)
 		return profile, nil
 	}
@@ -589,10 +598,12 @@ func (s *OpenAIGatewayService) getOrCreateCodexEnvironmentProfile(ctx context.Co
 	result, err, _ := s.codexEnvironmentProfileSF.Do(key, func() (any, error) {
 		if fresh, freshErr := s.accountRepo.GetByID(ctx, account.ID); freshErr == nil && fresh != nil {
 			if profile, ok := fresh.GetCodexEnvironmentProfile(); ok {
+				profile.Timezone = s.resolveProfileTimezone(ctx, fresh)
 				return profile, nil
 			}
 		}
 		if profile, ok := account.GetCodexEnvironmentProfile(); ok {
+			profile.Timezone = s.resolveProfileTimezone(ctx, account)
 			return profile, nil
 		}
 		var profile *CodexEnvironmentProfile
@@ -610,6 +621,7 @@ func (s *OpenAIGatewayService) getOrCreateCodexEnvironmentProfile(ctx context.Co
 				return nil, err
 			}
 		}
+		profile.Timezone = s.resolveProfileTimezone(ctx, account)
 		encoded, err := EncodeCodexEnvironmentProfile(profile)
 		if err != nil {
 			return nil, err
@@ -637,6 +649,7 @@ func (s *OpenAIGatewayService) getOrCreateCodexEnvironmentProfile(ctx context.Co
 		return nil, err
 	}
 	profile, _ := result.(*CodexEnvironmentProfile)
+	profile.Timezone = s.resolveProfileTimezone(ctx, account)
 	logCodexEnvironmentFamilyMismatch(ctx, account, profile, headers)
 	return profile, nil
 }

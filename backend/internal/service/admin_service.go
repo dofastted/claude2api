@@ -492,6 +492,9 @@ type ProxyExitInfo struct {
 	Region      string
 	Country     string
 	CountryCode string
+	Timezone    string
+	Source      string
+	ObservedAt  time.Time
 }
 
 // ProxyExitInfoProber tests proxy connectivity and retrieves exit information
@@ -551,25 +554,26 @@ var ErrRPMStatusUnavailable = infraerrors.New(http.StatusNotImplemented, "RPM_ST
 
 // adminServiceImpl implements AdminService
 type adminServiceImpl struct {
-	userRepo             UserRepository
-	groupRepo            GroupRepository
-	accountRepo          AccountRepository
-	proxyRepo            ProxyRepository
-	apiKeyRepo           APIKeyRepository
-	redeemCodeRepo       RedeemCodeRepository
-	userGroupRateRepo    UserGroupRateRepository
-	userRPMCache         UserRPMCache
-	billingCacheService  *BillingCacheService
-	proxyProber          ProxyExitInfoProber
-	proxyLatencyCache    ProxyLatencyCache
-	authCacheInvalidator APIKeyAuthCacheInvalidator
-	entClient            *dbent.Client // 用于开启数据库事务
-	settingService       *SettingService
-	cfg                  *config.Config
-	defaultSubAssigner   DefaultSubscriptionAssigner
-	userSubRepo          UserSubscriptionRepository
-	privacyClientFactory PrivacyClientFactory
-	runtimeBlocker       AccountRuntimeBlocker
+	userRepo                UserRepository
+	groupRepo               GroupRepository
+	accountRepo             AccountRepository
+	proxyRepo               ProxyRepository
+	apiKeyRepo              APIKeyRepository
+	redeemCodeRepo          RedeemCodeRepository
+	userGroupRateRepo       UserGroupRateRepository
+	userRPMCache            UserRPMCache
+	billingCacheService     *BillingCacheService
+	proxyProber             ProxyExitInfoProber
+	proxyLatencyCache       ProxyLatencyCache
+	profileTimezoneResolver *EnvironmentProfileTimezoneResolver
+	authCacheInvalidator    APIKeyAuthCacheInvalidator
+	entClient               *dbent.Client // 用于开启数据库事务
+	settingService          *SettingService
+	cfg                     *config.Config
+	defaultSubAssigner      DefaultSubscriptionAssigner
+	userSubRepo             UserSubscriptionRepository
+	privacyClientFactory    PrivacyClientFactory
+	runtimeBlocker          AccountRuntimeBlocker
 }
 
 type userGroupRateBatchReader interface {
@@ -598,26 +602,28 @@ func NewAdminService(
 	privacyClientFactory PrivacyClientFactory,
 	runtimeBlocker AccountRuntimeBlocker,
 ) AdminService {
+	profileTimezoneResolver := NewEnvironmentProfileTimezoneResolver(proxyProber, cfg)
 	return &adminServiceImpl{
-		userRepo:             userRepo,
-		groupRepo:            groupRepo,
-		accountRepo:          accountRepo,
-		proxyRepo:            proxyRepo,
-		apiKeyRepo:           apiKeyRepo,
-		redeemCodeRepo:       redeemCodeRepo,
-		userGroupRateRepo:    userGroupRateRepo,
-		userRPMCache:         userRPMCache,
-		billingCacheService:  billingCacheService,
-		proxyProber:          proxyProber,
-		proxyLatencyCache:    proxyLatencyCache,
-		authCacheInvalidator: authCacheInvalidator,
-		entClient:            entClient,
-		settingService:       settingService,
-		cfg:                  cfg,
-		defaultSubAssigner:   defaultSubAssigner,
-		userSubRepo:          userSubRepo,
-		privacyClientFactory: privacyClientFactory,
-		runtimeBlocker:       runtimeBlocker,
+		userRepo:                userRepo,
+		groupRepo:               groupRepo,
+		accountRepo:             accountRepo,
+		proxyRepo:               proxyRepo,
+		apiKeyRepo:              apiKeyRepo,
+		redeemCodeRepo:          redeemCodeRepo,
+		userGroupRateRepo:       userGroupRateRepo,
+		userRPMCache:            userRPMCache,
+		billingCacheService:     billingCacheService,
+		proxyProber:             proxyProber,
+		proxyLatencyCache:       proxyLatencyCache,
+		profileTimezoneResolver: profileTimezoneResolver,
+		authCacheInvalidator:    authCacheInvalidator,
+		entClient:               entClient,
+		settingService:          settingService,
+		cfg:                     cfg,
+		defaultSubAssigner:      defaultSubAssigner,
+		userSubRepo:             userSubRepo,
+		privacyClientFactory:    privacyClientFactory,
+		runtimeBlocker:          runtimeBlocker,
 	}
 }
 
@@ -2584,7 +2590,8 @@ func (s *adminServiceImpl) GetAccountsByIDs(ctx context.Context, ids []int64) ([
 	return accounts, nil
 }
 
-func withDefaultEnvironmentProfilePool(platform, accountType string, concurrency int, credentials, extra map[string]any) map[string]any {
+func withDefaultEnvironmentProfilePool(platform, accountType string, concurrency int, credentials, extra map[string]any, profileTimezone string) map[string]any {
+	extra = SanitizeOAuthExtraForStorage(platform, accountType, extra)
 	if !shouldCreateDefaultEnvironmentProfilePool(platform, accountType, extra) {
 		return extra
 	}
@@ -2594,12 +2601,27 @@ func withDefaultEnvironmentProfilePool(platform, accountType string, concurrency
 	}
 	// v2 pool 固定 3 OS 槽位冻结，容量与并发解耦，不再依赖 environmentProfileCapacity。
 	_ = concurrency
+	_ = credentials
+	profileTimezone = NormalizeEnvironmentProfileTimezone(profileTimezone)
 	if platform == PlatformAnthropic {
-		merged[claudeEnvironmentProfilePoolKey] = newFrozenClaudeEnvironmentProfilePool(claude.CLICurrentVersion)
+		merged[claudeEnvironmentProfilePoolKey] = newFrozenClaudeEnvironmentProfilePoolWithTimezone(claude.CLICurrentVersion, profileTimezone)
 		return merged
 	}
-	merged[codexEnvironmentProfilePoolKey] = newFrozenCodexEnvironmentProfilePool()
+	merged[codexEnvironmentProfilePoolKey] = newFrozenCodexEnvironmentProfilePoolWithTimezone(profileTimezone)
 	return merged
+}
+
+func (s *adminServiceImpl) resolveProfileTimezoneForAccount(ctx context.Context, account *Account) string {
+	if s == nil || s.profileTimezoneResolver == nil || account == nil || !isOAuthProfileAccount(account.Platform, account.Type) {
+		return EnvironmentProfileFallbackTimezone
+	}
+	probeAccount := *account
+	if probeAccount.Proxy == nil && probeAccount.ProxyID != nil && *probeAccount.ProxyID > 0 && s.proxyRepo != nil {
+		if proxy, err := s.proxyRepo.GetByID(ctx, *probeAccount.ProxyID); err == nil {
+			probeAccount.Proxy = proxy
+		}
+	}
+	return s.profileTimezoneResolver.Resolve(ctx, &probeAccount)
 }
 
 func shouldCreateDefaultEnvironmentProfilePool(platform, accountType string, extra map[string]any) bool {
@@ -2657,24 +2679,27 @@ func (s *adminServiceImpl) CreateAccount(ctx context.Context, input *CreateAccou
 		}
 	}
 
+	credentials := SanitizeOAuthCredentialsForStorage(input.Platform, input.Type, input.Credentials)
+	extra := SanitizeOAuthExtraForStorage(input.Platform, input.Type, input.Extra)
 	concurrency := input.Concurrency
-	if concurrency <= 0 && shouldCreateDefaultEnvironmentProfilePool(input.Platform, input.Type, input.Extra) {
+	if concurrency <= 0 && shouldCreateDefaultEnvironmentProfilePool(input.Platform, input.Type, extra) {
 		concurrency = environmentProfileCapacity(&Account{
 			Platform:    input.Platform,
 			Type:        input.Type,
-			Credentials: input.Credentials,
-			Extra:       input.Extra,
+			Credentials: credentials,
+			Extra:       extra,
 			Concurrency: input.Concurrency,
 		})
 	}
+	profileTimezone := s.resolveProfileTimezoneForAccount(ctx, &Account{Platform: input.Platform, Type: input.Type, ProxyID: input.ProxyID})
 
 	account := &Account{
 		Name:        input.Name,
 		Notes:       normalizeAccountNotes(input.Notes),
 		Platform:    input.Platform,
 		Type:        input.Type,
-		Credentials: input.Credentials,
-		Extra:       withDefaultEnvironmentProfilePool(input.Platform, input.Type, concurrency, input.Credentials, input.Extra),
+		Credentials: credentials,
+		Extra:       withDefaultEnvironmentProfilePool(input.Platform, input.Type, concurrency, credentials, extra, profileTimezone),
 		ProxyID:     input.ProxyID,
 		Concurrency: concurrency,
 		Priority:    input.Priority,
@@ -2775,11 +2800,13 @@ func (s *adminServiceImpl) UpdateAccount(ctx context.Context, id int64, input *U
 	if len(input.Credentials) > 0 {
 		// 敏感子键采用"incoming 没提供就保留"的合并语义：前端响应已脱敏，
 		// 全对象 PUT 编辑时不会再带回 token，避免覆盖时清空已有凭证。
-		account.Credentials = MergePreservingSensitiveCreds(account.Credentials, input.Credentials)
+		merged := MergePreservingSensitiveCreds(account.Credentials, input.Credentials)
+		account.Credentials = SanitizeOAuthCredentialsForStorage(account.Platform, account.Type, merged)
 	}
 	// Extra 使用 map：需要区分“未提供(nil)”与“显式清空({})”。
 	// 关闭配额限制时前端会删除 quota_* 键并提交 extra:{}，此时也必须落库。
 	if input.Extra != nil {
+		input.Extra = SanitizeOAuthExtraForStorage(account.Platform, account.Type, input.Extra)
 		// 保留配额用量字段，防止编辑账号时意外重置
 		for _, key := range []string{"quota_used", "quota_daily_used", "quota_daily_start", "quota_weekly_used", "quota_weekly_start"} {
 			if v, ok := account.Extra[key]; ok {
@@ -2932,6 +2959,10 @@ func (s *adminServiceImpl) UpdateClaudeEnvironmentProfile(ctx context.Context, i
 	if account == nil || !account.IsAnthropicOAuthOrSetupToken() {
 		return nil, errors.New("claude environment profile is only supported for Anthropic OAuth/SetupToken accounts")
 	}
+	if profile == nil {
+		return nil, errors.New("claude environment profile is required")
+	}
+	profile.Timezone = s.resolveProfileTimezoneForAccount(ctx, account)
 	if err := ValidateClaudeEnvironmentProfile(profile); err != nil {
 		return nil, err
 	}
@@ -3079,7 +3110,7 @@ func (s *adminServiceImpl) MigrateClaudeEnvironmentProfileToV2(ctx context.Conte
 	if pool.IsV2() {
 		return nil, errors.New("claude environment profile pool is already v2")
 	}
-	upgraded := upgradeLegacyClaudePoolToV2(pool, claude.CLICurrentVersion)
+	upgraded := upgradeLegacyClaudePoolToV2WithTimezone(pool, claude.CLICurrentVersion, s.resolveProfileTimezoneForAccount(ctx, account))
 	if err := upgraded.Normalize(); err != nil {
 		return nil, err
 	}
@@ -3145,6 +3176,7 @@ func (s *adminServiceImpl) UpdateCodexEnvironmentProfile(ctx context.Context, id
 	if profile == nil {
 		return nil, errors.New("codex environment profile is required")
 	}
+	profile.Timezone = s.resolveProfileTimezoneForAccount(ctx, account)
 	profile.Source = "admin"
 	profile.UpdatedAt = time.Now().UTC()
 	if profile.CreatedAt.IsZero() {

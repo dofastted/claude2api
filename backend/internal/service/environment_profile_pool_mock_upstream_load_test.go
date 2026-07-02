@@ -189,8 +189,6 @@ func runClaudeProfilePoolMockUpstreamLoad(t *testing.T, concurrency int, duratio
 	credentials := newClaudeProfilePoolTestCredentials(mockUpstreamLoadAccounts, mockUpstreamLoadSlots)
 	for _, account := range credentials.accounts {
 		account.Credentials = map[string]any{"access_token": "mock-token"}
-		account.Extra["custom_base_url_enabled"] = true
-		account.Extra["custom_base_url"] = server.URL
 	}
 
 	svc := &GatewayService{
@@ -198,7 +196,7 @@ func runClaudeProfilePoolMockUpstreamLoad(t *testing.T, concurrency int, duratio
 		httpUpstream: mockUpstreamLoadHTTPUpstream{client: server.Client()},
 	}
 	svc.cfg.Security.URLAllowlist.AllowInsecureHTTP = true
-	summary := runMockUpstreamLoadRequests(t, svc, credentials, concurrency, duration, interval)
+	summary := runMockUpstreamLoadRequests(t, svc, credentials, server.URL, concurrency, duration, interval)
 	stats := upstreamStats.snapshot()
 
 	require.Equal(t, 0, credentials.activeCount())
@@ -217,7 +215,7 @@ func runClaudeProfilePoolMockUpstreamLoad(t *testing.T, concurrency int, duratio
 	require.Greater(t, stats.Disconnects, int64(0))
 }
 
-func runMockUpstreamLoadRequests(t *testing.T, svc *GatewayService, credentials *claudeProfilePoolTestCredentials, concurrency int, duration time.Duration, interval time.Duration) mockUpstreamLoadSummary {
+func runMockUpstreamLoadRequests(t *testing.T, svc *GatewayService, credentials *claudeProfilePoolTestCredentials, baseURL string, concurrency int, duration time.Duration, interval time.Duration) mockUpstreamLoadSummary {
 	t.Helper()
 	ctx, cancel := context.WithTimeout(context.Background(), duration+30*time.Second)
 	defer cancel()
@@ -231,7 +229,7 @@ func runMockUpstreamLoadRequests(t *testing.T, svc *GatewayService, credentials 
 		go func() {
 			defer wg.Done()
 			for index := range requests {
-				result, err := dispatchClaudeMockUpstreamLoadRequest(ctx, svc, credentials, index)
+				result, err := dispatchClaudeMockUpstreamLoadRequest(ctx, svc, credentials, baseURL, index)
 				if err != nil {
 					errs <- err
 					continue
@@ -294,15 +292,15 @@ func runMockUpstreamLoadRequests(t *testing.T, svc *GatewayService, credentials 
 	return summary
 }
 
-func dispatchClaudeMockUpstreamLoadRequest(ctx context.Context, svc *GatewayService, credentials *claudeProfilePoolTestCredentials, index int) (mockUpstreamLoadResult, error) {
+func dispatchClaudeMockUpstreamLoadRequest(ctx context.Context, svc *GatewayService, credentials *claudeProfilePoolTestCredentials, baseURL string, index int) (mockUpstreamLoadResult, error) {
 	environments := []EnvironmentClass{EnvironmentClassWindows, EnvironmentClassLinux, EnvironmentClassMacOS, EnvironmentClassDesktop}
 	env := environments[index%len(environments)]
 	behavior := mockUpstreamBehaviorForIndex(index)
 	latencyClass := mockUpstreamLatencyClassForIndex(index)
-	return dispatchClaudeMockUpstreamLoadAttempt(ctx, svc, credentials, env, behavior, latencyClass, index)
+	return dispatchClaudeMockUpstreamLoadAttempt(ctx, svc, credentials, baseURL, env, behavior, latencyClass, index)
 }
 
-func dispatchClaudeMockUpstreamLoadAttempt(ctx context.Context, svc *GatewayService, credentials *claudeProfilePoolTestCredentials, env EnvironmentClass, behavior mockUpstreamBehavior, latencyClass string, startIndex int) (mockUpstreamLoadResult, error) {
+func dispatchClaudeMockUpstreamLoadAttempt(ctx context.Context, svc *GatewayService, credentials *claudeProfilePoolTestCredentials, baseURL string, env EnvironmentClass, behavior mockUpstreamBehavior, latencyClass string, startIndex int) (mockUpstreamLoadResult, error) {
 	excluded := make(map[int64]struct{})
 	failovers := 0
 	for round := 0; ; round++ {
@@ -338,7 +336,7 @@ func dispatchClaudeMockUpstreamLoadAttempt(ctx context.Context, svc *GatewayServ
 				lease.ReleaseFunc()
 				return mockUpstreamLoadResult{}, fmt.Errorf("profile slot environment mismatch")
 			}
-			resp, err := sendMockUpstreamLoadRequest(ctx, svc, account, profile, behavior, latencyClass)
+			resp, err := sendMockUpstreamLoadRequest(ctx, svc, baseURL, account, profile, behavior, latencyClass)
 			lease.ReleaseFunc()
 			if err != nil || shouldMockUpstreamBehaviorFailover(behavior, resp) {
 				excluded[account.ID] = struct{}{}
@@ -358,8 +356,8 @@ func dispatchClaudeMockUpstreamLoadAttempt(ctx context.Context, svc *GatewayServ
 	}
 }
 
-func sendMockUpstreamLoadRequest(ctx context.Context, svc *GatewayService, account *Account, profile *ClaudeEnvironmentProfile, behavior mockUpstreamBehavior, latencyClass string) (*http.Response, error) {
-	baseURL := strings.TrimSpace(account.GetCustomBaseURL())
+func sendMockUpstreamLoadRequest(ctx context.Context, svc *GatewayService, baseURL string, account *Account, profile *ClaudeEnvironmentProfile, behavior mockUpstreamBehavior, latencyClass string) (*http.Response, error) {
+	baseURL = strings.TrimSpace(baseURL)
 	if baseURL == "" {
 		return nil, fmt.Errorf("missing mock upstream base url")
 	}

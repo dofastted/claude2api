@@ -112,6 +112,9 @@ func applyCodexOAuthTransform(reqBody map[string]any, isCodexCLI bool, isCompact
 
 func applyCodexOAuthTransformWithOptions(reqBody map[string]any, opts codexOAuthTransformOptions) codexTransformResult {
 	result := codexTransformResult{}
+	if sanitizeOAuthRequestMap(reqBody) {
+		result.Modified = true
+	}
 	// 工具续链需求会影响存储策略与 input 过滤逻辑。
 	needsToolContinuation := NeedsToolContinuation(reqBody)
 
@@ -1042,6 +1045,9 @@ func applyCodexClientMetadata(reqBody map[string]any, account *Account, meta cod
 			return false
 		}
 		reqBody["client_metadata"] = clientMetadata
+		changed = true
+	}
+	if sanitizeOAuthMetadataMap(clientMetadata) {
 		changed = true
 	}
 	setString := func(key, value string, override bool) {

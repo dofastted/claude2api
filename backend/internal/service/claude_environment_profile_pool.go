@@ -268,6 +268,10 @@ func buildClaudeEnvironmentProfileForClass(env EnvironmentClass) *ClaudeEnvironm
 // device_id/client_id 模拟生成并冻结；cli_version/beta_set 取传入版本的自洽集合。
 // desktop 槽位不应出现（routeToSlot 已归并到 windows），此处仅处理 windows/macos/linux。
 func buildFrozenClaudeEnvironmentProfileForSlot(env EnvironmentClass, cliVersion string) *ClaudeEnvironmentProfile {
+	return buildFrozenClaudeEnvironmentProfileForSlotWithTimezone(env, cliVersion, EnvironmentProfileFallbackTimezone)
+}
+
+func buildFrozenClaudeEnvironmentProfileForSlotWithTimezone(env EnvironmentClass, cliVersion, profileTimezone string) *ClaudeEnvironmentProfile {
 	profile := buildClaudeEnvironmentProfileForClass(env)
 	if cliVersion = strings.TrimSpace(cliVersion); cliVersion == "" {
 		cliVersion = ExtractCLIVersion(profile.UserAgent)
@@ -282,6 +286,7 @@ func buildFrozenClaudeEnvironmentProfileForSlot(env EnvironmentClass, cliVersion
 	profile.ClientType = "cli"
 	profile.Family = ClaudeClientFamilyCodeCLI
 	profile.Runtime = "node"
+	profile.Timezone = NormalizeEnvironmentProfileTimezone(profileTimezone)
 	if profile.RuntimeVersion == "" {
 		profile.RuntimeVersion = defaultClaudeCodeRuntimeVersion()
 	}
@@ -299,10 +304,14 @@ func buildFrozenClaudeEnvironmentProfileForSlot(env EnvironmentClass, cliVersion
 
 // newFrozenClaudeEnvironmentProfilePool 一次性模拟生成 schema v2 pool（windows/macos/linux 三个冻结槽位）。
 func newFrozenClaudeEnvironmentProfilePool(cliVersion string) *ClaudeEnvironmentProfilePool {
+	return newFrozenClaudeEnvironmentProfilePoolWithTimezone(cliVersion, EnvironmentProfileFallbackTimezone)
+}
+
+func newFrozenClaudeEnvironmentProfilePoolWithTimezone(cliVersion, profileTimezone string) *ClaudeEnvironmentProfilePool {
 	now := nowForEnvironmentProfilePool()
 	slots := make([]ClaudeEnvironmentProfileSlot, len(fixedClaudeEnvironmentSlotClasses))
 	for i, env := range fixedClaudeEnvironmentSlotClasses {
-		profile := buildFrozenClaudeEnvironmentProfileForSlot(env, cliVersion)
+		profile := buildFrozenClaudeEnvironmentProfileForSlotWithTimezone(env, cliVersion, profileTimezone)
 		slots[i] = ClaudeEnvironmentProfileSlot{
 			Slot:        i,
 			Environment: env,
@@ -324,6 +333,10 @@ func newFrozenClaudeEnvironmentProfilePool(cliVersion string) *ClaudeEnvironment
 // 三 OS 槽位冻结 pool，并按 OS 复用 legacy 中已有的设备身份（client_id/device_id/session_seed），
 // 以维持上游指纹连续。legacy 中无对应 OS 身份的槽位保留模板新生成的身份。不修改入参 legacy。
 func upgradeLegacyClaudePoolToV2(legacy *ClaudeEnvironmentProfilePool, cliVersion string) *ClaudeEnvironmentProfilePool {
+	return upgradeLegacyClaudePoolToV2WithTimezone(legacy, cliVersion, EnvironmentProfileFallbackTimezone)
+}
+
+func upgradeLegacyClaudePoolToV2WithTimezone(legacy *ClaudeEnvironmentProfilePool, cliVersion, profileTimezone string) *ClaudeEnvironmentProfilePool {
 	type preservedIdentity struct {
 		clientID    string
 		deviceID    string
@@ -354,7 +367,7 @@ func upgradeLegacyClaudePoolToV2(legacy *ClaudeEnvironmentProfilePool, cliVersio
 	now := nowForEnvironmentProfilePool()
 	slots := make([]ClaudeEnvironmentProfileSlot, len(fixedClaudeEnvironmentSlotClasses))
 	for i, env := range fixedClaudeEnvironmentSlotClasses {
-		profile := buildFrozenClaudeEnvironmentProfileForSlot(env, cliVersion)
+		profile := buildFrozenClaudeEnvironmentProfileForSlotWithTimezone(env, cliVersion, profileTimezone)
 		if id, ok := identities[env]; ok {
 			profile.ClientID = id.clientID
 			profile.DeviceID = id.deviceID
@@ -483,7 +496,7 @@ func (s *GatewayService) acquireClaudeEnvironmentProfileForRequest(ctx context.C
 
 	// 未绑定 pool 的凭证：懒生成 v2 pool 并落库。
 	cliVersion := s.claudeCLIVersion()
-	pool := newFrozenClaudeEnvironmentProfilePool(cliVersion)
+	pool := newFrozenClaudeEnvironmentProfilePoolWithTimezone(cliVersion, s.resolveProfileTimezone(ctx, account))
 	if account.Extra == nil {
 		account.Extra = map[string]any{}
 	}
@@ -521,6 +534,7 @@ func (s *GatewayService) acquireV2ClaudeEnvironmentProfileSlot(ctx context.Conte
 	if profile == nil {
 		return nil, nil, fmt.Errorf("v2 claude environment profile slot %d has no frozen profile", slotIdx)
 	}
+	profile.Timezone = s.resolveProfileTimezone(ctx, account)
 	lease := &EnvironmentProfileSlotLease{
 		AccountID:   account.ID,
 		Slot:        slotIdx,
@@ -544,6 +558,7 @@ func (s *GatewayService) acquireLegacyClaudeEnvironmentProfileSlot(ctx context.C
 	env := DetectClaudeEnvironmentClass(headers, body)
 	lease, profile, err := acquireClaudeEnvironmentProfileSlot(pool, s.claudeEnvironmentProfileSlotLeases, account, env, "", func(env EnvironmentClass) (*ClaudeEnvironmentProfile, error) {
 		profile := buildClaudeEnvironmentProfileForClass(env)
+		profile.Timezone = s.resolveProfileTimezone(ctx, account)
 		return profile, ValidateClaudeEnvironmentProfile(profile)
 	})
 	if err != nil {
