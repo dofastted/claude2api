@@ -24,6 +24,21 @@ import (
 var (
 	openAIModelDatePattern     = regexp.MustCompile(`-\d{8}$`)
 	openAIModelBasePattern     = regexp.MustCompile(`^(gpt-\d+(?:\.\d+)?)(?:-|$)`)
+	openAIGPT55FallbackPricing = &LiteLLMModelPricing{
+		InputCostPerToken:               5e-06,    // $5 per MTok
+		InputCostPerTokenPriority:       12.5e-06, // $12.5 per MTok
+		OutputCostPerToken:              3e-05,    // $30 per MTok
+		OutputCostPerTokenPriority:      75e-06,   // $75 per MTok
+		CacheReadInputTokenCost:         5e-07,    // $0.50 per MTok
+		CacheReadInputTokenCostPriority: 1.25e-06, // $1.25 per MTok
+		LongContextInputTokenThreshold:  272000,
+		LongContextInputCostMultiplier:  2.0,
+		LongContextOutputCostMultiplier: 1.5,
+		SupportsServiceTier:             true,
+		LiteLLMProvider:                 "openai",
+		Mode:                            "chat",
+		SupportsPromptCaching:           true,
+	}
 	openAIGPT54FallbackPricing = &LiteLLMModelPricing{
 		InputCostPerToken:               2.5e-06, // $2.5 per MTok
 		OutputCostPerToken:              1.5e-05, // $15 per MTok
@@ -97,6 +112,130 @@ type LiteLLMRawEntry struct {
 	SupportsPromptCaching               bool     `json:"supports_prompt_caching"`
 	OutputCostPerImage                  *float64 `json:"output_cost_per_image"`
 	OutputCostPerImageToken             *float64 `json:"output_cost_per_image_token"`
+}
+
+func currentOfficialModelPricingOverrides(now time.Time) map[string]*LiteLLMModelPricing {
+	sonnet5 := claudeOfficialPricing(2, 10)
+	if !now.Before(time.Date(2026, 9, 1, 0, 0, 0, 0, time.UTC)) {
+		sonnet5 = claudeOfficialPricing(3, 15)
+	}
+
+	return map[string]*LiteLLMModelPricing{
+		"claude-sonnet-5":    sonnet5,
+		"claude-fable-5":     claudeOfficialPricing(10, 50),
+		"claude-mythos-5":    claudeOfficialPricing(10, 50),
+		"claude-opus-4-8":    claudeOfficialPricing(5, 25),
+		"gpt-5.5":            cloneLiteLLMModelPricing(openAIGPT55FallbackPricing),
+		"gpt-5.5-2026-04-23": cloneLiteLLMModelPricing(openAIGPT55FallbackPricing),
+	}
+}
+
+func claudeOfficialPricing(inputMTok, outputMTok float64) *LiteLLMModelPricing {
+	input := inputMTok / 1_000_000
+	return &LiteLLMModelPricing{
+		InputCostPerToken:                   input,
+		OutputCostPerToken:                  outputMTok / 1_000_000,
+		CacheCreationInputTokenCost:         input * 1.25,
+		CacheCreationInputTokenCostAbove1hr: input * 2,
+		CacheReadInputTokenCost:             input * 0.1,
+		LiteLLMProvider:                     "anthropic",
+		Mode:                                "chat",
+		SupportsPromptCaching:               true,
+	}
+}
+
+func cloneLiteLLMModelPricing(src *LiteLLMModelPricing) *LiteLLMModelPricing {
+	if src == nil {
+		return nil
+	}
+	cloned := *src
+	return &cloned
+}
+
+func (s *PricingService) applyOfficialPricingOverrides(data map[string]*LiteLLMModelPricing) int {
+	changed := 0
+	for model, official := range currentOfficialModelPricingOverrides(time.Now()) {
+		merged, ok := mergeOfficialPricing(data[model], official)
+		if ok {
+			data[model] = merged
+			changed++
+		}
+	}
+	return changed
+}
+
+func (s *PricingService) applyOfficialPricingOverridesToCurrent() int {
+	if s == nil {
+		return 0
+	}
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if len(s.pricingData) == 0 {
+		return 0
+	}
+	changed := s.applyOfficialPricingOverrides(s.pricingData)
+	if changed > 0 {
+		s.lastUpdated = time.Now()
+	}
+	return changed
+}
+
+func mergeOfficialPricing(existing, official *LiteLLMModelPricing) (*LiteLLMModelPricing, bool) {
+	if official == nil {
+		return existing, false
+	}
+	if existing == nil {
+		return cloneLiteLLMModelPricing(official), true
+	}
+
+	merged := *existing
+	changed := false
+	setFloat := func(dst *float64, src float64) {
+		if src == 0 || *dst == src {
+			return
+		}
+		*dst = src
+		changed = true
+	}
+	setInt := func(dst *int, src int) {
+		if src == 0 || *dst == src {
+			return
+		}
+		*dst = src
+		changed = true
+	}
+	setString := func(dst *string, src string) {
+		if src == "" || *dst == src {
+			return
+		}
+		*dst = src
+		changed = true
+	}
+	setTrue := func(dst *bool, src bool) {
+		if !src || *dst {
+			return
+		}
+		*dst = true
+		changed = true
+	}
+
+	setFloat(&merged.InputCostPerToken, official.InputCostPerToken)
+	setFloat(&merged.InputCostPerTokenPriority, official.InputCostPerTokenPriority)
+	setFloat(&merged.OutputCostPerToken, official.OutputCostPerToken)
+	setFloat(&merged.OutputCostPerTokenPriority, official.OutputCostPerTokenPriority)
+	setFloat(&merged.CacheCreationInputTokenCost, official.CacheCreationInputTokenCost)
+	setFloat(&merged.CacheCreationInputTokenCostAbove1hr, official.CacheCreationInputTokenCostAbove1hr)
+	setFloat(&merged.CacheReadInputTokenCost, official.CacheReadInputTokenCost)
+	setFloat(&merged.CacheReadInputTokenCostPriority, official.CacheReadInputTokenCostPriority)
+	setInt(&merged.LongContextInputTokenThreshold, official.LongContextInputTokenThreshold)
+	setFloat(&merged.LongContextInputCostMultiplier, official.LongContextInputCostMultiplier)
+	setFloat(&merged.LongContextOutputCostMultiplier, official.LongContextOutputCostMultiplier)
+	setTrue(&merged.SupportsServiceTier, official.SupportsServiceTier)
+	setString(&merged.LiteLLMProvider, official.LiteLLMProvider)
+	setString(&merged.Mode, official.Mode)
+	setTrue(&merged.SupportsPromptCaching, official.SupportsPromptCaching)
+
+	return &merged, changed
 }
 
 // PricingService 动态价格服务
@@ -258,6 +397,9 @@ func (s *PricingService) syncWithRemote() error {
 				localHash[:min(8, len(localHash))], remoteHash[:min(8, len(remoteHash))])
 			return s.downloadPricingData()
 		}
+		if changed := s.applyOfficialPricingOverridesToCurrent(); changed > 0 {
+			logger.LegacyPrintf("service.pricing", "[Pricing] Re-applied %d official pricing overrides", changed)
+		}
 		logger.LegacyPrintf("service.pricing", "%s", "[Pricing] Hash check passed, no update needed")
 		return nil
 	}
@@ -318,6 +460,9 @@ func (s *PricingService) downloadPricingData() error {
 	data, err := s.parsePricingData(body)
 	if err != nil {
 		return fmt.Errorf("parse pricing data: %w", err)
+	}
+	if changed := s.applyOfficialPricingOverrides(data); changed > 0 {
+		logger.LegacyPrintf("service.pricing", "[Pricing] Applied %d official pricing overrides", changed)
 	}
 
 	// 保存到本地文件
@@ -440,6 +585,9 @@ func (s *PricingService) loadPricingData(filePath string) error {
 	pricingData, err := s.parsePricingData(data)
 	if err != nil {
 		return fmt.Errorf("parse pricing data: %w", err)
+	}
+	if changed := s.applyOfficialPricingOverrides(pricingData); changed > 0 {
+		logger.LegacyPrintf("service.pricing", "[Pricing] Applied %d official pricing overrides", changed)
 	}
 
 	// 计算哈希
@@ -798,11 +946,10 @@ func (s *PricingService) matchOpenAIModel(model string) *LiteLLMModelPricing {
 		}
 	}
 
-	// GPT-5.5 回退到 GPT-5.4 定价
 	if strings.HasPrefix(model, "gpt-5.5") {
 		logger.With(zap.String("component", "service.pricing")).
-			Info(fmt.Sprintf("[Pricing] OpenAI fallback matched %s -> %s", model, "gpt-5.4(static)"))
-		return openAIGPT54FallbackPricing
+			Info(fmt.Sprintf("[Pricing] OpenAI fallback matched %s -> %s", model, "gpt-5.5(static)"))
+		return openAIGPT55FallbackPricing
 	}
 
 	if strings.HasPrefix(model, "gpt-5.4-mini") {

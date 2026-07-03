@@ -7,6 +7,7 @@ import (
 	"time"
 
 	"github.com/dofastted/claude2api/internal/pkg/tlsfingerprint"
+	"github.com/dofastted/claude2api/internal/pkg/usagestats"
 )
 
 type accountUsageCodexProbeRepo struct {
@@ -33,6 +34,70 @@ func (r *accountUsageCodexProbeRepo) SetRateLimited(_ context.Context, _ int64, 
 	return nil
 }
 
+type accountUsageWindowStatsCall struct {
+	accountID int64
+	startTime time.Time
+}
+
+type accountUsageWindowStatsRepo struct {
+	UsageLogRepository
+	stats []*usagestats.AccountStats
+	calls []accountUsageWindowStatsCall
+}
+
+func (r *accountUsageWindowStatsRepo) GetAccountWindowStats(_ context.Context, accountID int64, startTime time.Time) (*usagestats.AccountStats, error) {
+	r.calls = append(r.calls, accountUsageWindowStatsCall{accountID: accountID, startTime: startTime})
+	idx := len(r.calls) - 1
+	if idx >= 0 && idx < len(r.stats) {
+		return r.stats[idx], nil
+	}
+	return &usagestats.AccountStats{}, nil
+}
+
+func TestAccountUsageServiceAddWindowStatsAddsSevenDay(t *testing.T) {
+	now := time.Now()
+	sessionStart := now.Add(-2 * time.Hour)
+	sessionEnd := now.Add(3 * time.Hour)
+	sevenDayReset := now.Add(5 * 24 * time.Hour)
+
+	repo := &accountUsageWindowStatsRepo{
+		stats: []*usagestats.AccountStats{
+			{Requests: 3, Tokens: 300, Cost: 0.03, StandardCost: 0.04, UserCost: 0.05},
+			{Requests: 9, Tokens: 900, Cost: 0.09, StandardCost: 0.10, UserCost: 0.11},
+		},
+	}
+	svc := &AccountUsageService{
+		usageLogRepo: repo,
+		cache:        NewUsageCache(),
+	}
+	usage := &UsageInfo{
+		FiveHour: &UsageProgress{},
+		SevenDay: &UsageProgress{ResetsAt: &sevenDayReset},
+	}
+
+	svc.addWindowStats(context.Background(), &Account{
+		ID:                 42,
+		SessionWindowStart: &sessionStart,
+		SessionWindowEnd:   &sessionEnd,
+	}, usage)
+
+	if len(repo.calls) != 2 {
+		t.Fatalf("GetAccountWindowStats calls = %d, want 2", len(repo.calls))
+	}
+	if repo.calls[0].accountID != 42 || !repo.calls[0].startTime.Equal(sessionStart) {
+		t.Fatalf("5h stats query = %#v, want account 42 start %s", repo.calls[0], sessionStart)
+	}
+	expectedSevenDayStart := sevenDayReset.Add(-7 * 24 * time.Hour)
+	if repo.calls[1].accountID != 42 || !repo.calls[1].startTime.Equal(expectedSevenDayStart) {
+		t.Fatalf("7d stats query = %#v, want account 42 start %s", repo.calls[1], expectedSevenDayStart)
+	}
+	if usage.FiveHour.WindowStats == nil || usage.FiveHour.WindowStats.Tokens != 300 {
+		t.Fatalf("5h window stats = %#v, want 300 tokens", usage.FiveHour.WindowStats)
+	}
+	if usage.SevenDay.WindowStats == nil || usage.SevenDay.WindowStats.Tokens != 900 {
+		t.Fatalf("7d window stats = %#v, want 900 tokens", usage.SevenDay.WindowStats)
+	}
+}
 func TestShouldRefreshOpenAICodexSnapshot(t *testing.T) {
 	t.Parallel()
 

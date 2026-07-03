@@ -602,7 +602,7 @@ func NewAdminService(
 	privacyClientFactory PrivacyClientFactory,
 	runtimeBlocker AccountRuntimeBlocker,
 ) AdminService {
-	profileTimezoneResolver := NewEnvironmentProfileTimezoneResolver(proxyProber, cfg)
+	profileTimezoneResolver := NewEnvironmentProfileTimezoneResolver(proxyProber, cfg, proxyRepo)
 	return &adminServiceImpl{
 		userRepo:                userRepo,
 		groupRepo:               groupRepo,

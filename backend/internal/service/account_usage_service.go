@@ -97,6 +97,10 @@ type windowStatsCache struct {
 	stats     *WindowStats
 	timestamp time.Time
 }
+type windowStatsCacheKey struct {
+	accountID int64
+	window    string
+}
 
 // antigravityUsageCache 缓存 Antigravity 额度数据
 type antigravityUsageCache struct {
@@ -116,7 +120,7 @@ const (
 // UsageCache 封装账户使用量相关的缓存
 type UsageCache struct {
 	apiCache          sync.Map           // accountID -> *apiUsageCache
-	windowStatsCache  sync.Map           // accountID -> *windowStatsCache
+	windowStatsCache  sync.Map           // windowStatsCacheKey -> *windowStatsCache
 	antigravityCache  sync.Map           // accountID -> *antigravityUsageCache
 	apiFlight         singleflight.Group // 防止同一账号的并发请求击穿缓存（Anthropic）
 	antigravityFlight singleflight.Group // 防止同一 Antigravity 账号的并发请求击穿缓存
@@ -978,53 +982,51 @@ func enrichUsageWithAccountError(info *UsageInfo, account *Account) {
 	info.NeedsReauth = false
 }
 
-// addWindowStats 为 usage 数据添加窗口期统计
-// 使用独立缓存（1 分钟），与 API 缓存分离
+// addWindowStats 为 usage 数据添加窗口期统计。
+// 5h 使用账号记录的 session window；7d 使用上游返回的 reset 时间回推，缺失时回退到最近 7 天。
 func (s *AccountUsageService) addWindowStats(ctx context.Context, account *Account, usage *UsageInfo) {
-	// 修复：即使 FiveHour 为 nil，也要尝试获取统计数据
-	// 因为 SevenDay/SevenDaySonnet 可能需要
+	if s == nil || s.usageLogRepo == nil || s.cache == nil || account == nil || usage == nil {
+		return
+	}
 	if usage.FiveHour == nil && usage.SevenDay == nil && usage.SevenDaySonnet == nil {
 		return
 	}
 
-	// 检查窗口统计缓存（1 分钟）
-	var windowStats *WindowStats
-	if cached, ok := s.cache.windowStatsCache.Load(account.ID); ok {
-		if cache, ok := cached.(*windowStatsCache); ok && time.Since(cache.timestamp) < windowStatsCacheTTL {
-			windowStats = cache.stats
-		}
-	}
-
-	// 如果没有缓存，从数据库查询
-	if windowStats == nil {
-		// 使用统一的窗口开始时间计算逻辑（考虑窗口过期情况）
-		startTime := account.GetCurrentWindowStartTime()
-
-		stats, err := s.usageLogRepo.GetAccountWindowStats(ctx, account.ID, startTime)
-		if err != nil {
-			log.Printf("Failed to get window stats for account %d: %v", account.ID, err)
-			return
-		}
-
-		windowStats = &WindowStats{
-			Requests:     stats.Requests,
-			Tokens:       stats.Tokens,
-			Cost:         stats.Cost,
-			StandardCost: stats.StandardCost,
-			UserCost:     stats.UserCost,
-		}
-
-		// 缓存窗口统计（1 分钟）
-		s.cache.windowStatsCache.Store(account.ID, &windowStatsCache{
-			stats:     windowStats,
-			timestamp: time.Now(),
-		})
-	}
-
-	// 为 FiveHour 添加 WindowStats（5h 窗口统计）
 	if usage.FiveHour != nil {
-		usage.FiveHour.WindowStats = windowStats
+		startTime := account.GetCurrentWindowStartTime()
+		if windowStats := s.getCachedWindowStats(ctx, account.ID, "5h", startTime); windowStats != nil {
+			usage.FiveHour.WindowStats = windowStats
+		}
 	}
+
+	if usage.SevenDay != nil {
+		startTime := codexWindowStatsStart(usage.SevenDay, 7*24*time.Hour, time.Now())
+		if windowStats := s.getCachedWindowStats(ctx, account.ID, "7d", startTime); windowStats != nil {
+			usage.SevenDay.WindowStats = windowStats
+		}
+	}
+}
+
+func (s *AccountUsageService) getCachedWindowStats(ctx context.Context, accountID int64, window string, startTime time.Time) *WindowStats {
+	cacheKey := windowStatsCacheKey{accountID: accountID, window: window}
+	if cached, ok := s.cache.windowStatsCache.Load(cacheKey); ok {
+		if cache, ok := cached.(*windowStatsCache); ok && time.Since(cache.timestamp) < windowStatsCacheTTL {
+			return cache.stats
+		}
+	}
+
+	stats, err := s.usageLogRepo.GetAccountWindowStats(ctx, accountID, startTime)
+	if err != nil {
+		log.Printf("Failed to get %s window stats for account %d: %v", window, accountID, err)
+		return nil
+	}
+
+	windowStats := windowStatsFromAccountStats(stats)
+	s.cache.windowStatsCache.Store(cacheKey, &windowStatsCache{
+		stats:     windowStats,
+		timestamp: time.Now(),
+	})
+	return windowStats
 }
 
 // GetTodayStats 获取账号今日统计

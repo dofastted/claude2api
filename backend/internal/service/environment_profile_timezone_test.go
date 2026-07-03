@@ -35,11 +35,38 @@ func (f *fakeProbeProber) ProbeProxy(_ context.Context, proxyURL string) (*Proxy
 	return &out, 0, nil
 }
 
+type fakeEnvironmentProfileProxyLookup struct {
+	ids   []int64
+	proxy *Proxy
+	err   error
+}
+
+func (f *fakeEnvironmentProfileProxyLookup) GetByID(_ context.Context, id int64) (*Proxy, error) {
+	f.ids = append(f.ids, id)
+	if f.err != nil {
+		return nil, f.err
+	}
+	if f.proxy == nil {
+		return nil, nil
+	}
+	out := *f.proxy
+	return &out, nil
+}
+
 func newResolverWithFake(prober *fakeProbeProber, cfg *config.Config) *EnvironmentProfileTimezoneResolver {
 	return &EnvironmentProfileTimezoneResolver{
 		prober: prober,
 		cfg:    cfg,
 		cache:  map[string]environmentProfileTimezoneCacheEntry{},
+	}
+}
+
+func newResolverWithFakeAndProxyLookup(prober *fakeProbeProber, cfg *config.Config, lookup environmentProfileProxyLookup) *EnvironmentProfileTimezoneResolver {
+	return &EnvironmentProfileTimezoneResolver{
+		prober:      prober,
+		cfg:         cfg,
+		proxyLookup: lookup,
+		cache:       map[string]environmentProfileTimezoneCacheEntry{},
 	}
 }
 
@@ -126,6 +153,31 @@ func TestResolve_AccountProxyUsedWhenNoGlobal(t *testing.T) {
 	require.Equal(t, "Asia/Singapore", got)
 	require.Len(t, prober.calledProxyURLs, 1)
 	require.Contains(t, prober.calledProxyURLs[0], "socks5://acct.example:1080", "account proxy must be used when no global proxy is set")
+}
+
+func TestResolve_LoadsAccountProxyByIDWhenNotHydrated(t *testing.T) {
+	prober := &fakeProbeProber{info: &ProxyExitInfo{Timezone: "Asia/Tokyo", CountryCode: "JP", Source: "ip-api"}}
+	lookup := &fakeEnvironmentProfileProxyLookup{proxy: &Proxy{Protocol: "http", Host: "lookup.example", Port: 8080}}
+	r := newResolverWithFakeAndProxyLookup(prober, &config.Config{}, lookup)
+
+	accountProxyID := int64(9)
+	got := r.Resolve(context.Background(), &Account{Platform: PlatformOpenAI, Type: AccountTypeOAuth, ProxyID: &accountProxyID})
+
+	require.Equal(t, "Asia/Tokyo", got)
+	require.Equal(t, []int64{accountProxyID}, lookup.ids)
+	require.Len(t, prober.calledProxyURLs, 1)
+	require.Equal(t, "http://lookup.example:8080", prober.calledProxyURLs[0])
+}
+
+func TestResolve_ProxyIDWithoutLookup_FallsBackWithoutDirectProbe(t *testing.T) {
+	prober := &fakeProbeProber{info: &ProxyExitInfo{Timezone: "America/New_York", CountryCode: "US", Source: "ip-api"}}
+	r := newResolverWithFake(prober, &config.Config{})
+
+	accountProxyID := int64(10)
+	got := r.Resolve(context.Background(), &Account{Platform: PlatformOpenAI, Type: AccountTypeOAuth, ProxyID: &accountProxyID})
+
+	require.Equal(t, EnvironmentProfileFallbackTimezone, got)
+	require.Empty(t, prober.calledProxyURLs, "configured proxy without lookup must not silently probe direct egress")
 }
 
 // TestResolve_DirectWhenNoProxy pins that with no global and no account proxy
@@ -289,23 +341,23 @@ func TestNewFrozenCodexEnvironmentProfilePool_Default_Fallback(t *testing.T) {
 
 func TestSanitizeOAuthCredentialsForStorage_StripsBlockedKeys_OAuth(t *testing.T) {
 	in := map[string]any{
-		"access_token":          "tok-keep",
-		"refresh_token":         "rt-keep",
-		"email":                 "u@example.com",
-		"chatgpt_account_id":    "acct-keep",
-		"base_url":              "https://relay.example",
-		"custom_base_url":       "https://relay2.example",
+		"access_token":            "tok-keep",
+		"refresh_token":           "rt-keep",
+		"email":                   "u@example.com",
+		"chatgpt_account_id":      "acct-keep",
+		"base_url":                "https://relay.example",
+		"custom_base_url":         "https://relay2.example",
 		"custom_base_url_enabled": true,
-		"endpoint":              "https://ep.example",
-		"hostname":              "relay.example",
-		"host":                  "relay.example",
-		"api_key":               "sk-leak",
-		"x-api-key":             "sk-leak2",
-		"key":                   "raw-key",
-		"authorization":         "Bearer leak",
-		"timezone":              "Asia/Shanghai",
-		"time_zone":             "Asia/Shanghai",
-		"tz":                    "Asia/Shanghai",
+		"endpoint":                "https://ep.example",
+		"hostname":                "relay.example",
+		"host":                    "relay.example",
+		"api_key":                 "sk-leak",
+		"x-api-key":               "sk-leak2",
+		"key":                     "raw-key",
+		"authorization":           "Bearer leak",
+		"timezone":                "Asia/Shanghai",
+		"time_zone":               "Asia/Shanghai",
+		"tz":                      "Asia/Shanghai",
 	}
 	out := SanitizeOAuthCredentialsForStorage(PlatformOpenAI, AccountTypeOAuth, in)
 	require.Contains(t, out, "access_token")
@@ -435,14 +487,14 @@ func TestSanitizeOAuthJSONBody_Empty_ReturnedUnchanged(t *testing.T) {
 
 func TestSanitizeOAuthMetadataMap_StripsBlockedKeys(t *testing.T) {
 	meta := map[string]any{
-		"session_id":   "s-keep",
-		"thread_id":    "t-keep",
-		"base_url":     "https://relay.example",
-		"endpoint":     "https://ep.example",
-		"hostname":     "relay.example",
-		"api_key":      "sk-leak",
+		"session_id":    "s-keep",
+		"thread_id":     "t-keep",
+		"base_url":      "https://relay.example",
+		"endpoint":      "https://ep.example",
+		"hostname":      "relay.example",
+		"api_key":       "sk-leak",
 		"authorization": "Bearer leak",
-		"timezone":     "Asia/Shanghai",
+		"timezone":      "Asia/Shanghai",
 	}
 	require.True(t, sanitizeOAuthMetadataMap(meta))
 	require.Equal(t, "s-keep", meta["session_id"])

@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"log/slog"
+	"strconv"
 	"strings"
 	"sync"
 	"time"
@@ -40,19 +41,29 @@ type environmentProfileTimezoneCacheEntry struct {
 	expiresAt time.Time
 }
 
+type environmentProfileProxyLookup interface {
+	GetByID(ctx context.Context, id int64) (*Proxy, error)
+}
+
 type EnvironmentProfileTimezoneResolver struct {
-	prober ProxyExitInfoProber
-	cfg    *config.Config
+	prober      ProxyExitInfoProber
+	cfg         *config.Config
+	proxyLookup environmentProfileProxyLookup
 
 	mu    sync.Mutex
 	cache map[string]environmentProfileTimezoneCacheEntry
 }
 
-func NewEnvironmentProfileTimezoneResolver(prober ProxyExitInfoProber, cfg *config.Config) *EnvironmentProfileTimezoneResolver {
+func NewEnvironmentProfileTimezoneResolver(prober ProxyExitInfoProber, cfg *config.Config, proxyLookups ...environmentProfileProxyLookup) *EnvironmentProfileTimezoneResolver {
+	var proxyLookup environmentProfileProxyLookup
+	if len(proxyLookups) > 0 {
+		proxyLookup = proxyLookups[0]
+	}
 	resolver := &EnvironmentProfileTimezoneResolver{
-		prober: prober,
-		cfg:    cfg,
-		cache:  map[string]environmentProfileTimezoneCacheEntry{},
+		prober:      prober,
+		cfg:         cfg,
+		proxyLookup: proxyLookup,
+		cache:       map[string]environmentProfileTimezoneCacheEntry{},
 	}
 	setDefaultEnvironmentProfileTimezoneResolver(resolver)
 	if prober != nil {
@@ -72,13 +83,13 @@ func (r *EnvironmentProfileTimezoneResolver) Resolve(ctx context.Context, accoun
 	if r == nil || r.prober == nil {
 		return EnvironmentProfileFallbackTimezone
 	}
-	proxyURL := r.effectiveProxyURL(account)
-	cacheKey := proxyURL
-	if cacheKey == "" {
-		cacheKey = "direct"
-	}
+	proxyURL, cacheKey, ok := r.effectiveProxy(ctx, account)
 	if cached, ok := r.cached(cacheKey); ok {
 		return cached
+	}
+	if !ok {
+		slog.Warn("environment_profile_timezone_proxy_unavailable", "proxy_key", cacheKey)
+		return r.store(cacheKey, EnvironmentProfileFallbackTimezone)
 	}
 	info, _, err := r.prober.ProbeProxy(ctx, proxyURL)
 	if err != nil {
@@ -95,16 +106,41 @@ func (r *EnvironmentProfileTimezoneResolver) Resolve(ctx context.Context, accoun
 	return r.store(cacheKey, timezone)
 }
 
-func (r *EnvironmentProfileTimezoneResolver) effectiveProxyURL(account *Account) string {
+func (r *EnvironmentProfileTimezoneResolver) effectiveProxy(ctx context.Context, account *Account) (proxyURL, cacheKey string, ok bool) {
 	if r != nil && r.cfg != nil {
 		if global := strings.TrimSpace(r.cfg.Gateway.GlobalProxyURL); global != "" {
-			return global
+			return global, global, true
 		}
 	}
-	if account != nil && account.ProxyID != nil && account.Proxy != nil {
-		return strings.TrimSpace(account.Proxy.URL())
+	if account == nil || account.ProxyID == nil || *account.ProxyID <= 0 {
+		return "", "direct", true
 	}
-	return ""
+	cacheKey = formatEnvironmentProfileProxyCacheKey(*account.ProxyID)
+	if account.Proxy != nil {
+		if proxyURL := strings.TrimSpace(account.Proxy.URL()); proxyURL != "" {
+			return proxyURL, proxyURL, true
+		}
+		return "", cacheKey, false
+	}
+	if r == nil || r.proxyLookup == nil {
+		return "", cacheKey, false
+	}
+	proxy, err := r.proxyLookup.GetByID(ctx, *account.ProxyID)
+	if err != nil || proxy == nil {
+		if err != nil {
+			slog.Warn("environment_profile_timezone_proxy_lookup_failed", "proxy_id", *account.ProxyID, "error", err)
+		}
+		return "", cacheKey, false
+	}
+	proxyURL = strings.TrimSpace(proxy.URL())
+	if proxyURL == "" {
+		return "", cacheKey, false
+	}
+	return proxyURL, proxyURL, true
+}
+
+func formatEnvironmentProfileProxyCacheKey(proxyID int64) string {
+	return "proxy:" + strconv.FormatInt(proxyID, 10)
 }
 
 func (r *EnvironmentProfileTimezoneResolver) cached(key string) (string, bool) {

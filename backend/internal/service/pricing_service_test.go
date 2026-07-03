@@ -1,13 +1,31 @@
 package service
 
 import (
+	"context"
 	"encoding/json"
 	"os"
 	"path/filepath"
 	"testing"
+	"time"
 
+	"github.com/dofastted/claude2api/internal/config"
 	"github.com/stretchr/testify/require"
 )
+
+type pricingRemoteClientStub struct {
+	hash           string
+	body           []byte
+	fetchJSONCalls int
+}
+
+func (c *pricingRemoteClientStub) FetchPricingJSON(_ context.Context, _ string) ([]byte, error) {
+	c.fetchJSONCalls++
+	return c.body, nil
+}
+
+func (c *pricingRemoteClientStub) FetchHashText(_ context.Context, _ string) (string, error) {
+	return c.hash, nil
+}
 
 func TestParsePricingData_ParsesPriorityAndServiceTierFields(t *testing.T) {
 	svc := &PricingService{}
@@ -109,11 +127,86 @@ func TestGetModelPricing_OpenAICompactAliasUsesStaticFallback(t *testing.T) {
 
 	got := svc.GetModelPricing("openai/gpt5.5")
 	require.NotNil(t, got)
-	require.InDelta(t, 2.5e-6, got.InputCostPerToken, 1e-12)
-	require.InDelta(t, 1.5e-5, got.OutputCostPerToken, 1e-12)
+	require.InDelta(t, 5e-6, got.InputCostPerToken, 1e-12)
+	require.InDelta(t, 3e-5, got.OutputCostPerToken, 1e-12)
+	require.InDelta(t, 12.5e-6, got.InputCostPerTokenPriority, 1e-12)
+	require.InDelta(t, 75e-6, got.OutputCostPerTokenPriority, 1e-12)
 }
 
-func TestDefaultPricingIncludesCodexAutoReview(t *testing.T) {
+func TestApplyOfficialPricingOverridesAddsNewClaudeModelsAndCorrectsGPT55Priority(t *testing.T) {
+	svc := &PricingService{}
+	pricingData := map[string]*LiteLLMModelPricing{
+		"gpt-5.5": {
+			InputCostPerToken:               5e-6,
+			OutputCostPerToken:              30e-6,
+			CacheReadInputTokenCost:         0.5e-6,
+			InputCostPerTokenPriority:       10e-6,
+			OutputCostPerTokenPriority:      60e-6,
+			CacheReadInputTokenCostPriority: 1e-6,
+			LiteLLMProvider:                 "openai",
+			Mode:                            "chat",
+		},
+	}
+
+	changed := svc.applyOfficialPricingOverrides(pricingData)
+	require.GreaterOrEqual(t, changed, 2)
+
+	fable5 := pricingData["claude-fable-5"]
+	require.NotNil(t, fable5)
+	require.InDelta(t, 10e-6, fable5.InputCostPerToken, 1e-12)
+	require.InDelta(t, 50e-6, fable5.OutputCostPerToken, 1e-12)
+	require.InDelta(t, 12.5e-6, fable5.CacheCreationInputTokenCost, 1e-12)
+	require.InDelta(t, 20e-6, fable5.CacheCreationInputTokenCostAbove1hr, 1e-12)
+	require.InDelta(t, 1e-6, fable5.CacheReadInputTokenCost, 1e-12)
+
+	gpt55 := pricingData["gpt-5.5"]
+	require.InDelta(t, 12.5e-6, gpt55.InputCostPerTokenPriority, 1e-12)
+	require.InDelta(t, 75e-6, gpt55.OutputCostPerTokenPriority, 1e-12)
+	require.InDelta(t, 1.25e-6, gpt55.CacheReadInputTokenCostPriority, 1e-12)
+}
+
+func TestSyncWithRemoteRevalidatesOfficialPricesWhenHashUnchanged(t *testing.T) {
+	remote := &pricingRemoteClientStub{hash: "same"}
+	svc := NewPricingService(&config.Config{
+		Pricing: config.PricingConfig{HashURL: "https://example.com/model_prices.sha256"},
+	}, remote)
+	svc.localHash = "same"
+	svc.pricingData = map[string]*LiteLLMModelPricing{
+		"gpt-5.5": {
+			InputCostPerToken:               5e-6,
+			OutputCostPerToken:              30e-6,
+			CacheReadInputTokenCost:         0.5e-6,
+			InputCostPerTokenPriority:       10e-6,
+			OutputCostPerTokenPriority:      60e-6,
+			CacheReadInputTokenCostPriority: 1e-6,
+			LiteLLMProvider:                 "openai",
+			Mode:                            "chat",
+		},
+	}
+
+	require.NoError(t, svc.syncWithRemote())
+	require.Equal(t, 0, remote.fetchJSONCalls)
+
+	got := svc.GetModelPricing("gpt-5.5")
+	require.NotNil(t, got)
+	require.InDelta(t, 12.5e-6, got.InputCostPerTokenPriority, 1e-12)
+	require.InDelta(t, 75e-6, got.OutputCostPerTokenPriority, 1e-12)
+	require.InDelta(t, 1.25e-6, got.CacheReadInputTokenCostPriority, 1e-12)
+}
+
+func TestCurrentOfficialModelPricingOverrides_Sonnet5IntroWindow(t *testing.T) {
+	before := currentOfficialModelPricingOverrides(time.Date(2026, 8, 31, 23, 59, 0, 0, time.UTC))["claude-sonnet-5"]
+	require.NotNil(t, before)
+	require.InDelta(t, 2e-6, before.InputCostPerToken, 1e-12)
+	require.InDelta(t, 10e-6, before.OutputCostPerToken, 1e-12)
+
+	after := currentOfficialModelPricingOverrides(time.Date(2026, 9, 1, 0, 0, 0, 0, time.UTC))["claude-sonnet-5"]
+	require.NotNil(t, after)
+	require.InDelta(t, 3e-6, after.InputCostPerToken, 1e-12)
+	require.InDelta(t, 15e-6, after.OutputCostPerToken, 1e-12)
+}
+
+func TestDefaultPricingIncludesManualFallbackModels(t *testing.T) {
 	data, err := os.ReadFile(filepath.Join("..", "..", "resources", "model-pricing", "model_prices_and_context_window.json"))
 	require.NoError(t, err)
 
@@ -122,11 +215,23 @@ func TestDefaultPricingIncludesCodexAutoReview(t *testing.T) {
 	require.NoError(t, err)
 	svc.pricingData = pricingData
 
-	got := svc.GetModelPricing("codex-auto-review")
-	require.NotNil(t, got)
-	require.InDelta(t, 5e-6, got.InputCostPerToken, 1e-12)
-	require.InDelta(t, 3e-5, got.OutputCostPerToken, 1e-12)
-	require.InDelta(t, 5e-7, got.CacheReadInputTokenCost, 1e-12)
+	codexAutoReview := svc.GetModelPricing("codex-auto-review")
+	require.NotNil(t, codexAutoReview)
+	require.InDelta(t, 5e-6, codexAutoReview.InputCostPerToken, 1e-12)
+	require.InDelta(t, 3e-5, codexAutoReview.OutputCostPerToken, 1e-12)
+	require.InDelta(t, 1.25e-5, codexAutoReview.InputCostPerTokenPriority, 1e-12)
+	require.InDelta(t, 7.5e-5, codexAutoReview.OutputCostPerTokenPriority, 1e-12)
+	require.InDelta(t, 1.25e-6, codexAutoReview.CacheReadInputTokenCostPriority, 1e-12)
+
+	sonnet5 := svc.GetModelPricing("claude-sonnet-5")
+	require.NotNil(t, sonnet5)
+	require.InDelta(t, 2e-6, sonnet5.InputCostPerToken, 1e-12)
+	require.InDelta(t, 10e-6, sonnet5.OutputCostPerToken, 1e-12)
+
+	fable5 := svc.GetModelPricing("claude-fable-5")
+	require.NotNil(t, fable5)
+	require.InDelta(t, 10e-6, fable5.InputCostPerToken, 1e-12)
+	require.InDelta(t, 50e-6, fable5.OutputCostPerToken, 1e-12)
 }
 
 func TestGetModelPricing_Gpt54MiniUsesDedicatedStaticFallbackWhenRemoteMissing(t *testing.T) {
