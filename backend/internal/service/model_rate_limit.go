@@ -10,6 +10,7 @@ import (
 
 const (
 	modelRateLimitsKey                 = "model_rate_limits"
+	claudeFableRateLimitModelKey       = "claude-fable-5"
 	antigravityGeminiModelRateLimitKey = "antigravity:gemini"
 	openAIImageGenerationRateLimitKey  = "openai:image_generation"
 )

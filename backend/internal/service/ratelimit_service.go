@@ -85,16 +85,20 @@ const (
 type ClaudeRateLimitType string
 
 const (
-	ClaudeRateLimitTypeUnknown     ClaudeRateLimitType = "unknown"     // 未识别（回退到 retry-after 解析）
-	ClaudeRateLimitTypeExtraUsage  ClaudeRateLimitType = "extra_usage" // Extra Usage required（24h）
-	ClaudeRateLimitTypeOpusWeekly  ClaudeRateLimitType = "opus_weekly" // Opus 周限（168h）
-	ClaudeRateLimitType5HourWindow ClaudeRateLimitType = "5h_window"   // 5h 窗口限流（5h）
-	ClaudeRateLimitTypeGeneric     ClaudeRateLimitType = "generic"     // 普通 429（1h）
+	ClaudeRateLimitTypeUnknown     ClaudeRateLimitType = "unknown"      // 未识别（回退到 retry-after 解析）
+	ClaudeRateLimitTypeExtraUsage  ClaudeRateLimitType = "extra_usage"  // Extra Usage required（24h）
+	ClaudeRateLimitTypeOpusWeekly  ClaudeRateLimitType = "opus_weekly"  // Opus 周限（168h）
+	ClaudeRateLimitTypeFableWeekly ClaudeRateLimitType = "fable_weekly" // Fable 周限（168h）
+	ClaudeRateLimitType5HourWindow ClaudeRateLimitType = "5h_window"    // 5h 窗口限流（5h）
+	ClaudeRateLimitTypeGeneric     ClaudeRateLimitType = "generic"      // 普通 429（1h）
 )
 
 // claudeOpusWeeklyPattern 匹配 Opus 周限错误消息
 // 关键字：claude-opus.*models per week（大小写不敏感）
 var claudeOpusWeeklyPattern = regexp.MustCompile(`(?i)claude-opus.*models per week`)
+
+// claudeFableWeeklyPattern 匹配 Fable 周限错误消息。
+var claudeFableWeeklyPattern = regexp.MustCompile(`(?i)claude-fable.*models per week`)
 
 // NewRateLimitService 创建RateLimitService实例
 func NewRateLimitService(accountRepo AccountRepository, usageRepo UsageLogRepository, cfg *config.Config, geminiQuotaService *GeminiQuotaService, tempUnschedCache TempUnschedCache) *RateLimitService {
@@ -195,6 +199,11 @@ func (s *RateLimitService) HandleUpstreamError(ctx context.Context, account *Acc
 
 	if len(requestedModel) > 0 && s.HandleUpstreamModelNotFound(ctx, account, requestedModel[0], statusCode, responseBody) {
 		return true
+	}
+
+	if statusCode == http.StatusTooManyRequests && s.isClaudeFableRateLimitRequest(account, firstRequestedModel(requestedModel)) {
+		s.handle429(ctx, account, headers, responseBody, requestedModel...)
+		return false
 	}
 
 	// Anthropic official 5h / 7d window exhaustion is a hard account limit.
@@ -343,7 +352,7 @@ func (s *RateLimitService) HandleUpstreamError(ctx context.Context, account *Acc
 		)
 		shouldDisable = s.handle403(ctx, account, upstreamMsg, responseBody)
 	case 429:
-		s.handle429(ctx, account, headers, responseBody)
+		s.handle429(ctx, account, headers, responseBody, requestedModel...)
 		shouldDisable = false
 	case 529:
 		s.handle529(ctx, account)
@@ -894,9 +903,9 @@ func (s *RateLimitService) handleCustomErrorCode(ctx context.Context, account *A
 	slog.Warn("account_disabled_custom_error", "account_id", account.ID, "status_code", statusCode, "error", errorMsg)
 }
 
-// handle429 处理429限流错误
-// 解析响应头获取重置时间，标记账号为限流状态
-func (s *RateLimitService) handle429(ctx context.Context, account *Account, headers http.Header, responseBody []byte) {
+// handle429 处理429限流错误。
+// Fable 5 使用独立模型级限流桶，其他 Anthropic 429 保持账号级处理。
+func (s *RateLimitService) handle429(ctx context.Context, account *Account, headers http.Header, responseBody []byte, requestedModel ...string) {
 	// 1. OpenAI 平台：优先尝试解析 x-codex-* 响应头（用于 rate_limit_exceeded）
 	if account.Platform == PlatformOpenAI {
 		persistOpenAI429PlanType(ctx, s.accountRepo, account, responseBody)
@@ -910,6 +919,11 @@ func (s *RateLimitService) handle429(ctx context.Context, account *Account, head
 			slog.Info("openai_account_rate_limited", "account_id", account.ID, "reset_at", *resetAt)
 			return
 		}
+	}
+
+	if s.isClaudeFableRateLimitRequest(account, firstRequestedModel(requestedModel)) {
+		s.handleClaudeFable429(ctx, account, headers, responseBody)
+		return
 	}
 
 	// 2. Anthropic 平台：尝试解析 per-window 头（5h / 7d），选择实际触发的窗口
@@ -1051,6 +1065,79 @@ func (s *RateLimitService) handle429(ctx context.Context, account *Account, head
 	slog.Info("account_rate_limited", "account_id", account.ID, "reset_at", resetAt)
 }
 
+func firstRequestedModel(requestedModel []string) string {
+	if len(requestedModel) == 0 {
+		return ""
+	}
+	return strings.TrimSpace(requestedModel[0])
+}
+
+func (s *RateLimitService) isClaudeFableRateLimitRequest(account *Account, requestedModel string) bool {
+	if account == nil || account.Platform != PlatformAnthropic || strings.TrimSpace(requestedModel) == "" {
+		return false
+	}
+	if isClaudeFableModelID(requestedModel) {
+		return true
+	}
+	return isClaudeFableModelID(account.GetMappedModel(requestedModel))
+}
+
+func isClaudeFableModelID(model string) bool {
+	return strings.Contains(strings.ToLower(strings.TrimSpace(model)), claudeFableRateLimitModelKey)
+}
+
+func (s *RateLimitService) handleClaudeFable429(ctx context.Context, account *Account, headers http.Header, responseBody []byte) {
+	resetAt, rateLimitType, source := s.claudeFable429ResetTime(headers, responseBody)
+	reason := fmt.Sprintf("Claude Fable rate limit: %s via %s", rateLimitType, source)
+	if err := s.accountRepo.SetModelRateLimit(ctx, account.ID, claudeFableRateLimitModelKey, resetAt, reason); err != nil {
+		slog.Warn("claude_fable_rate_limit_set_failed", "account_id", account.ID, "error", err)
+		return
+	}
+	slog.Info("claude_fable_model_rate_limited",
+		"account_id", account.ID,
+		"reset_at", resetAt,
+		"reset_in", time.Until(resetAt).Truncate(time.Second),
+		"source", source,
+		"type", rateLimitType)
+}
+
+func (s *RateLimitService) claudeFable429ResetTime(headers http.Header, responseBody []byte) (time.Time, ClaudeRateLimitType, string) {
+	now := time.Now()
+	if result := calculateAnthropic429ResetTime(headers); result != nil && result.resetAt.After(now) {
+		return result.resetAt, ClaudeRateLimitTypeFableWeekly, "anthropic_window"
+	}
+	if resetAt := parseAnthropicUnifiedResetTime(headers); resetAt != nil && resetAt.After(now) {
+		return *resetAt, ClaudeRateLimitTypeFableWeekly, "anthropic_unified"
+	}
+	if resetAt := parseRetryAfterResetTime(headers, now); resetAt != nil && resetAt.After(now) {
+		return *resetAt, ClaudeRateLimitTypeUnknown, "retry_after"
+	}
+	rateLimitType, cooldown := s.classifyClaudeRateLimit(http.StatusTooManyRequests, headers, responseBody)
+	if cooldown > 0 {
+		return now.Add(cooldown), rateLimitType, "claude_classifier"
+	}
+	return now.Add(168 * time.Hour), ClaudeRateLimitTypeFableWeekly, "fable_weekly_default"
+}
+
+func parseAnthropicUnifiedResetTime(headers http.Header) *time.Time {
+	if headers == nil {
+		return nil
+	}
+	raw := strings.TrimSpace(headers.Get("anthropic-ratelimit-unified-reset"))
+	if raw == "" {
+		return nil
+	}
+	ts, err := strconv.ParseInt(raw, 10, 64)
+	if err != nil {
+		return nil
+	}
+	if ts > 1e11 {
+		ts = ts / 1000
+	}
+	resetAt := time.Unix(ts, 0)
+	return &resetAt
+}
+
 // classifyClaudeRateLimit 分类 Claude 429 响应
 // 参考 CRS 的 _classifyClaudeRateLimit 实现
 // 来源：claude-relay-service/src/services/claude-relay.ts
@@ -1071,13 +1158,18 @@ func (s *RateLimitService) classifyClaudeRateLimit(statusCode int, headers http.
 		return ClaudeRateLimitTypeExtraUsage, 24 * time.Hour
 	}
 
-	// 类型 C：Opus 周限
+	// 类型 C：Fable 周限
+	// 关键字：claude-fable.*models per week（正则，大小写不敏感）
+	if claudeFableWeeklyPattern.MatchString(bodyStr) {
+		return ClaudeRateLimitTypeFableWeekly, 168 * time.Hour
+	}
+
+	// 类型 D：Opus 周限
 	// 关键字：claude-opus.*models per week（正则，大小写不敏感）
 	if claudeOpusWeeklyPattern.MatchString(bodyStr) {
 		return ClaudeRateLimitTypeOpusWeekly, 168 * time.Hour
 	}
-
-	// 类型 D：5h 窗口限流
+	// 类型 E：5h 窗口限流
 	// 关键字：5 hour window（大小写不敏感）
 	if strings.Contains(bodyStr, "5 hour window") {
 		return ClaudeRateLimitType5HourWindow, 5 * time.Hour
