@@ -6,6 +6,7 @@ import (
 	"testing"
 
 	"github.com/stretchr/testify/require"
+	"github.com/tidwall/gjson"
 )
 
 func TestCodexProfileRequestMetadataMatchesLatestRequestShape(t *testing.T) {
@@ -127,4 +128,44 @@ func TestCodexProfileRequestMetadataUsesProfileInstallationFallback(t *testing.T
 	clientMetadata, ok := body["client_metadata"].(map[string]any)
 	require.True(t, ok)
 	require.Equal(t, meta.InstallationID, clientMetadata["x-codex-installation-id"])
+}
+
+func TestCodexIdentityConfuseRewritesUpstreamAndRestoresClientPayload(t *testing.T) {
+	account := &Account{ID: 42, Platform: PlatformOpenAI, Type: AccountTypeOAuth}
+	profile := &CodexEnvironmentProfile{
+		Family:           CodexClientFamilyCLI,
+		Source:           "simulated",
+		UserAgent:        "codex_cli_rs/0.142.2 (Ubuntu 22.4.0; x86_64) xterm-256color",
+		Originator:       "codex_cli_rs",
+		Version:          "0.142.2",
+		SessionSeed:      "session-seed",
+		ConversationSeed: "thread-seed",
+		TLSProfile:       "codex-cli-linux",
+	}
+	meta := codexProfileRequestMetadataFor(account, profile, CodexProfileApplyOptions{APIKeyID: 7, PromptCacheKey: "client-cache"})
+	body := map[string]any{
+		"prompt_cache_key": "client-cache",
+		"client_metadata": map[string]any{
+			"x-codex-window-id":     "client-cache:0",
+			"x-codex-turn-metadata": `{"prompt_cache_key":"client-cache","window_id":"client-cache:0","request_kind":"turn"}`,
+		},
+	}
+
+	state, changed := applyCodexIdentityConfuseRequest(body, meta)
+
+	require.True(t, changed)
+	require.True(t, state.enabled())
+	require.Equal(t, "client-cache", state.OriginalPromptCacheKey)
+	require.Equal(t, meta.SessionID, state.UpstreamPromptCacheKey)
+	require.Equal(t, meta.SessionID, body["prompt_cache_key"])
+	clientMetadata := body["client_metadata"].(map[string]any)
+	require.Equal(t, meta.WindowID, clientMetadata["x-codex-window-id"])
+	turnMetadata := clientMetadata["x-codex-turn-metadata"].(string)
+	require.Equal(t, meta.SessionID, gjson.Get(turnMetadata, "prompt_cache_key").String())
+	require.Equal(t, meta.WindowID, gjson.Get(turnMetadata, "window_id").String())
+
+	upstreamPayload := []byte(`{"response":{"prompt_cache_key":"` + meta.SessionID + `"}}`)
+	clientPayload := applyCodexIdentityExposeResponsePayload(upstreamPayload, state)
+	require.Contains(t, string(clientPayload), `"prompt_cache_key":"client-cache"`)
+	require.NotContains(t, string(clientPayload), meta.SessionID)
 }

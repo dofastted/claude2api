@@ -3603,6 +3603,24 @@ func (s *OpenAIGatewayService) buildUpstreamRequestOpenAIPassthrough(
 			PromptCacheKey: strings.TrimSpace(gjson.GetBytes(body, "prompt_cache_key").String()),
 			Compact:        isOpenAIResponsesCompactPath(c),
 		})
+		if !isOpenAIResponsesCompactPath(c) {
+			decoded := make(map[string]any)
+			meta := codexProfileRequestMetadataFor(account, codexProfile, CodexProfileApplyOptions{APIKeyID: getAPIKeyIDFromContext(c), PromptCacheKey: strings.TrimSpace(gjson.GetBytes(body, "prompt_cache_key").String()), Compact: false})
+			if err := json.Unmarshal(body, &decoded); err == nil {
+				identityState, identityChanged := applyCodexIdentityConfuseRequest(decoded, meta)
+				metadataChanged := applyCodexClientMetadata(decoded, account, meta)
+				if identityState.enabled() && c != nil {
+					c.Set(codexIdentityConfuseContextKey, identityState)
+				}
+				if identityChanged || metadataChanged {
+					if nextBody, err := marshalOpenAIUpstreamJSON(decoded); err == nil {
+						body = nextBody
+						req.Body = io.NopCloser(bytes.NewReader(body))
+						req.ContentLength = int64(len(body))
+					}
+				}
+			}
+		}
 	}
 	if req.Header.Get("content-type") == "" {
 		req.Header.Set("content-type", "application/json")
@@ -3628,6 +3646,9 @@ func (s *OpenAIGatewayService) handleFailoverErrorResponsePassthrough(
 	requestBody []byte,
 ) error {
 	body := s.readUpstreamErrorBody(resp)
+	if identityState, ok := codexIdentityConfuseStateFromContext(c); ok {
+		body = applyCodexIdentityExposeResponsePayload(body, identityState)
+	}
 
 	upstreamMsg := strings.TrimSpace(extractUpstreamErrorMessage(body))
 	upstreamMsg = sanitizeUpstreamErrorMessage(upstreamMsg)
@@ -3671,6 +3692,9 @@ func (s *OpenAIGatewayService) handleErrorResponsePassthrough(
 ) error {
 	MarkResponseCommitted(c)
 	body := s.readUpstreamErrorBody(resp)
+	if identityState, ok := codexIdentityConfuseStateFromContext(c); ok {
+		body = applyCodexIdentityExposeResponsePayload(body, identityState)
+	}
 
 	// cyber_policy：透传账号本就把原始 body 回给客户端（下方 c.Data），此处仅打标记，
 	// 供 handler 事后写风控/邮件。cyber 是上游网络安全策略拦截，不冷却账号，
@@ -3969,6 +3993,9 @@ func (s *OpenAIGatewayService) handleStreamingResponsePassthrough(
 
 	for scanner.Scan() {
 		line := scanner.Text()
+		if identityState, ok := codexIdentityConfuseStateFromContext(c); ok {
+			line = string(applyCodexIdentityExposeResponsePayload([]byte(line), identityState))
+		}
 		lineStartsClientOutput := false
 		forceFlushFailedEvent := false
 		if data, ok := extractOpenAISSEDataLine(line); ok {
@@ -4103,6 +4130,9 @@ func (s *OpenAIGatewayService) handleNonStreamingResponsePassthrough(
 	body, err := ReadUpstreamResponseBody(resp.Body, s.cfg, c, openAITooLargeError)
 	if err != nil {
 		return nil, err
+	}
+	if identityState, ok := codexIdentityConfuseStateFromContext(c); ok {
+		body = applyCodexIdentityExposeResponsePayload(body, identityState)
 	}
 
 	// Detect SSE responses from upstream and convert to JSON.
@@ -4394,11 +4424,19 @@ func (s *OpenAIGatewayService) buildUpstreamRequest(ctx context.Context, c *gin.
 		}
 		if !isOpenAIResponsesCompactPath(c) {
 			decoded := make(map[string]any)
-			if err := json.Unmarshal(body, &decoded); err == nil && applyCodexClientMetadata(decoded, account, codexProfileRequestMetadataFor(account, codexProfile, CodexProfileApplyOptions{APIKeyID: getAPIKeyIDFromContext(c), PromptCacheKey: promptCacheKey, Compact: false})) {
-				if nextBody, err := marshalOpenAIUpstreamJSON(decoded); err == nil {
-					body = nextBody
-					req.Body = io.NopCloser(bytes.NewReader(body))
-					req.ContentLength = int64(len(body))
+			meta := codexProfileRequestMetadataFor(account, codexProfile, CodexProfileApplyOptions{APIKeyID: getAPIKeyIDFromContext(c), PromptCacheKey: promptCacheKey, Compact: false})
+			if err := json.Unmarshal(body, &decoded); err == nil {
+				identityState, identityChanged := applyCodexIdentityConfuseRequest(decoded, meta)
+				metadataChanged := applyCodexClientMetadata(decoded, account, meta)
+				if identityState.enabled() && c != nil {
+					c.Set(codexIdentityConfuseContextKey, identityState)
+				}
+				if identityChanged || metadataChanged {
+					if nextBody, err := marshalOpenAIUpstreamJSON(decoded); err == nil {
+						body = nextBody
+						req.Body = io.NopCloser(bytes.NewReader(body))
+						req.ContentLength = int64(len(body))
+					}
 				}
 			}
 		}
