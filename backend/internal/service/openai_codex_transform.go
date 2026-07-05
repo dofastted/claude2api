@@ -215,8 +215,8 @@ func applyCodexOAuthTransformWithOptions(reqBody map[string]any, opts codexOAuth
 		}
 	}
 
-	// 提取 input 中 role:"system" 消息至 instructions（OAuth 上游不支持 system role）。
-	if extractSystemMessagesFromInput(reqBody) {
+	// OAuth 上游不支持 system role；保留内容与顺序，仅按官方 Responses 输入角色改为 developer。
+	if convertSystemMessagesToDeveloperInput(reqBody) {
 		result.Modified = true
 	}
 
@@ -911,46 +911,27 @@ func extractTextFromContent(content any) string {
 	}
 }
 
-// extractSystemMessagesFromInput scans the input array for items with role=="system",
-// removes them, and merges their content into reqBody["instructions"].
-// If instructions is already non-empty, extracted content is prepended with "\n\n".
-// Returns true if any system messages were extracted.
-func extractSystemMessagesFromInput(reqBody map[string]any) bool {
+// convertSystemMessagesToDeveloperInput rewrites unsupported system input roles to developer.
+// It preserves message content, ordering, and existing top-level instructions.
+func convertSystemMessagesToDeveloperInput(reqBody map[string]any) bool {
 	input, ok := reqBody["input"].([]any)
 	if !ok || len(input) == 0 {
 		return false
 	}
 
-	var systemTexts []string
-	remaining := make([]any, 0, len(input))
-
+	changed := false
 	for _, item := range input {
 		m, ok := item.(map[string]any)
 		if !ok {
-			remaining = append(remaining, item)
 			continue
 		}
 		if role, _ := m["role"].(string); role != "system" {
-			remaining = append(remaining, item)
 			continue
 		}
-		if text := extractTextFromContent(m["content"]); text != "" {
-			systemTexts = append(systemTexts, text)
-		}
+		m["role"] = "developer"
+		changed = true
 	}
-
-	if len(systemTexts) == 0 {
-		return false
-	}
-
-	extracted := strings.Join(systemTexts, "\n\n")
-	if existing, ok := reqBody["instructions"].(string); ok && strings.TrimSpace(existing) != "" {
-		reqBody["instructions"] = extracted + "\n\n" + existing
-	} else {
-		reqBody["instructions"] = extracted
-	}
-	reqBody["input"] = remaining
-	return true
+	return changed
 }
 
 func extractPromptLikeInstructionsFromInput(reqBody map[string]any) string {

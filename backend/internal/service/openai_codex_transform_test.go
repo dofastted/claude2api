@@ -1008,14 +1008,14 @@ func TestApplyCodexOAuthTransform_StringInputWithToolsField(t *testing.T) {
 	require.Len(t, input, 1)
 }
 
-func TestExtractSystemMessagesFromInput(t *testing.T) {
+func TestConvertSystemMessagesToDeveloperInput(t *testing.T) {
 	t.Run("no system messages", func(t *testing.T) {
 		reqBody := map[string]any{
 			"input": []any{
 				map[string]any{"role": "user", "content": "hello"},
 			},
 		}
-		result := extractSystemMessagesFromInput(reqBody)
+		result := convertSystemMessagesToDeveloperInput(reqBody)
 		require.False(t, result)
 		input, ok := reqBody["input"].([]any)
 		require.True(t, ok)
@@ -1031,15 +1031,17 @@ func TestExtractSystemMessagesFromInput(t *testing.T) {
 				map[string]any{"role": "user", "content": "hello"},
 			},
 		}
-		result := extractSystemMessagesFromInput(reqBody)
+		result := convertSystemMessagesToDeveloperInput(reqBody)
 		require.True(t, result)
 		input, ok := reqBody["input"].([]any)
 		require.True(t, ok)
-		require.Len(t, input, 1)
+		require.Len(t, input, 2)
 		msg, ok := input[0].(map[string]any)
 		require.True(t, ok)
-		require.Equal(t, "user", msg["role"])
-		require.Equal(t, "You are an assistant.", reqBody["instructions"])
+		require.Equal(t, "developer", msg["role"])
+		require.Equal(t, "You are an assistant.", msg["content"])
+		_, hasInstructions := reqBody["instructions"]
+		require.False(t, hasInstructions)
 	})
 
 	t.Run("array content system message", func(t *testing.T) {
@@ -1053,15 +1055,18 @@ func TestExtractSystemMessagesFromInput(t *testing.T) {
 				},
 			},
 		}
-		result := extractSystemMessagesFromInput(reqBody)
+		result := convertSystemMessagesToDeveloperInput(reqBody)
 		require.True(t, result)
-		require.Equal(t, "Be helpful.", reqBody["instructions"])
 		input, ok := reqBody["input"].([]any)
 		require.True(t, ok)
-		require.Len(t, input, 0)
+		require.Len(t, input, 1)
+		msg, ok := input[0].(map[string]any)
+		require.True(t, ok)
+		require.Equal(t, "developer", msg["role"])
+		require.NotContains(t, reqBody, "instructions")
 	})
 
-	t.Run("multiple system messages concatenated", func(t *testing.T) {
+	t.Run("multiple system messages preserve order", func(t *testing.T) {
 		reqBody := map[string]any{
 			"input": []any{
 				map[string]any{"role": "system", "content": "First."},
@@ -1069,36 +1074,25 @@ func TestExtractSystemMessagesFromInput(t *testing.T) {
 				map[string]any{"role": "user", "content": "hi"},
 			},
 		}
-		result := extractSystemMessagesFromInput(reqBody)
-		require.True(t, result)
-		require.Equal(t, "First.\n\nSecond.", reqBody["instructions"])
-		input, ok := reqBody["input"].([]any)
-		require.True(t, ok)
-		require.Len(t, input, 1)
-	})
-
-	t.Run("mixed system and non-system preserves non-system", func(t *testing.T) {
-		reqBody := map[string]any{
-			"input": []any{
-				map[string]any{"role": "user", "content": "hello"},
-				map[string]any{"role": "system", "content": "Sys prompt."},
-				map[string]any{"role": "assistant", "content": "Hi there"},
-			},
-		}
-		result := extractSystemMessagesFromInput(reqBody)
+		result := convertSystemMessagesToDeveloperInput(reqBody)
 		require.True(t, result)
 		input, ok := reqBody["input"].([]any)
 		require.True(t, ok)
-		require.Len(t, input, 2)
+		require.Len(t, input, 3)
 		first, ok := input[0].(map[string]any)
 		require.True(t, ok)
-		require.Equal(t, "user", first["role"])
+		require.Equal(t, "developer", first["role"])
+		require.Equal(t, "First.", first["content"])
 		second, ok := input[1].(map[string]any)
 		require.True(t, ok)
-		require.Equal(t, "assistant", second["role"])
+		require.Equal(t, "developer", second["role"])
+		require.Equal(t, "Second.", second["content"])
+		third, ok := input[2].(map[string]any)
+		require.True(t, ok)
+		require.Equal(t, "user", third["role"])
 	})
 
-	t.Run("existing instructions prepended", func(t *testing.T) {
+	t.Run("existing instructions unchanged", func(t *testing.T) {
 		reqBody := map[string]any{
 			"input": []any{
 				map[string]any{"role": "system", "content": "Extracted."},
@@ -1106,9 +1100,9 @@ func TestExtractSystemMessagesFromInput(t *testing.T) {
 			},
 			"instructions": "Existing instructions.",
 		}
-		result := extractSystemMessagesFromInput(reqBody)
+		result := convertSystemMessagesToDeveloperInput(reqBody)
 		require.True(t, result)
-		require.Equal(t, "Extracted.\n\nExisting instructions.", reqBody["instructions"])
+		require.Equal(t, "Existing instructions.", reqBody["instructions"])
 	})
 }
 
@@ -1153,9 +1147,10 @@ func TestApplyCodexOAuthTransform_StripsChatGPTInternalUnsupportedFields(t *test
 	}
 }
 
-func TestApplyCodexOAuthTransform_ExtractsSystemMessages(t *testing.T) {
+func TestApplyCodexOAuthTransform_ConvertsSystemInputToDeveloper(t *testing.T) {
 	reqBody := map[string]any{
-		"model": "gpt-5.1",
+		"model":        "gpt-5.1",
+		"instructions": "caller instructions",
 		"input": []any{
 			map[string]any{"role": "system", "content": "You are a coding assistant."},
 			map[string]any{"role": "user", "content": "Write a function."},
@@ -1168,14 +1163,12 @@ func TestApplyCodexOAuthTransform_ExtractsSystemMessages(t *testing.T) {
 
 	input, ok := reqBody["input"].([]any)
 	require.True(t, ok)
-	require.Len(t, input, 1)
+	require.Len(t, input, 2)
 	msg, ok := input[0].(map[string]any)
 	require.True(t, ok)
-	require.Equal(t, "user", msg["role"])
-
-	instructions, ok := reqBody["instructions"].(string)
-	require.True(t, ok)
-	require.Equal(t, "You are a coding assistant.", instructions)
+	require.Equal(t, "developer", msg["role"])
+	require.Equal(t, "You are a coding assistant.", msg["content"])
+	require.Equal(t, "caller instructions", reqBody["instructions"])
 }
 
 func TestIsInstructionsEmpty(t *testing.T) {
