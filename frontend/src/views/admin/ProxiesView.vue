@@ -1483,6 +1483,7 @@ const applyLatencyResult = (
     ip_address?: string
     country?: string
     country_code?: string
+    timezone?: string
     region?: string
     city?: string
   }
@@ -1495,6 +1496,7 @@ const applyLatencyResult = (
     target.ip_address = result.ip_address
     target.country = result.country
     target.country_code = result.country_code
+    target.timezone = result.timezone
     target.region = result.region
     target.city = result.city
   } else {
@@ -1503,6 +1505,7 @@ const applyLatencyResult = (
     target.ip_address = undefined
     target.country = undefined
     target.country_code = undefined
+    target.timezone = undefined
     target.region = undefined
     target.city = undefined
   }

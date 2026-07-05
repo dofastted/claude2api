@@ -457,6 +457,7 @@ type ProxyTestResult struct {
 	Region      string `json:"region,omitempty"`
 	Country     string `json:"country,omitempty"`
 	CountryCode string `json:"country_code,omitempty"`
+	Timezone    string `json:"timezone,omitempty"`
 }
 
 type ProxyQualityCheckResult struct {
@@ -2611,12 +2612,60 @@ func withDefaultEnvironmentProfilePool(platform, accountType string, concurrency
 	return merged
 }
 
+func applyAccountEnvironmentProfileTimezone(extra map[string]any, profileTimezone string) {
+	if extra == nil {
+		return
+	}
+	profileTimezone = NormalizeEnvironmentProfileTimezone(profileTimezone)
+	if pool, err := DecodeClaudeEnvironmentProfilePool(extra[claudeEnvironmentProfilePoolKey]); err == nil && pool != nil {
+		for i := range pool.Slots {
+			if pool.Slots[i].Profile != nil {
+				pool.Slots[i].Profile.Timezone = profileTimezone
+			}
+		}
+		_ = pool.Normalize()
+		extra[claudeEnvironmentProfilePoolKey] = pool
+	}
+	if profile, err := DecodeClaudeEnvironmentProfile(extra[claudeEnvironmentProfileKey]); err == nil && profile != nil {
+		profile.Timezone = profileTimezone
+		extra[claudeEnvironmentProfileKey] = profile
+	}
+	if pool, err := DecodeCodexEnvironmentProfilePool(extra[codexEnvironmentProfilePoolKey]); err == nil && pool != nil {
+		for i := range pool.Slots {
+			if pool.Slots[i].Profile != nil {
+				pool.Slots[i].Profile.Timezone = profileTimezone
+			}
+		}
+		_ = pool.Normalize()
+		extra[codexEnvironmentProfilePoolKey] = pool
+	}
+	if profile, err := DecodeCodexEnvironmentProfile(extra[codexEnvironmentProfileKey]); err == nil && profile != nil {
+		profile.Timezone = profileTimezone
+		extra[codexEnvironmentProfileKey] = profile
+	}
+}
+
 func (s *adminServiceImpl) resolveProfileTimezoneForAccount(ctx context.Context, account *Account) string {
-	if s == nil || s.profileTimezoneResolver == nil || account == nil || !isOAuthProfileAccount(account.Platform, account.Type) {
+	if s == nil || account == nil || !isOAuthProfileAccount(account.Platform, account.Type) {
+		return EnvironmentProfileFallbackTimezone
+	}
+	if account.ProxyID == nil || *account.ProxyID <= 0 {
+		return EnvironmentProfileFallbackTimezone
+	}
+	if s.proxyLatencyCache != nil {
+		if cached, err := s.proxyLatencyCache.GetProxyLatencies(ctx, []int64{*account.ProxyID}); err == nil {
+			if info := cached[*account.ProxyID]; info != nil && info.Success {
+				if timezone := NormalizeEnvironmentProfileTimezone(info.Timezone); timezone != EnvironmentProfileFallbackTimezone || strings.TrimSpace(info.Timezone) != "" {
+					return timezone
+				}
+			}
+		}
+	}
+	if s.profileTimezoneResolver == nil {
 		return EnvironmentProfileFallbackTimezone
 	}
 	probeAccount := *account
-	if probeAccount.Proxy == nil && probeAccount.ProxyID != nil && *probeAccount.ProxyID > 0 && s.proxyRepo != nil {
+	if probeAccount.Proxy == nil && s.proxyRepo != nil {
 		if proxy, err := s.proxyRepo.GetByID(ctx, *probeAccount.ProxyID); err == nil {
 			probeAccount.Proxy = proxy
 		}
@@ -2840,6 +2889,7 @@ func (s *adminServiceImpl) UpdateAccount(ctx context.Context, id int64, input *U
 			account.ProxyID = input.ProxyID
 		}
 		account.Proxy = nil // 清除关联对象，防止 GORM Save 时根据 Proxy.ID 覆盖 ProxyID
+		applyAccountEnvironmentProfileTimezone(account.Extra, s.resolveProfileTimezoneForAccount(ctx, account))
 	}
 	// 只在指针非 nil 时更新 Concurrency（支持设置为 0）
 	if input.Concurrency != nil {
@@ -3829,6 +3879,7 @@ func (s *adminServiceImpl) TestProxy(ctx context.Context, id int64) (*ProxyTestR
 		IPAddress:   exitInfo.IP,
 		Country:     exitInfo.Country,
 		CountryCode: exitInfo.CountryCode,
+		Timezone:    NormalizeEnvironmentProfileTimezoneForCountry(exitInfo.Timezone, exitInfo.CountryCode),
 		Region:      exitInfo.Region,
 		City:        exitInfo.City,
 		UpdatedAt:   time.Now(),
@@ -3842,6 +3893,7 @@ func (s *adminServiceImpl) TestProxy(ctx context.Context, id int64) (*ProxyTestR
 		Region:      exitInfo.Region,
 		Country:     exitInfo.Country,
 		CountryCode: exitInfo.CountryCode,
+		Timezone:    NormalizeEnvironmentProfileTimezoneForCountry(exitInfo.Timezone, exitInfo.CountryCode),
 	}, nil
 }
 
@@ -4104,6 +4156,7 @@ func (s *adminServiceImpl) saveProxyQualitySnapshot(ctx context.Context, proxyID
 		info.IPAddress = exitInfo.IP
 		info.Country = exitInfo.Country
 		info.CountryCode = exitInfo.CountryCode
+		info.Timezone = NormalizeEnvironmentProfileTimezoneForCountry(exitInfo.Timezone, exitInfo.CountryCode)
 		info.Region = exitInfo.Region
 		info.City = exitInfo.City
 	}
@@ -4132,6 +4185,7 @@ func (s *adminServiceImpl) probeProxyLatency(ctx context.Context, proxy *Proxy) 
 		IPAddress:   exitInfo.IP,
 		Country:     exitInfo.Country,
 		CountryCode: exitInfo.CountryCode,
+		Timezone:    NormalizeEnvironmentProfileTimezoneForCountry(exitInfo.Timezone, exitInfo.CountryCode),
 		Region:      exitInfo.Region,
 		City:        exitInfo.City,
 		UpdatedAt:   time.Now(),

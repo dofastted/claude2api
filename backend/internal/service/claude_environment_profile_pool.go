@@ -534,7 +534,6 @@ func (s *GatewayService) acquireV2ClaudeEnvironmentProfileSlot(ctx context.Conte
 	if profile == nil {
 		return nil, nil, fmt.Errorf("v2 claude environment profile slot %d has no frozen profile", slotIdx)
 	}
-	profile.Timezone = s.resolveProfileTimezone(ctx, account)
 	lease := &EnvironmentProfileSlotLease{
 		AccountID:   account.ID,
 		Slot:        slotIdx,

@@ -5026,9 +5026,13 @@ func (s *GatewayService) Forward(ctx context.Context, c *gin.Context, account *A
 	// Legacy TLS profile is used only when no request environment profile is active.
 	legacyTLSProfile := s.tlsFPProfileService.ResolveTLSProfile(account)
 
-	// 调试日志：记录即将转发的账号信息
-	logger.LegacyPrintf("service.gateway", "[Forward] Using account: ID=%d Name=%s Platform=%s Type=%s TLSFingerprint=%v Proxy=%s",
-		account.ID, account.Name, account.Platform, account.Type, legacyTLSProfile, proxyURL)
+	// 调试日志：代理只记录是否配置和代理 ID，避免泄露 URL 凭据。
+	proxyIDForLog := int64(0)
+	if account.ProxyID != nil {
+		proxyIDForLog = *account.ProxyID
+	}
+	logger.LegacyPrintf("service.gateway", "[Forward] Using account: ID=%d Name=%s Platform=%s Type=%s TLSFingerprint=%v ProxyConfigured=%v ProxyID=%d",
+		account.ID, account.Name, account.Platform, account.Type, legacyTLSProfile, proxyURL != "", proxyIDForLog)
 	// Pre-filter: strip empty text blocks (including nested in tool_result) to prevent upstream 400.
 	if err := replaceBody(StripEmptyTextBlocks(body)); err != nil {
 		return nil, err

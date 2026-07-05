@@ -112,10 +112,10 @@ func TestIsChinaEnvironmentProfileTimezone(t *testing.T) {
 
 // --- EnvironmentProfileTimezoneResolver.Resolve: proxy precedence + fallback ---
 
-// TestResolve_GlobalProxyOverridesAccountProxy pins the precedence contract:
-// gateway.global_proxy_url beats the account's own proxy URL, and the prober
-// is asked to probe through the global proxy, not the account proxy.
-func TestResolve_GlobalProxyOverridesAccountProxy(t *testing.T) {
+// TestResolve_IgnoresGlobalProxyPins that timezone detection is tied to the
+// selected account proxy only. A gateway global proxy must not override that
+// selection because profiles should model the selected node, not infrastructure.
+func TestResolve_IgnoresGlobalProxy(t *testing.T) {
 	prober := &fakeProbeProber{info: &ProxyExitInfo{Timezone: "Europe/Berlin", CountryCode: "DE", Source: "ip-api"}}
 	cfg := &config.Config{}
 	cfg.Gateway.GlobalProxyURL = "http://global.example:8080"
@@ -132,7 +132,7 @@ func TestResolve_GlobalProxyOverridesAccountProxy(t *testing.T) {
 	got := r.Resolve(context.Background(), account)
 	require.Equal(t, "Europe/Berlin", got)
 	require.Len(t, prober.calledProxyURLs, 1, "resolver must probe exactly once")
-	require.Equal(t, "http://global.example:8080", prober.calledProxyURLs[0], "global proxy must override account proxy")
+	require.Equal(t, "http://account.example:3128", prober.calledProxyURLs[0], "selected account proxy must be used")
 }
 
 // TestResolve_AccountProxyUsedWhenNoGlobal pins that without a global proxy
@@ -180,16 +180,16 @@ func TestResolve_ProxyIDWithoutLookup_FallsBackWithoutDirectProbe(t *testing.T) 
 	require.Empty(t, prober.calledProxyURLs, "configured proxy without lookup must not silently probe direct egress")
 }
 
-// TestResolve_DirectWhenNoProxy pins that with no global and no account proxy
-// the resolver probes with an empty proxy URL (direct local egress).
-func TestResolve_DirectWhenNoProxy(t *testing.T) {
+// TestResolve_NoProxy_FallsBackWithoutDirectProbe pins that timezone
+// detection never probes direct local egress. No selected proxy means the US
+// fallback is written without a network call.
+func TestResolve_NoProxy_FallsBackWithoutDirectProbe(t *testing.T) {
 	prober := &fakeProbeProber{info: &ProxyExitInfo{Timezone: "America/New_York", CountryCode: "US", Source: "ip-api"}}
 	r := newResolverWithFake(prober, &config.Config{})
 
 	got := r.Resolve(context.Background(), &Account{Platform: PlatformAnthropic, Type: AccountTypeOAuth})
-	require.Equal(t, "America/New_York", got)
-	require.Len(t, prober.calledProxyURLs, 1)
-	require.Empty(t, prober.calledProxyURLs[0], "no proxy means direct (empty) proxy URL")
+	require.Equal(t, EnvironmentProfileFallbackTimezone, got)
+	require.Empty(t, prober.calledProxyURLs, "no selected proxy must not probe direct egress")
 }
 
 // TestResolve_ProbeError_FallsBackToUS pins that when every timezone-capable
@@ -199,7 +199,8 @@ func TestResolve_ProbeError_FallsBackToUS(t *testing.T) {
 	prober := &fakeProbeProber{err: errFakeProbeUnreachable}
 	r := newResolverWithFake(prober, &config.Config{})
 
-	got := r.Resolve(context.Background(), nil)
+	accountProxyID := int64(11)
+	got := r.Resolve(context.Background(), &Account{Platform: PlatformAnthropic, Type: AccountTypeOAuth, ProxyID: &accountProxyID, Proxy: &Proxy{Protocol: "socks5", Host: "acct.example", Port: 1080}})
 	require.Equal(t, EnvironmentProfileFallbackTimezone, got)
 	require.Len(t, prober.calledProxyURLs, 1)
 }
@@ -211,7 +212,8 @@ func TestResolve_IPOnlySource_FallsBackToUS(t *testing.T) {
 	prober := &fakeProbeProber{info: &ProxyExitInfo{IP: "9.8.7.6", Source: "httpbin", CountryCode: ""}}
 	r := newResolverWithFake(prober, &config.Config{})
 
-	got := r.Resolve(context.Background(), nil)
+	accountProxyID := int64(12)
+	got := r.Resolve(context.Background(), &Account{Platform: PlatformAnthropic, Type: AccountTypeOAuth, ProxyID: &accountProxyID, Proxy: &Proxy{Protocol: "socks5", Host: "acct.example", Port: 1080}})
 	require.Equal(t, EnvironmentProfileFallbackTimezone, got)
 }
 
@@ -239,9 +241,11 @@ func TestResolve_CNTimezone_FallsBackToUS(t *testing.T) {
 func TestResolve_CachesPerProxyKey(t *testing.T) {
 	prober := &fakeProbeProber{info: &ProxyExitInfo{Timezone: "Europe/Paris", CountryCode: "FR", Source: "ip-api"}}
 	r := newResolverWithFake(prober, &config.Config{})
+	accountProxyID := int64(14)
+	account := &Account{Platform: PlatformAnthropic, Type: AccountTypeOAuth, ProxyID: &accountProxyID, Proxy: &Proxy{Protocol: "socks5", Host: "acct.example", Port: 1080}}
 
-	first := r.Resolve(context.Background(), nil)
-	second := r.Resolve(context.Background(), nil)
+	first := r.Resolve(context.Background(), account)
+	second := r.Resolve(context.Background(), account)
 	require.Equal(t, "Europe/Paris", first)
 	require.Equal(t, first, second)
 	require.Len(t, prober.calledProxyURLs, 1, "second resolve must hit cache, not re-probe")

@@ -453,7 +453,6 @@ func (s *GatewayService) getOrCreateClaudeEnvironmentProfile(ctx context.Context
 		return nil, nil
 	}
 	if profile, ok := account.GetClaudeEnvironmentProfile(); ok {
-		profile.Timezone = s.resolveProfileTimezone(ctx, account)
 		s.logClaudeEnvironmentFamilyMismatch(account, profile, classifyClaudeClientFamily(headers, body))
 		return profile, nil
 	}
@@ -463,14 +462,12 @@ func (s *GatewayService) getOrCreateClaudeEnvironmentProfile(ctx context.Context
 			fresh, freshErr := s.accountRepo.GetByID(ctx, account.ID)
 			if freshErr == nil && fresh != nil {
 				if profile, ok := fresh.GetClaudeEnvironmentProfile(); ok {
-					profile.Timezone = s.resolveProfileTimezone(ctx, fresh)
 					s.logClaudeEnvironmentFamilyMismatch(account, profile, classifyClaudeClientFamily(headers, body))
 					return profile, nil
 				}
 			}
 		}
 		profile := s.buildInitialClaudeEnvironmentProfile(account, headers, body)
-		profile.Timezone = s.resolveProfileTimezone(ctx, account)
 		applyStableClaudeTelemetryIdentity(profile, account.ID, string(routeToSlot(DetectClaudeEnvironmentClass(headers, body))))
 		if err := ValidateClaudeEnvironmentProfile(profile); err != nil {
 			return nil, err

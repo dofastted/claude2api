@@ -12,6 +12,7 @@ type ProxyLatencyInfo struct {
 	IPAddress        string    `json:"ip_address,omitempty"`
 	Country          string    `json:"country,omitempty"`
 	CountryCode      string    `json:"country_code,omitempty"`
+	Timezone         string    `json:"timezone,omitempty"`
 	Region           string    `json:"region,omitempty"`
 	City             string    `json:"city,omitempty"`
 	QualityStatus    string    `json:"quality_status,omitempty"`

@@ -66,17 +66,7 @@ func NewEnvironmentProfileTimezoneResolver(prober ProxyExitInfoProber, cfg *conf
 		cache:       map[string]environmentProfileTimezoneCacheEntry{},
 	}
 	setDefaultEnvironmentProfileTimezoneResolver(resolver)
-	if prober != nil {
-		go resolver.WarmDirect(context.Background())
-	}
 	return resolver
-}
-
-func (r *EnvironmentProfileTimezoneResolver) WarmDirect(ctx context.Context) {
-	if r == nil {
-		return
-	}
-	_ = r.Resolve(ctx, nil)
 }
 
 func (r *EnvironmentProfileTimezoneResolver) Resolve(ctx context.Context, account *Account) string {
@@ -107,18 +97,13 @@ func (r *EnvironmentProfileTimezoneResolver) Resolve(ctx context.Context, accoun
 }
 
 func (r *EnvironmentProfileTimezoneResolver) effectiveProxy(ctx context.Context, account *Account) (proxyURL, cacheKey string, ok bool) {
-	if r != nil && r.cfg != nil {
-		if global := strings.TrimSpace(r.cfg.Gateway.GlobalProxyURL); global != "" {
-			return global, global, true
-		}
-	}
 	if account == nil || account.ProxyID == nil || *account.ProxyID <= 0 {
-		return "", "direct", true
+		return "", "default", false
 	}
 	cacheKey = formatEnvironmentProfileProxyCacheKey(*account.ProxyID)
 	if account.Proxy != nil {
 		if proxyURL := strings.TrimSpace(account.Proxy.URL()); proxyURL != "" {
-			return proxyURL, proxyURL, true
+			return proxyURL, cacheKey, true
 		}
 		return "", cacheKey, false
 	}
@@ -136,7 +121,7 @@ func (r *EnvironmentProfileTimezoneResolver) effectiveProxy(ctx context.Context,
 	if proxyURL == "" {
 		return "", cacheKey, false
 	}
-	return proxyURL, proxyURL, true
+	return proxyURL, cacheKey, true
 }
 
 func formatEnvironmentProfileProxyCacheKey(proxyID int64) string {

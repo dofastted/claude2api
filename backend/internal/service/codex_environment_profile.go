@@ -584,7 +584,6 @@ func (s *OpenAIGatewayService) getOrCreateCodexEnvironmentProfile(ctx context.Co
 		return nil, nil
 	}
 	if profile, ok := account.GetCodexEnvironmentProfile(); ok {
-		profile.Timezone = s.resolveProfileTimezone(ctx, account)
 		logCodexEnvironmentFamilyMismatch(ctx, account, profile, headers)
 		return profile, nil
 	}
@@ -598,12 +597,10 @@ func (s *OpenAIGatewayService) getOrCreateCodexEnvironmentProfile(ctx context.Co
 	result, err, _ := s.codexEnvironmentProfileSF.Do(key, func() (any, error) {
 		if fresh, freshErr := s.accountRepo.GetByID(ctx, account.ID); freshErr == nil && fresh != nil {
 			if profile, ok := fresh.GetCodexEnvironmentProfile(); ok {
-				profile.Timezone = s.resolveProfileTimezone(ctx, fresh)
 				return profile, nil
 			}
 		}
 		if profile, ok := account.GetCodexEnvironmentProfile(); ok {
-			profile.Timezone = s.resolveProfileTimezone(ctx, account)
 			return profile, nil
 		}
 		var profile *CodexEnvironmentProfile
@@ -649,7 +646,6 @@ func (s *OpenAIGatewayService) getOrCreateCodexEnvironmentProfile(ctx context.Co
 		return nil, err
 	}
 	profile, _ := result.(*CodexEnvironmentProfile)
-	profile.Timezone = s.resolveProfileTimezone(ctx, account)
 	logCodexEnvironmentFamilyMismatch(ctx, account, profile, headers)
 	return profile, nil
 }

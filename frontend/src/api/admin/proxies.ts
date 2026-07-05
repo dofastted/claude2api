@@ -132,6 +132,7 @@ export async function testProxy(id: number): Promise<{
   region?: string
   country?: string
   country_code?: string
+  timezone?: string
 }> {
   const { data } = await apiClient.post<{
     success: boolean
@@ -142,6 +143,7 @@ export async function testProxy(id: number): Promise<{
     region?: string
     country?: string
     country_code?: string
+    timezone?: string
   }>(`/admin/proxies/${id}/test`)
   return data
 }

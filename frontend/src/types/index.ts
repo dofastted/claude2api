@@ -719,6 +719,7 @@ export interface Proxy {
   ip_address?: string
   country?: string
   country_code?: string
+  timezone?: string
   region?: string
   city?: string
   quality_status?: 'healthy' | 'warn' | 'challenge' | 'failed'

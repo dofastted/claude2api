@@ -357,7 +357,9 @@ func (s *OpenAIGatewayService) acquireCodexEnvironmentProfileForRequest(ctx cont
 	if s.codexEnvironmentProfileSlotLeases == nil {
 		s.codexEnvironmentProfileSlotLeases = NewEnvironmentProfileSlotLeaseManager()
 	}
-	return acquireCodexEnvironmentProfileForRequestWithRepo(ctx, s.accountRepo, s.codexEnvironmentProfileSlotLeases, account, headers, s.identityRegistry, s.resolveProfileTimezone(ctx, account))
+	return acquireCodexEnvironmentProfileForRequestWithRepo(ctx, s.accountRepo, s.codexEnvironmentProfileSlotLeases, account, headers, s.identityRegistry, func() string {
+		return s.resolveProfileTimezone(ctx, account)
+	})
 }
 
 func (s *AccountTestService) acquireCodexEnvironmentProfileForRequest(ctx context.Context, account *Account, headers http.Header) (*EnvironmentProfileSlotLease, *CodexEnvironmentProfile, error) {
@@ -367,7 +369,9 @@ func (s *AccountTestService) acquireCodexEnvironmentProfileForRequest(ctx contex
 	if s.codexEnvironmentProfileSlotLeases == nil {
 		s.codexEnvironmentProfileSlotLeases = NewEnvironmentProfileSlotLeaseManager()
 	}
-	return acquireCodexEnvironmentProfileForRequestWithRepo(ctx, s.accountRepo, s.codexEnvironmentProfileSlotLeases, account, headers, s.identityRegistry, EnvironmentProfileFallbackTimezone)
+	return acquireCodexEnvironmentProfileForRequestWithRepo(ctx, s.accountRepo, s.codexEnvironmentProfileSlotLeases, account, headers, s.identityRegistry, func() string {
+		return EnvironmentProfileFallbackTimezone
+	})
 }
 
 func (s *AccountUsageService) acquireCodexEnvironmentProfileForRequest(ctx context.Context, account *Account, headers http.Header) (*EnvironmentProfileSlotLease, *CodexEnvironmentProfile, error) {
@@ -377,10 +381,12 @@ func (s *AccountUsageService) acquireCodexEnvironmentProfileForRequest(ctx conte
 	if s.codexEnvironmentProfileSlotLeases == nil {
 		s.codexEnvironmentProfileSlotLeases = NewEnvironmentProfileSlotLeaseManager()
 	}
-	return acquireCodexEnvironmentProfileForRequestWithRepo(ctx, s.accountRepo, s.codexEnvironmentProfileSlotLeases, account, headers, s.identityRegistry, EnvironmentProfileFallbackTimezone)
+	return acquireCodexEnvironmentProfileForRequestWithRepo(ctx, s.accountRepo, s.codexEnvironmentProfileSlotLeases, account, headers, s.identityRegistry, func() string {
+		return EnvironmentProfileFallbackTimezone
+	})
 }
 
-func acquireCodexEnvironmentProfileForRequestWithRepo(ctx context.Context, accountRepo AccountRepository, manager *EnvironmentProfileSlotLeaseManager, account *Account, headers http.Header, registry *clientidentity.Registry, profileTimezone string) (*EnvironmentProfileSlotLease, *CodexEnvironmentProfile, error) {
+func acquireCodexEnvironmentProfileForRequestWithRepo(ctx context.Context, accountRepo AccountRepository, manager *EnvironmentProfileSlotLeaseManager, account *Account, headers http.Header, registry *clientidentity.Registry, resolveProfileTimezone func() string) (*EnvironmentProfileSlotLease, *CodexEnvironmentProfile, error) {
 	if account == nil || !account.IsCodexSingleEnvironmentEnabled() {
 		return nil, nil, nil
 	}
@@ -404,7 +410,7 @@ func acquireCodexEnvironmentProfileForRequestWithRepo(ctx context.Context, accou
 	if pool, err := DecodeCodexEnvironmentProfilePool(account.Extra[codexEnvironmentProfilePoolKey]); err != nil {
 		return nil, nil, err
 	} else if pool != nil && pool.IsV2() {
-		return acquireV2CodexEnvironmentProfileSlot(account, pool, headers, profileTimezone)
+		return acquireV2CodexEnvironmentProfileSlot(account, pool, headers)
 	}
 
 	// Codex 旧账号统一升级迁移：生成 v2 pool 并落库，删除旧 pool / 旧 codex_environment_profile。
@@ -414,6 +420,10 @@ func acquireCodexEnvironmentProfileForRequestWithRepo(ctx context.Context, accou
 				_ = deleter.DeleteExtraKeys(ctx, account.ID, []string{codexEnvironmentProfileKey})
 			}
 		}
+	}
+	profileTimezone := EnvironmentProfileFallbackTimezone
+	if resolveProfileTimezone != nil {
+		profileTimezone = resolveProfileTimezone()
 	}
 	pool := newFrozenCodexEnvironmentProfilePoolWithTimezone(profileTimezone, registry)
 	if accountRepo != nil {
@@ -426,12 +436,12 @@ func acquireCodexEnvironmentProfileForRequestWithRepo(ctx context.Context, accou
 		"account_id", account.ID,
 		"schema", codexEnvironmentProfilePoolSchemaV2,
 		"reason", "unified_migration")
-	return acquireV2CodexEnvironmentProfileSlot(account, pool, headers, profileTimezone)
+	return acquireV2CodexEnvironmentProfileSlot(account, pool, headers)
 }
 
 // acquireV2CodexEnvironmentProfileSlot 在 schema v2 pool 上按客户端来源 OS 选槽。
 // v2 槽位是共享身份而非互斥资源：并发请求复用同一槽位，不占用 lease manager 串行锁。
-func acquireV2CodexEnvironmentProfileSlot(account *Account, pool *CodexEnvironmentProfilePool, headers http.Header, profileTimezone string) (*EnvironmentProfileSlotLease, *CodexEnvironmentProfile, error) {
+func acquireV2CodexEnvironmentProfileSlot(account *Account, pool *CodexEnvironmentProfilePool, headers http.Header) (*EnvironmentProfileSlotLease, *CodexEnvironmentProfile, error) {
 	env := routeToSlot(DetectCodexEnvironmentClass(headers))
 	slotIdx := slotIndexOfEnvironmentClass(env)
 	if slotIdx < 0 || slotIdx >= len(pool.Slots) {
@@ -446,7 +456,6 @@ func acquireV2CodexEnvironmentProfileSlot(account *Account, pool *CodexEnvironme
 	if profile == nil {
 		return nil, nil, fmt.Errorf("v2 codex environment profile slot %d has no frozen profile", slotIdx)
 	}
-	profile.Timezone = NormalizeEnvironmentProfileTimezone(profileTimezone)
 	lease := &EnvironmentProfileSlotLease{
 		AccountID:   account.ID,
 		Slot:        slotIdx,
