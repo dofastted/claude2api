@@ -2701,6 +2701,9 @@ func (s *OpenAIGatewayService) Forward(ctx context.Context, c *gin.Context, acco
 		if !isCompactRequest && applyCodexClientMetadata(decoded, account, codexProfileRequestMetadataFor(account, nil, CodexProfileApplyOptions{})) {
 			markDecodedModified()
 		}
+		if sanitizeOAuthRequestMap(decoded) {
+			markDecodedModified()
+		}
 		if codexResult.NormalizedModel != "" {
 			upstreamModel = codexResult.NormalizedModel
 		}
@@ -3247,6 +3250,7 @@ func (s *OpenAIGatewayService) forwardOpenAIPassthrough(
 		if normalized {
 			body = normalizedBody
 		}
+		body = sanitizeOAuthJSONBody(body)
 		reqStream = gjson.GetBytes(body, "stream").Bool()
 	}
 
@@ -6848,6 +6852,11 @@ func normalizeOpenAIPassthroughOAuthBody(body []byte, compact bool) ([]byte, boo
 			normalized = next
 			changed = true
 		}
+	}
+
+	if sanitized := sanitizeOAuthJSONBody(normalized); !bytes.Equal(sanitized, normalized) {
+		normalized = sanitized
+		changed = true
 	}
 
 	return normalized, changed, nil

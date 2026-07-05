@@ -443,6 +443,11 @@ var allowedHeaders = map[string]bool{
 	"x-client-request-id":                       true,
 }
 
+func shouldForwardClaudeClientHeader(key string) bool {
+	lowerKey := strings.ToLower(strings.TrimSpace(key))
+	return allowedHeaders[lowerKey] && !isBlockedOAuthHeaderField(lowerKey)
+}
+
 // GatewayCache 定义网关服务的缓存操作接口。
 // 提供粘性会话（Sticky Session）的存储、查询、刷新和删除功能。
 //
@@ -5868,6 +5873,7 @@ func (s *GatewayService) buildUpstreamRequestAnthropicAPIKeyPassthrough(
 	if sanitized, changed := sanitizeAnthropicBodyForBetaTokens(body, clientBeta); changed {
 		body = sanitized
 	}
+	body = sanitizeOAuthJSONBody(body)
 
 	req, err := http.NewRequestWithContext(ctx, http.MethodPost, targetURL, bytes.NewReader(body))
 	if err != nil {
@@ -5876,8 +5882,7 @@ func (s *GatewayService) buildUpstreamRequestAnthropicAPIKeyPassthrough(
 
 	if c != nil && c.Request != nil {
 		for key, values := range c.Request.Header {
-			lowerKey := strings.ToLower(strings.TrimSpace(key))
-			if !allowedHeaders[lowerKey] {
+			if !shouldForwardClaudeClientHeader(key) {
 				continue
 			}
 			wireKey := resolveWireCasing(key)
@@ -6839,9 +6844,7 @@ func (s *GatewayService) buildUpstreamRequest(ctx context.Context, c *gin.Contex
 	if next := rewriteCacheControlForClaudeEnvironmentProfile(claudeEnvironmentProfile, body); len(next) > 0 {
 		body = next
 	}
-	if tokenType == "oauth" {
-		body = sanitizeOAuthJSONBody(body)
-	}
+	body = sanitizeOAuthJSONBody(body)
 
 	// 能力维度 body sanitize：与最终 anthropic-beta header 对称
 	if sanitized, changed := sanitizeAnthropicBodyForBetaTokens(body, finalBetaHeader); changed {
@@ -6872,12 +6875,12 @@ func (s *GatewayService) buildUpstreamRequest(ctx context.Context, c *gin.Contex
 	// x-claude-code-session-id 等值，和我们注入的伪装 header 冲突，被 Anthropic 判 third-party。
 	if tokenType != "oauth" || !mimicClaudeCode {
 		for key, values := range clientHeaders {
-			lowerKey := strings.ToLower(key)
-			if allowedHeaders[lowerKey] {
-				wireKey := resolveWireCasing(key)
-				for _, v := range values {
-					addHeaderRaw(req.Header, wireKey, v)
-				}
+			if !shouldForwardClaudeClientHeader(key) {
+				continue
+			}
+			wireKey := resolveWireCasing(key)
+			for _, v := range values {
+				addHeaderRaw(req.Header, wireKey, v)
 			}
 		}
 	}
@@ -6976,6 +6979,7 @@ func (s *GatewayService) buildUpstreamRequestAnthropicVertex(
 			vertexBody = sanitized
 		}
 	}
+	vertexBody = sanitizeOAuthJSONBody(vertexBody)
 	fullURL, err := buildVertexAnthropicURL(account.VertexProjectID(), account.VertexLocation(modelID), modelID, reqStream)
 	if err != nil {
 		return nil, err
@@ -6988,7 +6992,7 @@ func (s *GatewayService) buildUpstreamRequestAnthropicVertex(
 	if c != nil && c.Request != nil {
 		for key, values := range c.Request.Header {
 			lowerKey := strings.ToLower(strings.TrimSpace(key))
-			if !allowedHeaders[lowerKey] || lowerKey == "anthropic-version" {
+			if !shouldForwardClaudeClientHeader(lowerKey) || lowerKey == "anthropic-version" {
 				continue
 			}
 			wireKey := resolveWireCasing(key)
@@ -10287,7 +10291,7 @@ func (s *GatewayService) buildCountTokensRequestAnthropicAPIKeyPassthrough(
 	if c != nil && c.Request != nil {
 		for key, values := range c.Request.Header {
 			lowerKey := strings.ToLower(strings.TrimSpace(key))
-			if !allowedHeaders[lowerKey] {
+			if !shouldForwardClaudeClientHeader(lowerKey) {
 				continue
 			}
 			wireKey := resolveWireCasing(key)
@@ -10393,9 +10397,7 @@ func (s *GatewayService) buildCountTokensRequest(ctx context.Context, c *gin.Con
 	if next := rewriteCacheControlForClaudeEnvironmentProfile(ctClaudeEnvironmentProfile, body); len(next) > 0 {
 		body = next
 	}
-	if tokenType == "oauth" {
-		body = sanitizeOAuthJSONBody(body)
-	}
+	body = sanitizeOAuthJSONBody(body)
 
 	// 能力维度 body sanitize：与最终 anthropic-beta header 对称
 	if sanitized, changed := sanitizeAnthropicBodyForBetaTokens(body, finalBetaHeader); changed {
@@ -10422,7 +10424,7 @@ func (s *GatewayService) buildCountTokensRequest(ctx context.Context, c *gin.Con
 	// 白名单透传 headers（恢复真实 wire casing）
 	for key, values := range clientHeaders {
 		lowerKey := strings.ToLower(key)
-		if allowedHeaders[lowerKey] {
+		if shouldForwardClaudeClientHeader(lowerKey) {
 			wireKey := resolveWireCasing(key)
 			for _, v := range values {
 				addHeaderRaw(req.Header, wireKey, v)

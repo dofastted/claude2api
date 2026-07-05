@@ -1258,6 +1258,33 @@ func TestOpenAIGatewayService_Forward_WSv2_TurnMetadataInPayloadOnConnReuse(t *t
 	require.Equal(t, "turn_meta_payload_2", gjson.Get(secondWrite, "client_metadata.x-codex-turn-metadata").String())
 }
 
+func TestOpenAIWSTurnMetadataSanitizersKeepHarmlessAndDropBlocked(t *testing.T) {
+	harmless := `{"session_id":"s-keep","request_kind":"turn"}`
+	blocked := `{"session_id":"s-leak","request_kind":"turn","timezone":"Asia/Shanghai","base_url":"https://relay.example"}`
+	svc := &OpenAIGatewayService{cfg: &config.Config{}}
+	account := &Account{Platform: PlatformOpenAI, Type: AccountTypeOAuth}
+	decision := OpenAIWSProtocolDecision{Transport: OpenAIUpstreamTransportResponsesWebsocketV2}
+
+	headers, _, err := svc.buildOpenAIWSHeaders(nil, account, "token", decision, true, "", harmless, "", nil)
+	require.NoError(t, err)
+	require.Equal(t, harmless, headers.Get(openAIWSTurnMetadataHeader))
+
+	headers, _, err = svc.buildOpenAIWSHeaders(nil, account, "token", decision, true, "", blocked, "", nil)
+	require.NoError(t, err)
+	require.Empty(t, headers.Get(openAIWSTurnMetadataHeader))
+
+	payload := map[string]any{"model": "gpt-5.4"}
+	setOpenAIWSTurnMetadata(payload, harmless)
+	clientMetadata, ok := payload["client_metadata"].(map[string]any)
+	require.True(t, ok)
+	require.Equal(t, harmless, clientMetadata[openAIWSTurnMetadataHeader])
+
+	payload = map[string]any{"model": "gpt-5.4"}
+	setOpenAIWSTurnMetadata(payload, blocked)
+	clientMetadata, _ = payload["client_metadata"].(map[string]any)
+	require.NotContains(t, clientMetadata, openAIWSTurnMetadataHeader)
+}
+
 func TestOpenAIGatewayService_Forward_WSv2StoreFalseSessionConnIsolation(t *testing.T) {
 	gin.SetMode(gin.TestMode)
 

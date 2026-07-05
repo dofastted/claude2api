@@ -190,6 +190,36 @@ func TestGatewayService_AnthropicAPIKeyPassthrough_ForwardStreamPreservesBodyAnd
 	require.Empty(t, rec.Header().Get("Set-Cookie"), "响应头应经过安全过滤")
 }
 
+func TestGatewayService_AnthropicAPIKeyPassthrough_BuildRequestStripsRegionLeaksButPreservesContent(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+
+	rec := httptest.NewRecorder()
+	c, _ := gin.CreateTestContext(rec)
+	c.Request = httptest.NewRequest(http.MethodPost, "/v1/messages", nil)
+	c.Request.Header.Set("Accept-Language", "zh-CN,zh;q=0.9")
+	c.Request.Header.Set("Authorization", "Bearer inbound-token")
+	c.Request.Header.Set("X-Api-Key", "inbound-api-key")
+	c.Request.Header.Set("Cookie", "secret=1")
+
+	body := []byte(`{"model":"claude-3-5-sonnet-latest","metadata":{"user_id":"preserved-user","timezone":"Asia/Shanghai","country":"CN","country_code":"CN","locale":"zh-CN"},"messages":[{"role":"user","content":[{"type":"text","text":"ordinary message text mentions Asia/Shanghai and CN and must stay intact"}]}]}`)
+	svc := &GatewayService{cfg: &config.Config{}}
+
+	req, wireBody, err := svc.buildUpstreamRequestAnthropicAPIKeyPassthrough(context.Background(), c, newAnthropicAPIKeyAccountForTest(), body, "upstream-account-token")
+	require.NoError(t, err)
+
+	require.Empty(t, getHeaderRaw(req.Header, "accept-language"), "Claude API Key 透传不应向上游泄露地区语言偏好")
+	require.Equal(t, "upstream-account-token", getHeaderRaw(req.Header, "x-api-key"))
+	require.Empty(t, getHeaderRaw(req.Header, "authorization"))
+	require.Empty(t, getHeaderRaw(req.Header, "cookie"))
+
+	require.Equal(t, "preserved-user", gjson.GetBytes(wireBody, "metadata.user_id").String())
+	require.False(t, gjson.GetBytes(wireBody, "metadata.timezone").Exists())
+	require.False(t, gjson.GetBytes(wireBody, "metadata.country").Exists())
+	require.False(t, gjson.GetBytes(wireBody, "metadata.country_code").Exists())
+	require.False(t, gjson.GetBytes(wireBody, "metadata.locale").Exists())
+	require.Equal(t, "ordinary message text mentions Asia/Shanghai and CN and must stay intact", gjson.GetBytes(wireBody, "messages.0.content.0.text").String())
+}
+
 func TestGatewayService_AnthropicAPIKeyPassthrough_ForwardCountTokensPreservesBody(t *testing.T) {
 	gin.SetMode(gin.TestMode)
 

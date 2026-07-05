@@ -77,6 +77,33 @@ func TestCodexProfileRequestMetadataMatchesLatestRequestShape(t *testing.T) {
 	require.Equal(t, meta.TurnMetadata, clientMetadata["x-codex-turn-metadata"])
 }
 
+func TestApplyCodexClientMetadataSanitizesExistingMetadataWithoutProfileOrDeviceID(t *testing.T) {
+	body := map[string]any{
+		"client_metadata": map[string]any{
+			"session_id":            "s-keep",
+			"timezone":              "Asia/Shanghai",
+			"x-codex-turn-metadata": `{"session_id":"s-keep","request_kind":"turn","timezone":"Asia/Shanghai","base_url":"https://relay.example","api_key":"sk-leak"}`,
+		},
+	}
+	accountWithoutDeviceID := &Account{Platform: PlatformOpenAI, Type: AccountTypeOAuth}
+
+	require.True(t, applyCodexClientMetadata(body, accountWithoutDeviceID, codexProfileRequestMetadata{}))
+	clientMetadata, ok := body["client_metadata"].(map[string]any)
+	require.True(t, ok)
+	require.Equal(t, "s-keep", clientMetadata["session_id"])
+	require.NotContains(t, clientMetadata, "timezone")
+
+	turnMetadata, ok := clientMetadata["x-codex-turn-metadata"].(string)
+	require.True(t, ok)
+	var turn map[string]any
+	require.NoError(t, json.Unmarshal([]byte(turnMetadata), &turn))
+	require.Equal(t, "s-keep", turn["session_id"])
+	require.Equal(t, "turn", turn["request_kind"])
+	for _, blocked := range []string{"timezone", "base_url", "api_key"} {
+		require.NotContains(t, turn, blocked)
+	}
+}
+
 func TestCodexProfileRequestMetadataUsesProfileInstallationFallback(t *testing.T) {
 	account := &Account{ID: 42, Platform: PlatformOpenAI, Type: AccountTypeOAuth}
 	profile := &CodexEnvironmentProfile{

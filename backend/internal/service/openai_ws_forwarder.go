@@ -1166,7 +1166,7 @@ func (s *OpenAIGatewayService) buildOpenAIWSHeaders(
 	if state := strings.TrimSpace(turnState); state != "" {
 		headers.Set(openAIWSTurnStateHeader, state)
 	}
-	if metadata := strings.TrimSpace(turnMetadata); metadata != "" {
+	if metadata := sanitizeCodexTurnMetadataStringStrict(turnMetadata); metadata != "" {
 		headers.Set(openAIWSTurnMetadataHeader, metadata)
 	}
 
@@ -1237,7 +1237,7 @@ func (s *OpenAIGatewayService) buildOpenAIWSCreatePayload(reqBody map[string]any
 }
 
 func setOpenAIWSTurnMetadata(payload map[string]any, turnMetadata string) {
-	setOpenAIWSClientMetadata(payload, codexProfileRequestMetadata{TurnMetadata: turnMetadata})
+	setOpenAIWSClientMetadata(payload, codexProfileRequestMetadata{TurnMetadata: sanitizeCodexTurnMetadataStringStrict(turnMetadata)})
 }
 
 func setOpenAIWSClientMetadata(payload map[string]any, meta codexProfileRequestMetadata) bool {
@@ -2698,7 +2698,7 @@ func (s *OpenAIGatewayService) ProxyResponsesWebSocketFromClient(
 				nil,
 			)
 		}
-		if turnMetadata := strings.TrimSpace(c.GetHeader(openAIWSTurnMetadataHeader)); turnMetadata != "" {
+		if turnMetadata := sanitizeCodexTurnMetadataStringStrict(c.GetHeader(openAIWSTurnMetadataHeader)); turnMetadata != "" {
 			next, setErr := applyPayloadMutation(normalized, "client_metadata."+openAIWSTurnMetadataHeader, turnMetadata)
 			if setErr != nil {
 				return openAIWSClientPayload{}, NewOpenAIWSClientCloseError(coderws.StatusPolicyViolation, "invalid websocket request payload", setErr)

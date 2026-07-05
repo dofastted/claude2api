@@ -217,6 +217,9 @@ func sanitizeOAuthRequestMap(payload map[string]any) bool {
 		return false
 	}
 	changed := sanitizeBlockedOAuthKeys(payload)
+	if sanitizeCodexTurnMetadataField(payload) {
+		changed = true
+	}
 	for _, key := range []string{"metadata", "client_metadata", "credential_extras", "credentials"} {
 		if child, ok := mapAny(payload[key]); ok {
 			if sanitizeBlockedOAuthKeysRecursive(child) {
@@ -230,6 +233,34 @@ func sanitizeOAuthRequestMap(payload map[string]any) bool {
 
 func sanitizeOAuthMetadataMap(metadata map[string]any) bool {
 	return sanitizeBlockedOAuthKeysRecursive(metadata)
+}
+
+func sanitizeCodexTurnMetadataField(payload map[string]any) bool {
+	if payload == nil {
+		return false
+	}
+	changed := false
+	for key, value := range payload {
+		normalized := strings.NewReplacer("-", "_", " ", "_").Replace(strings.ToLower(strings.TrimSpace(key)))
+		if normalized != "x_codex_turn_metadata" {
+			continue
+		}
+		raw, ok := value.(string)
+		if !ok {
+			continue
+		}
+		next := sanitizeCodexTurnMetadataString(raw)
+		if strings.TrimSpace(next) == "" {
+			delete(payload, key)
+			changed = true
+			continue
+		}
+		if next != raw {
+			payload[key] = next
+			changed = true
+		}
+	}
+	return changed
 }
 
 func sanitizeCodexTurnMetadataString(raw string) string {
@@ -252,6 +283,13 @@ func sanitizeCodexTurnMetadataString(raw string) string {
 		return ""
 	}
 	return string(next)
+}
+func sanitizeCodexTurnMetadataStringStrict(raw string) string {
+	trimmed := strings.TrimSpace(raw)
+	if trimmed == "" || containsBlockedOAuthKeyText(trimmed) {
+		return ""
+	}
+	return sanitizeCodexTurnMetadataString(trimmed)
 }
 
 func sanitizeBlockedOAuthKeys(payload map[string]any) bool {
@@ -288,6 +326,9 @@ func sanitizeBlockedOAuthKeysRecursive(payload map[string]any) bool {
 			}
 		}
 	}
+	if sanitizeCodexTurnMetadataField(payload) {
+		changed = true
+	}
 	return changed
 }
 
@@ -313,7 +354,12 @@ func sanitizeBlockedOAuthValueList(values []any) bool {
 
 func containsBlockedOAuthKeyText(value string) bool {
 	lower := strings.ToLower(value)
-	for _, token := range []string{"base_url", "custom_base_url", "endpoint", "hostname", "api_key", "x-api-key", "authorization", "time_zone", "timezone"} {
+	for _, token := range []string{
+		"base_url", "custom_base_url", "endpoint", "hostname",
+		"api_key", "x-api-key", "authorization",
+		"time_zone", "timezone", "tz",
+		"country_code", "countrycode", "country", "region_code", "regioncode", "region", "locale", "language", "accept_language", "accept-language",
+	} {
 		if strings.Contains(lower, token) {
 			return true
 		}
@@ -324,7 +370,7 @@ func containsBlockedOAuthKeyText(value string) bool {
 func isBlockedOAuthClientField(key string) bool {
 	normalized := strings.NewReplacer("-", "_", " ", "_").Replace(strings.ToLower(strings.TrimSpace(key)))
 	switch normalized {
-	case "base_url", "custom_base_url", "custom_base_url_enabled", "endpoint", "hostname", "host", "api_key", "x_api_key", "key", "authorization", "timezone", "time_zone", "tz":
+	case "base_url", "custom_base_url", "custom_base_url_enabled", "endpoint", "hostname", "host", "api_key", "x_api_key", "key", "authorization", "timezone", "time_zone", "tz", "country", "country_code", "countrycode", "region", "region_code", "regioncode", "locale", "language", "accept_language":
 		return true
 	default:
 		return false
@@ -345,7 +391,7 @@ func isBlockedOAuthHeaderField(key string) bool {
 	if strings.Contains(normalized, "api_key") || strings.Contains(normalized, "x_api_key") || strings.Contains(normalized, "authorization") {
 		return true
 	}
-	return normalized == "timezone" || normalized == "time_zone" || normalized == "tz" || strings.HasSuffix(normalized, "_timezone")
+	return normalized == "timezone" || normalized == "time_zone" || normalized == "tz" || strings.HasSuffix(normalized, "_timezone") || normalized == "country" || normalized == "country_code" || normalized == "countrycode" || strings.HasSuffix(normalized, "_country") || strings.HasSuffix(normalized, "_country_code") || normalized == "region" || normalized == "region_code" || normalized == "regioncode" || strings.HasSuffix(normalized, "_region") || normalized == "locale" || normalized == "language" || normalized == "accept_language"
 }
 
 func mapAny(value any) (map[string]any, bool) {
@@ -405,7 +451,7 @@ func isOAuthProfileAccount(platform, accountType string) bool {
 func isBlockedOAuthCredentialField(key string) bool {
 	normalized := strings.NewReplacer("-", "_", " ", "_").Replace(strings.ToLower(strings.TrimSpace(key)))
 	switch normalized {
-	case "base_url", "custom_base_url", "custom_base_url_enabled", "endpoint", "hostname", "host", "api_key", "x_api_key", "key", "authorization", "timezone", "time_zone", "tz":
+	case "base_url", "custom_base_url", "custom_base_url_enabled", "endpoint", "hostname", "host", "api_key", "x_api_key", "key", "authorization", "timezone", "time_zone", "tz", "country", "country_code", "countrycode", "region", "region_code", "regioncode", "locale", "language", "accept_language":
 		return true
 	default:
 		return false

@@ -1027,9 +1027,7 @@ func applyCodexClientMetadata(reqBody map[string]any, account *Account, meta cod
 	if meta.InstallationID == "" && account != nil {
 		meta.InstallationID = strings.TrimSpace(account.GetOpenAIDeviceID())
 	}
-	if meta.InstallationID == "" && meta.SessionID == "" && meta.ThreadID == "" && meta.WindowID == "" && meta.TurnMetadata == "" {
-		return false
-	}
+	hasProfileMetadata := meta.InstallationID != "" || meta.SessionID != "" || meta.ThreadID != "" || meta.WindowID != "" || meta.TurnMetadata != ""
 
 	changed := false
 	clientMetadata, ok := reqBody["client_metadata"].(map[string]any)
@@ -1039,17 +1037,26 @@ func applyCodexClientMetadata(reqBody map[string]any, account *Account, meta cod
 			for k, v := range existing {
 				clientMetadata[k] = v
 			}
+			reqBody["client_metadata"] = clientMetadata
+			changed = true
 		} else if reqBody["client_metadata"] == nil {
+			if !hasProfileMetadata {
+				return false
+			}
 			clientMetadata = make(map[string]any, 4)
+			reqBody["client_metadata"] = clientMetadata
+			changed = true
 		} else {
 			return false
 		}
-		reqBody["client_metadata"] = clientMetadata
-		changed = true
 	}
 	if sanitizeOAuthMetadataMap(clientMetadata) {
 		changed = true
 	}
+	if !hasProfileMetadata {
+		return changed
+	}
+
 	setString := func(key, value string, override bool) {
 		value = strings.TrimSpace(value)
 		if value == "" {

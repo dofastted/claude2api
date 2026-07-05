@@ -475,6 +475,24 @@ func TestSanitizeOAuthJSONBody_StripsBlockedKeysAndNestedMetadata(t *testing.T) 
 	require.Contains(t, string(got), "s-keep")
 }
 
+func TestSanitizeOAuthJSONBody_StripsBlockedKeysFromCodexTurnMetadataString(t *testing.T) {
+	body := []byte(`{
+		"model": "gpt-5.4",
+		"client_metadata": {
+			"session_id": "s-keep",
+			"x-codex-turn-metadata": "{\"session_id\":\"s-keep\",\"request_kind\":\"turn\",\"timezone\":\"Asia/Shanghai\",\"base_url\":\"https://relay.example\",\"api_key\":\"sk-leak\"}"
+		}
+	}`)
+
+	got := sanitizeOAuthJSONBody(body)
+	require.NotContains(t, string(got), "timezone")
+	require.NotContains(t, string(got), "Asia/Shanghai")
+	require.NotContains(t, string(got), "base_url")
+	require.NotContains(t, string(got), "api_key")
+	require.Contains(t, string(got), "s-keep")
+	require.Contains(t, string(got), "request_kind")
+}
+
 func TestSanitizeOAuthJSONBody_InvalidJSON_ReturnedUnchanged(t *testing.T) {
 	body := []byte("not-json{")
 	require.Equal(t, body, sanitizeOAuthJSONBody(body))
