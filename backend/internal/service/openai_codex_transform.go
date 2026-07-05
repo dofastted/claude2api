@@ -220,8 +220,8 @@ func applyCodexOAuthTransformWithOptions(reqBody map[string]any, opts codexOAuth
 		result.Modified = true
 	}
 
-	// instructions 处理逻辑：根据是否是 Codex CLI 分别调用不同方法
-	if !opts.SkipDefaultInstructions && applyInstructions(reqBody, opts.IsCodexCLI) {
+	// 缺少显式 system/developer 输入时才补默认 instructions，避免覆盖调用方已提供的提示上下文。
+	if !opts.SkipDefaultInstructions && applyDefaultCodexInstructionsIfMissing(reqBody, opts.IsCodexCLI) {
 		result.Modified = true
 	}
 	if isCodexSparkModel(normalizedModel) && applyCodexSparkImageUnsupportedInstructions(reqBody) {
@@ -1062,9 +1062,13 @@ func applyCodexClientMetadata(reqBody map[string]any, account *Account, meta cod
 	return changed
 }
 
-// applyInstructions 处理 instructions 字段：仅在 instructions 为空时填充默认值。
-func applyInstructions(reqBody map[string]any, isCodexCLI bool) bool {
+// applyDefaultCodexInstructionsIfMissing fills the upstream-required instructions field
+// only when the caller did not provide top-level instructions or developer/system input.
+func applyDefaultCodexInstructionsIfMissing(reqBody map[string]any, isCodexCLI bool) bool {
 	if !isInstructionsEmpty(reqBody) {
+		return false
+	}
+	if strings.TrimSpace(extractPromptLikeInstructionsFromInput(reqBody)) != "" {
 		return false
 	}
 	model, _ := reqBody["model"].(string)

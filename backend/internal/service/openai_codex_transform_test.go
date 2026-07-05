@@ -1171,6 +1171,43 @@ func TestApplyCodexOAuthTransform_ConvertsSystemInputToDeveloper(t *testing.T) {
 	require.Equal(t, "caller instructions", reqBody["instructions"])
 }
 
+func TestApplyCodexOAuthTransform_DoesNotAddDefaultInstructionsWhenDeveloperInputExists(t *testing.T) {
+	reqBody := map[string]any{
+		"model": "gpt-5.1",
+		"input": []any{
+			map[string]any{"role": "system", "content": "Use the caller environment."},
+			map[string]any{"role": "user", "content": "Write a function."},
+		},
+	}
+
+	result := applyCodexOAuthTransform(reqBody, false, false)
+
+	require.True(t, result.Modified)
+	input, ok := reqBody["input"].([]any)
+	require.True(t, ok)
+	require.Len(t, input, 2)
+	msg, ok := input[0].(map[string]any)
+	require.True(t, ok)
+	require.Equal(t, "developer", msg["role"])
+	require.NotContains(t, reqBody, "instructions")
+}
+
+func TestApplyCodexOAuthTransform_AddsDefaultInstructionsForUserOnlyInput(t *testing.T) {
+	reqBody := map[string]any{
+		"model": "gpt-5.1",
+		"input": []any{
+			map[string]any{"role": "user", "content": "Write a function."},
+		},
+	}
+
+	result := applyCodexOAuthTransform(reqBody, false, false)
+
+	require.True(t, result.Modified)
+	instructions, ok := reqBody["instructions"].(string)
+	require.True(t, ok)
+	require.NotEmpty(t, instructions)
+}
+
 func TestIsInstructionsEmpty(t *testing.T) {
 	tests := []struct {
 		name     string
