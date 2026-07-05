@@ -18,10 +18,11 @@ import (
 )
 
 const (
-	dataType       = "claude2api-data"
-	legacyDataType = "claude2api-bundle"
-	dataVersion    = 1
-	dataPageCap    = 1000
+	dataType          = "claude2api-data"
+	legacyDataType    = "claude2api-bundle"
+	sub2apiLegacyType = "sub2api-data"
+	dataVersion       = 1
+	dataPageCap       = 1000
 )
 
 type DataPayload struct {
@@ -611,7 +612,7 @@ func parseIncludeProxies(c *gin.Context) (bool, error) {
 }
 
 func validateDataHeader(payload DataPayload) error {
-	if payload.Type != "" && payload.Type != dataType && payload.Type != legacyDataType {
+	if payload.Type != "" && payload.Type != dataType && payload.Type != legacyDataType && payload.Type != sub2apiLegacyType {
 		return fmt.Errorf("unsupported data type: %s", payload.Type)
 	}
 	if payload.Version != 0 && payload.Version != dataVersion {
