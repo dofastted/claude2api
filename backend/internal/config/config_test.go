@@ -181,6 +181,27 @@ func TestLoadDefaultOpenAIWSConfig(t *testing.T) {
 	}
 }
 
+func TestLoadDefaultClaudeCLIRuntimeProbeConfig(t *testing.T) {
+	resetViperWithJWTSecret(t)
+
+	cfg, err := Load()
+	require.NoError(t, err)
+	require.True(t, cfg.ClaudeCLIRuntimeProbe.Enabled)
+	require.Equal(t, "claude", cfg.ClaudeCLIRuntimeProbe.BinaryPath)
+	require.Equal(t, 60, cfg.ClaudeCLIRuntimeProbe.TimeoutSeconds)
+	require.Equal(t, 4096, cfg.ClaudeCLIRuntimeProbe.MaxOutputBytes)
+	require.Equal(t, "disabled", cfg.ClaudeCLIRuntimeProbe.AttributionMode)
+}
+
+func TestLoadClaudeCLIRuntimeProbeDisabledFromEnv(t *testing.T) {
+	resetViperWithJWTSecret(t)
+	t.Setenv("CLAUDE_CLI_RUNTIME_PROBE_ENABLED", "false")
+
+	cfg, err := Load()
+	require.NoError(t, err)
+	require.False(t, cfg.ClaudeCLIRuntimeProbe.Enabled)
+}
+
 func TestLoadDefaultOpenAIHTTP2Enabled(t *testing.T) {
 	resetViperWithJWTSecret(t)
 

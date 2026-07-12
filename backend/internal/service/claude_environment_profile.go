@@ -520,42 +520,7 @@ func (s *GatewayService) applyClaudeEnvironmentProfile(req *http.Request, accoun
 	if req == nil || profile == nil {
 		return
 	}
-	for key, value := range profile.Headers {
-		key = strings.ToLower(strings.TrimSpace(key))
-		value = strings.TrimSpace(value)
-		if key == "" || value == "" || isSensitiveClaudeCodeHeader(key) || isBlockedOAuthHeaderField(key) || !isClaudeEnvironmentHeaderAllowed(key) {
-			continue
-		}
-		setHeaderRaw(req.Header, resolveWireCasing(key), value)
-	}
-	if profile.UserAgent != "" {
-		setHeaderRaw(req.Header, "User-Agent", profile.UserAgent)
-	}
-	if profile.XApp != "" {
-		setHeaderRaw(req.Header, "X-App", profile.XApp)
-	}
-	if profile.ClientType != "" {
-		setHeaderRaw(req.Header, "Anthropic-Client-Type", profile.ClientType)
-	}
-	if profile.ClientVersion != "" {
-		setHeaderRaw(req.Header, "X-Stainless-Package-Version", profile.ClientVersion)
-	}
-	if profile.Platform != "" {
-		setHeaderRaw(req.Header, "X-Stainless-OS", profile.Platform)
-	}
-	if profile.Arch != "" {
-		setHeaderRaw(req.Header, "X-Stainless-Arch", profile.Arch)
-	}
-	if profile.Runtime != "" {
-		setHeaderRaw(req.Header, "X-Stainless-Runtime", profile.Runtime)
-	}
-	if profile.RuntimeVersion != "" {
-		setHeaderRaw(req.Header, "X-Stainless-Runtime-Version", profile.RuntimeVersion)
-	}
-	if profile.TelemetrySessionID != "" {
-		setHeaderRaw(req.Header, "X-Claude-Code-Session-Id", profile.TelemetrySessionID)
-	}
-	deleteHeaderAllForms(req.Header, "traceparent")
+	applyClaudeEnvironmentProfileHeaders(req, account, profile)
 	accountID := int64(0)
 	if account != nil {
 		accountID = account.ID

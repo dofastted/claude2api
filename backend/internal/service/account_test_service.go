@@ -26,6 +26,7 @@ import (
 	"github.com/dofastted/claude2api/internal/util/urlvalidator"
 	"github.com/gin-gonic/gin"
 	"github.com/google/uuid"
+	"github.com/tidwall/sjson"
 )
 
 // sseDataPrefix matches SSE data lines with optional whitespace after colon.
@@ -33,8 +34,11 @@ import (
 var sseDataPrefix = regexp.MustCompile(`^data:\s*`)
 
 const (
-	testClaudeAPIURL   = "https://api.anthropic.com/v1/messages?beta=true"
-	chatgptCodexAPIURL = "https://chatgpt.com/backend-api/codex/responses"
+	testClaudeAPIURL                        = "https://api.anthropic.com/v1/messages?beta=true"
+	chatgptCodexAPIURL                      = "https://chatgpt.com/backend-api/codex/responses"
+	strictClaudeCodeProbeExplanation        = "Upstream rejected the Claude-family message probe with a Claude Code anti-relay guard; validating API key and model availability via /v1/models instead."
+	claudeCodeAttributionDisabledBetaHeader = claude.BetaClaudeCode + "," + claude.BetaInterleavedThinking + "," + claude.BetaContextManagement + "," + claude.BetaPromptCachingScope + "," + claude.BetaEffort
+	claudeCodeAgentSystemPrompt             = "You are a Claude agent, built on Anthropic's Claude Agent SDK."
 )
 
 // TestEvent represents a SSE event for account testing
@@ -151,22 +155,32 @@ func (s *AccountTestService) validateUpstreamBaseURL(raw string) (string, error)
 }
 
 // generateSessionString generates a Claude Code style session string.
-// The output format is determined by the UA version in claude.DefaultHeaders,
-// ensuring consistency between the user_id format and the UA sent to upstream.
-func generateSessionString() (string, error) {
+// The output format is determined by the UA version, ensuring consistency
+// between metadata.user_id and the User-Agent sent to upstream.
+func generateSessionStringForVersion(uaVersion string) (string, error) {
 	b := make([]byte, 32)
 	if _, err := rand.Read(b); err != nil {
 		return "", err
 	}
 	hex64 := hex.EncodeToString(b)
 	sessionUUID := uuid.New().String()
-	uaVersion := ExtractCLIVersion(claude.DefaultHeaders["User-Agent"])
+	if strings.TrimSpace(uaVersion) == "" {
+		uaVersion = defaultClaudeCLIVersion()
+	}
 	return FormatMetadataUserID(hex64, "", sessionUUID, uaVersion), nil
 }
 
-// createTestPayload creates a Claude Code style test request payload
+func generateSessionString() (string, error) {
+	return generateSessionStringForVersion(ExtractCLIVersion(claude.DefaultHeaders["User-Agent"]))
+}
+
+// createTestPayload creates a Claude Code style test request payload.
 func createTestPayload(modelID string) (map[string]any, error) {
-	sessionID, err := generateSessionString()
+	return createTestPayloadWithVersion(modelID, ExtractCLIVersion(claude.DefaultHeaders["User-Agent"]))
+}
+
+func createTestPayloadWithVersion(modelID, uaVersion string) (map[string]any, error) {
+	sessionID, err := generateSessionStringForVersion(uaVersion)
 	if err != nil {
 		return nil, err
 	}
@@ -203,6 +217,99 @@ func createTestPayload(modelID string) (map[string]any, error) {
 		"temperature": 1,
 		"stream":      true,
 	}, nil
+}
+
+func (s *AccountTestService) claudeCLIVersion() string {
+	if s != nil && s.identityRegistry != nil {
+		if snapshots := s.identityRegistry.Get(); snapshots != nil {
+			if cliVersion := strings.TrimSpace(snapshots.Claude.VersionFields.CLIVersion); cliVersion != "" {
+				return cliVersion
+			}
+			if ua := strings.TrimSpace(snapshots.Claude.Headers["User-Agent"]); ua != "" {
+				if cliVersion := ExtractCLIVersion(ua); cliVersion != "" {
+					return cliVersion
+				}
+			}
+		}
+	}
+	headers := claude.GetHeaders(nil)
+	if s != nil {
+		headers = claude.GetHeaders(s.identityRegistry)
+	}
+	if cliVersion := ExtractCLIVersion(headers["User-Agent"]); cliVersion != "" {
+		return cliVersion
+	}
+	return defaultClaudeCLIVersion()
+}
+
+func (s *AccountTestService) createClaudeCodeTestPayloadBytes(modelID string) ([]byte, error) {
+	return s.createClaudeCodeTestPayloadBytesWithProfile(modelID, nil, nil)
+}
+
+func (s *AccountTestService) createClaudeCodeTestPayloadBytesWithProfile(modelID string, account *Account, profile *ClaudeEnvironmentProfile) ([]byte, error) {
+	return s.createClaudeCodeTestPayloadBytesWithProfileOptions(modelID, account, profile, false)
+}
+
+func (s *AccountTestService) createClaudeCodeTestPayloadBytesWithProfileOptions(modelID string, account *Account, profile *ClaudeEnvironmentProfile, disableAttribution bool) ([]byte, error) {
+	cliVersion := s.claudeCLIVersion()
+	if profile != nil {
+		if profileVersion := strings.TrimSpace(profile.ClientVersion); profileVersion != "" {
+			cliVersion = profileVersion
+		} else if profileVersion := ExtractCLIVersion(profile.UserAgent); profileVersion != "" {
+			cliVersion = profileVersion
+		}
+	}
+	payload, err := createTestPayloadWithVersion(modelID, cliVersion)
+	if err != nil {
+		return nil, err
+	}
+	body, err := json.Marshal(payload)
+	if err != nil {
+		return nil, err
+	}
+	body = applyClaudeCodeProbeProfileToBody(body, account, profile)
+	if disableAttribution {
+		body, _ = setJSONRawBytes(body, "system", []byte(`[{"type":"text","text":"`+claudeCodeAgentSystemPrompt+`","cache_control":{"type":"ephemeral"}}]`))
+		body, _ = sjson.SetBytes(body, "max_tokens", 32000)
+		body, _ = sjson.SetBytes(body, "thinking", map[string]string{"type": "adaptive"})
+		body, _ = sjson.SetBytes(body, "context_management.edits", []map[string]string{{"type": "clear_thinking_20251015", "keep": "all"}})
+		body, _ = sjson.SetBytes(body, "output_config", map[string]string{"effort": "high"})
+		return body, nil
+	}
+	systemBlocks, err := buildClaudeOAuthSystemPromptBlocksJSON(body, "", "", cliVersion)
+	if err != nil {
+		return nil, err
+	}
+	body, ok := setJSONRawBytes(body, "system", buildJSONArrayRaw(systemBlocks))
+	if !ok {
+		return nil, errors.New("failed to create Claude Code system blocks")
+	}
+	body = rewriteCacheControlForClaudeEnvironmentProfile(profile, body)
+	return signBillingHeaderCCH(body), nil
+}
+
+func (s *AccountTestService) createClaudeCodeHealthProbePayloadBytes(account *Account, profile *ClaudeEnvironmentProfile) ([]byte, error) {
+	cliVersion := s.claudeCLIVersion()
+	if profile != nil {
+		if profileVersion := strings.TrimSpace(profile.ClientVersion); profileVersion != "" {
+			cliVersion = profileVersion
+		} else if profileVersion := ExtractCLIVersion(profile.UserAgent); profileVersion != "" {
+			cliVersion = profileVersion
+		}
+	}
+	body, err := json.Marshal(map[string]any{
+		"model": "claude-haiku-4-5-20251001",
+		"messages": []map[string]any{
+			{"role": "user", "content": []map[string]any{{"type": "text", "text": "hi"}}},
+		},
+		"metadata":   map[string]string{"user_id": FormatMetadataUserID(generateClientID(), account.GetExtraString("account_uuid"), uuid.NewString(), cliVersion)},
+		"max_tokens": 1,
+		"stream":     true,
+	})
+	if err != nil {
+		return nil, err
+	}
+	return applyClaudeCodeProbeProfileToBody(body, account, profile), nil
 }
 
 // TestAccountConnection tests an account's connection by sending a test request
@@ -259,7 +366,7 @@ func (s *AccountTestService) testClaudeAccountConnection(c *gin.Context, account
 	var authToken string
 	var useBearer bool
 	var apiURL string
-
+	var baseURL string
 	if account.IsOAuth() {
 		// OAuth or Setup Token - use Bearer token
 		useBearer = true
@@ -276,7 +383,7 @@ func (s *AccountTestService) testClaudeAccountConnection(c *gin.Context, account
 			return s.sendErrorAndEnd(c, "No API key available")
 		}
 
-		baseURL := account.GetBaseURL()
+		baseURL = account.GetBaseURL()
 		if baseURL == "" {
 			baseURL = "https://api.anthropic.com"
 		}
@@ -284,7 +391,8 @@ func (s *AccountTestService) testClaudeAccountConnection(c *gin.Context, account
 		if err != nil {
 			return s.sendErrorAndEnd(c, fmt.Sprintf("Invalid base URL: %s", err.Error()))
 		}
-		apiURL = strings.TrimSuffix(normalizedBaseURL, "/") + "/v1/messages?beta=true"
+		baseURL = normalizedBaseURL
+		apiURL = strings.TrimSuffix(baseURL, "/") + "/v1/messages?beta=true"
 	} else {
 		return s.sendErrorAndEnd(c, fmt.Sprintf("Unsupported account type: %s", account.Type))
 	}
@@ -296,61 +404,239 @@ func (s *AccountTestService) testClaudeAccountConnection(c *gin.Context, account
 	c.Writer.Header().Set("X-Accel-Buffering", "no")
 	c.Writer.Flush()
 
-	// Create Claude Code style payload (same for all account types)
-	payload, err := createTestPayload(testModelID)
+	probeProfile := resolveClaudeCodeProbeProfile(account, s.identityRegistry, nil)
+	payloadBytes, err := s.createClaudeCodeTestPayloadBytesWithProfileOptions(testModelID, account, probeProfile, shouldDisableClaudeCodeAttributionForProbe(account))
 	if err != nil {
 		return s.sendErrorAndEnd(c, "Failed to create test payload")
 	}
-	payloadBytes, _ := json.Marshal(payload)
 
 	// Send test_start event
 	s.sendEvent(c, TestEvent{Type: "test_start", Model: testModelID})
-
-	req, err := http.NewRequestWithContext(ctx, "POST", apiURL, bytes.NewReader(payloadBytes))
-	if err != nil {
-		return s.sendErrorAndEnd(c, "Failed to create request")
-	}
-
-	// Set common headers
-	req.Header.Set("Content-Type", "application/json")
-	req.Header.Set("anthropic-version", "2023-06-01")
-
-	// Apply Claude Code client headers
-	for key, value := range claude.GetHeaders(s.identityRegistry) {
-		req.Header.Set(key, value)
-	}
-
-	// Set authentication header
-	if useBearer {
-		req.Header.Set("anthropic-beta", claude.DefaultBetaHeader)
-		req.Header.Set("Authorization", "Bearer "+authToken)
-	} else {
-		req.Header.Set("anthropic-beta", claude.APIKeyBetaHeader)
-		req.Header.Set("x-api-key", authToken)
-	}
 
 	// Get proxy URL
 	proxyURL := ""
 	if account.ProxyID != nil && account.Proxy != nil {
 		proxyURL = account.Proxy.URL()
 	}
-
-	resp, err := s.httpUpstream.DoWithTLS(req, proxyURL, account.ID, account.Concurrency, s.tlsFPProfileService.ResolveTLSProfile(account))
-	if err != nil {
-		return s.sendErrorAndEnd(c, fmt.Sprintf("Request failed: %s", err.Error()))
+	if shouldUseClaudeCLIRuntimeProbe(account, s.cfg) {
+		s.sendEvent(c, TestEvent{Type: "status", Text: "Running Claude Code CLI runtime probe."})
+		probeResult := s.runClaudeCLIRuntimeProbe(ctx, account, baseURL, authToken, testModelID, proxyURL)
+		if probeResult.OK {
+			s.sendEvent(c, TestEvent{Type: "content", Text: probeResult.Message})
+			s.sendEvent(c, TestEvent{Type: "test_complete", Success: true})
+			return nil
+		}
+		s.sendEvent(c, TestEvent{Type: "status", Text: truncateString(probeResult.Message, 240) + "; falling back to synthetic Claude-family message probe."})
 	}
-	defer func() { _ = resp.Body.Close() }()
 
-	if resp.StatusCode != http.StatusOK {
+	var lastProbeErrMsg string
+	var lastProbeGuardBody []byte
+	for _, candidate := range anthropicAuthCandidates(authToken, useBearer) {
+		req, err := http.NewRequestWithContext(ctx, "POST", apiURL, bytes.NewReader(payloadBytes))
+		if err != nil {
+			return s.sendErrorAndEnd(c, "Failed to create request")
+		}
+		// Apply Claude Code client headers using the same raw wire casing as gateway forwarding.
+		setHeaderRaw(req.Header, "content-type", "application/json")
+		setHeaderRaw(req.Header, "anthropic-version", "2023-06-01")
+		applyClaudeCodeMimicHeaders(req, true, s.identityRegistry)
+		applyClaudeCodeProbeProfileHeaders(req, account, probeProfile, payloadBytes)
+
+		if shouldDisableClaudeCodeAttributionForProbe(account) {
+			setHeaderRaw(req.Header, "anthropic-beta", claudeCodeAttributionDisabledBetaHeader)
+			setHeaderRaw(req.Header, "authorization", "Bearer "+authToken)
+			setHeaderRaw(req.Header, "x-api-key", authToken)
+		} else if candidate.key == "authorization" {
+			setHeaderRaw(req.Header, "anthropic-beta", claude.DefaultBetaHeader)
+			setHeaderRaw(req.Header, candidate.key, candidate.value)
+		} else {
+			setHeaderRaw(req.Header, "anthropic-beta", claude.APIKeyBetaHeader)
+			setHeaderRaw(req.Header, candidate.key, candidate.value)
+		}
+
+		resp, err := s.httpUpstream.DoWithTLS(req, proxyURL, account.ID, account.Concurrency, s.resolveClaudeAccountTestProbeTLSProfile(account, probeProfile))
+		if err != nil {
+			return s.sendErrorAndEnd(c, fmt.Sprintf("Request failed: %s", err.Error()))
+		}
+
+		if resp.StatusCode == http.StatusOK {
+			defer func() { _ = resp.Body.Close() }()
+			return s.processClaudeStream(c, resp.Body)
+		}
+
 		body, _ := io.ReadAll(resp.Body)
-		errMsg := fmt.Sprintf("API returned %d: %s", resp.StatusCode, string(body))
-
-
-		return s.sendErrorAndEnd(c, errMsg)
+		_ = resp.Body.Close()
+		lastProbeErrMsg = fmt.Sprintf("API returned %d: %s", resp.StatusCode, string(body))
+		if isClaudeCodeRelayGuardError(resp.StatusCode, body) {
+			lastProbeGuardBody = body
+		}
+		if !shouldRetryClaudeMessageProbeAuth(resp.StatusCode, body, useBearer) {
+			return s.sendErrorAndEnd(c, lastProbeErrMsg)
+		}
 	}
 
-	// Process SSE stream
-	return s.processClaudeStream(c, resp.Body)
+	if len(lastProbeGuardBody) > 0 && shouldUseAnthropicModelsListFallback(account) {
+		healthPayloadBytes, healthErr := s.createClaudeCodeHealthProbePayloadBytes(account, probeProfile)
+		if healthErr == nil {
+			for _, candidate := range anthropicAuthCandidates(authToken, useBearer) {
+				req, err := http.NewRequestWithContext(ctx, "POST", apiURL, bytes.NewReader(healthPayloadBytes))
+				if err != nil {
+					return s.sendErrorAndEnd(c, "Failed to create request")
+				}
+				setHeaderRaw(req.Header, "content-type", "application/json")
+				setHeaderRaw(req.Header, "anthropic-version", "2023-06-01")
+				applyClaudeCodeMimicHeaders(req, true, s.identityRegistry)
+				applyClaudeCodeProbeProfileHeaders(req, account, probeProfile, healthPayloadBytes)
+				if candidate.key == "authorization" {
+					setHeaderRaw(req.Header, "anthropic-beta", claude.HaikuBetaHeader)
+				} else {
+					setHeaderRaw(req.Header, "anthropic-beta", claude.APIKeyHaikuBetaHeader)
+				}
+				setHeaderRaw(req.Header, candidate.key, candidate.value)
+
+				resp, err := s.httpUpstream.DoWithTLS(req, proxyURL, account.ID, account.Concurrency, s.resolveClaudeAccountTestProbeTLSProfile(account, probeProfile))
+				if err != nil {
+					lastProbeErrMsg = fmt.Sprintf("Claude Code health message probe failed: %s", err.Error())
+					continue
+				}
+				if resp.StatusCode == http.StatusOK {
+					defer func() { _ = resp.Body.Close() }()
+					return s.processClaudeStream(c, resp.Body)
+				}
+				body, _ := io.ReadAll(resp.Body)
+				_ = resp.Body.Close()
+				lastProbeErrMsg = fmt.Sprintf("Claude Code health message probe returned %d: %s", resp.StatusCode, string(body))
+			}
+		}
+	}
+
+	if len(lastProbeGuardBody) > 0 && shouldUseAnthropicModelsListFallback(account) {
+		ok, fallbackErr := s.tryAnthropicModelsListFallback(c, ctx, account, baseURL, authToken, useBearer, testModelID, proxyURL)
+		if ok {
+			return nil
+		}
+		if fallbackErr != nil {
+			lastProbeErrMsg = fmt.Sprintf("%s; /v1/models fallback failed: %s", lastProbeErrMsg, fallbackErr.Error())
+		}
+	}
+
+	return s.sendErrorAndEnd(c, lastProbeErrMsg)
+}
+
+func shouldRetryClaudeMessageProbeAuth(status int, body []byte, useBearer bool) bool {
+	if useBearer {
+		return false
+	}
+	return status == http.StatusUnauthorized || isClaudeCodeRelayGuardError(status, body)
+}
+
+func shouldUseAnthropicModelsListFallback(account *Account) bool {
+	return account != nil && account.Platform == PlatformAnthropic && account.Type == AccountTypeAPIKey
+}
+
+func isClaudeCodeRelayGuardError(status int, body []byte) bool {
+	if status != http.StatusForbidden || len(body) == 0 {
+		return false
+	}
+	message := strings.ToLower(string(body))
+	return strings.Contains(message, "request body appears to have been tampered") ||
+		strings.Contains(message, "请求体疑似被篡改") ||
+		strings.Contains(message, "detected an anomaly in your client") ||
+		strings.Contains(message, "客户端存在异常") ||
+		strings.Contains(message, "standard claude code client")
+}
+
+func shouldDisableClaudeCodeAttributionForProbe(account *Account) bool {
+	return account != nil && account.IsAnthropicAPIKeyPassthroughEnabled()
+}
+
+type anthropicAuthCandidate struct {
+	name  string
+	key   string
+	value string
+}
+
+func anthropicAuthCandidates(token string, useBearer bool) []anthropicAuthCandidate {
+	if useBearer {
+		return []anthropicAuthCandidate{{name: "authorization", key: "authorization", value: "Bearer " + token}}
+	}
+	return []anthropicAuthCandidate{
+		{name: "x-api-key", key: "x-api-key", value: token},
+		{name: "authorization", key: "authorization", value: "Bearer " + token},
+	}
+}
+
+func (s *AccountTestService) tryAnthropicModelsListFallback(
+	c *gin.Context,
+	ctx context.Context,
+	account *Account,
+	baseURL string,
+	authToken string,
+	useBearer bool,
+	modelID string,
+	proxyURL string,
+) (bool, error) {
+	if strings.TrimSpace(baseURL) == "" {
+		return false, errors.New("base URL is empty")
+	}
+	s.sendEvent(c, TestEvent{Type: "status", Text: strictClaudeCodeProbeExplanation})
+
+	modelsURL := strings.TrimSuffix(baseURL, "/") + "/v1/models"
+	var lastErr error
+	for _, candidate := range anthropicAuthCandidates(authToken, useBearer) {
+		req, err := http.NewRequestWithContext(ctx, http.MethodGet, modelsURL, nil)
+		if err != nil {
+			return false, err
+		}
+		setHeaderRaw(req.Header, "accept", "application/json")
+		setHeaderRaw(req.Header, "anthropic-version", "2023-06-01")
+		applyClaudeCodeMimicHeaders(req, false, s.identityRegistry)
+		setHeaderRaw(req.Header, candidate.key, candidate.value)
+
+		resp, err := s.httpUpstream.DoWithTLS(req, proxyURL, account.ID, account.Concurrency, s.resolveClaudeAccountTestTLSProfile(account))
+		if err != nil {
+			lastErr = fmt.Errorf("%s: %w", candidate.name, err)
+			continue
+		}
+		body, readErr := io.ReadAll(io.LimitReader(resp.Body, 1<<20))
+		_ = resp.Body.Close()
+		if readErr != nil {
+			lastErr = fmt.Errorf("%s: read /v1/models response: %w", candidate.name, readErr)
+			continue
+		}
+		if resp.StatusCode < 200 || resp.StatusCode >= 300 {
+			lastErr = fmt.Errorf("%s: /v1/models returned %d: %s", candidate.name, resp.StatusCode, truncateString(string(body), 300))
+			continue
+		}
+		if !anthropicModelsResponseContains(body, modelID) {
+			return false, fmt.Errorf("/v1/models did not list model %q", modelID)
+		}
+
+		s.sendEvent(c, TestEvent{Type: "content", Text: fmt.Sprintf("Model %s is available in upstream /v1/models.", modelID)})
+		s.sendEvent(c, TestEvent{Type: "test_complete", Success: true})
+		return true, nil
+	}
+	if lastErr == nil {
+		lastErr = errors.New("no authentication candidates attempted")
+	}
+	return false, lastErr
+}
+
+func anthropicModelsResponseContains(body []byte, modelID string) bool {
+	var parsed struct {
+		Data []struct {
+			ID string `json:"id"`
+		} `json:"data"`
+	}
+	if err := json.Unmarshal(body, &parsed); err != nil {
+		return false
+	}
+	for _, model := range parsed.Data {
+		if model.ID == modelID {
+			return true
+		}
+	}
+	return false
 }
 
 func (s *AccountTestService) testClaudeVertexServiceAccountConnection(c *gin.Context, ctx context.Context, account *Account, testModelID string) error {
