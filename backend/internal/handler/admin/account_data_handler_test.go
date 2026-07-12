@@ -7,6 +7,7 @@ import (
 	"net/http/httptest"
 	"testing"
 
+	"github.com/dofastted/claude2api/internal/pkg/xai"
 	"github.com/dofastted/claude2api/internal/service"
 	"github.com/gin-gonic/gin"
 	"github.com/stretchr/testify/require"
@@ -306,4 +307,77 @@ func TestImportDataAcceptsSub2APILegacyType(t *testing.T) {
 	require.Equal(t, http.StatusOK, rec.Code)
 	require.Len(t, adminSvc.createdAccounts, 1)
 	require.Equal(t, "legacy-sub2api-account", adminSvc.createdAccounts[0].Name)
+}
+
+func TestImportDataConvertsCPAXAICredential(t *testing.T) {
+	router, adminSvc := setupAccountDataRouter()
+
+	payload := map[string]any{
+		"data": map[string]any{
+			"type":          "xai",
+			"auth_kind":     "oauth",
+			"access_token":  "access-token",
+			"refresh_token": "refresh-token",
+			"token_type":    "Bearer",
+			"expires_in":    21600,
+			"expired":       "2030-01-02T03:04:05Z",
+			"email":         "grok@example.com",
+			"sub":           "subject-1",
+			"base_url":      "https://untrusted.example/v1",
+			"headers": map[string]any{
+				"User-Agent":    "untrusted-client",
+				"Authorization": "Bearer must-not-forward",
+			},
+		},
+		"skip_default_group_bind": true,
+	}
+	body, err := json.Marshal(payload)
+	require.NoError(t, err)
+
+	rec := httptest.NewRecorder()
+	req := httptest.NewRequest(http.MethodPost, "/api/v1/admin/accounts/data", bytes.NewReader(body))
+	req.Header.Set("Content-Type", "application/json")
+	router.ServeHTTP(rec, req)
+
+	require.Equal(t, http.StatusOK, rec.Code)
+	require.Len(t, adminSvc.createdAccounts, 1)
+	created := adminSvc.createdAccounts[0]
+	require.Equal(t, "grok@example.com", created.Name)
+	require.Equal(t, service.PlatformGrok, created.Platform)
+	require.Equal(t, service.AccountTypeOAuth, created.Type)
+	require.Equal(t, "access-token", created.Credentials["access_token"])
+	require.Equal(t, "refresh-token", created.Credentials["refresh_token"])
+	require.Equal(t, xai.DefaultCLIBaseURL, created.Credentials["base_url"])
+	require.Equal(t, xai.DefaultTokenURL, created.Credentials["token_endpoint"])
+	require.Equal(t, xai.SubscriptionTierFree, created.Credentials["subscription_tier"])
+	require.Equal(t, xai.FreeContextLimitTokens, created.Credentials["context_limit_tokens"])
+	require.Equal(t, xai.FreeUsageRefreshSeconds, created.Credentials["usage_refresh_seconds"])
+	require.Equal(t, false, created.Credentials["usage_endpoint_available"])
+	require.Equal(t, "2030-01-02T03:04:05Z", created.Credentials["expires_at"])
+
+	headers, ok := created.Credentials["headers"].(map[string]any)
+	require.True(t, ok)
+	require.Equal(t, xai.DefaultCLIUserAgent, headers["User-Agent"])
+	require.Equal(t, xai.DefaultCLITokenAuth, headers["X-XAI-Token-Auth"])
+	require.Equal(t, xai.DefaultCLIClientIdentifier, headers["x-grok-client-identifier"])
+	require.NotContains(t, headers, "Authorization")
+}
+
+func TestConvertCPAXAICredentialMapsPaidTiersToUsageEndpoint(t *testing.T) {
+	t.Parallel()
+
+	for _, tier := range []string{xai.SubscriptionTierSuper, xai.SubscriptionTierHeavy} {
+		t.Run(tier, func(t *testing.T) {
+			t.Parallel()
+			raw := json.RawMessage(`{"type":"xai","auth_kind":"oauth","access_token":"token","subscription_tier":"` + tier + `"}`)
+			payload, err := convertCPAXAICredential(raw)
+			require.NoError(t, err)
+			require.Len(t, payload.Accounts, 1)
+			credentials := payload.Accounts[0].Credentials
+			require.Equal(t, tier, credentials["subscription_tier"])
+			require.Equal(t, true, credentials["usage_endpoint_available"])
+			require.Equal(t, int64(0), credentials["context_limit_tokens"])
+			require.Equal(t, 0, credentials["usage_refresh_seconds"])
+		})
+	}
 }

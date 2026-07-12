@@ -2,6 +2,7 @@ package admin
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"strconv"
@@ -13,6 +14,7 @@ import (
 	infraerrors "github.com/dofastted/claude2api/internal/pkg/errors"
 	"github.com/dofastted/claude2api/internal/pkg/openai"
 	"github.com/dofastted/claude2api/internal/pkg/response"
+	"github.com/dofastted/claude2api/internal/pkg/xai"
 	"github.com/dofastted/claude2api/internal/service"
 	"github.com/gin-gonic/gin"
 )
@@ -69,6 +71,142 @@ type DataAccount struct {
 type DataImportRequest struct {
 	Data                 DataPayload `json:"data"`
 	SkipDefaultGroupBind *bool       `json:"skip_default_group_bind"`
+}
+
+type cpaXAICredential struct {
+	Type              string         `json:"type"`
+	AuthKind          string         `json:"auth_kind"`
+	AccessToken       string         `json:"access_token"`
+	RefreshToken      string         `json:"refresh_token"`
+	IDToken           string         `json:"id_token"`
+	TokenType         string         `json:"token_type"`
+	ExpiresIn         int64          `json:"expires_in"`
+	Expired           string         `json:"expired"`
+	LastRefresh       string         `json:"last_refresh"`
+	Email             string         `json:"email"`
+	Subject           string         `json:"sub"`
+	BaseURL           string         `json:"base_url"`
+	TokenEndpoint     string         `json:"token_endpoint"`
+	Headers           map[string]any `json:"headers"`
+	SubscriptionTier  string         `json:"subscription_tier"`
+	Tier              string         `json:"tier"`
+	EntitlementStatus string         `json:"entitlement_status"`
+}
+
+func (r *DataImportRequest) UnmarshalJSON(data []byte) error {
+	var envelope struct {
+		Data                 json.RawMessage `json:"data"`
+		SkipDefaultGroupBind *bool           `json:"skip_default_group_bind"`
+	}
+	if err := json.Unmarshal(data, &envelope); err != nil {
+		return err
+	}
+	if len(envelope.Data) == 0 || string(envelope.Data) == "null" {
+		return errors.New("data is required")
+	}
+
+	r.SkipDefaultGroupBind = envelope.SkipDefaultGroupBind
+	var candidate struct {
+		Type     string `json:"type"`
+		AuthKind string `json:"auth_kind"`
+	}
+	if err := json.Unmarshal(envelope.Data, &candidate); err != nil {
+		return fmt.Errorf("invalid import data: %w", err)
+	}
+	if strings.EqualFold(strings.TrimSpace(candidate.Type), "xai") || strings.TrimSpace(candidate.AuthKind) != "" {
+		payload, err := convertCPAXAICredential(envelope.Data)
+		if err != nil {
+			return err
+		}
+		r.Data = payload
+		return nil
+	}
+	return json.Unmarshal(envelope.Data, &r.Data)
+}
+
+func convertCPAXAICredential(raw json.RawMessage) (DataPayload, error) {
+	var source cpaXAICredential
+	if err := json.Unmarshal(raw, &source); err != nil {
+		return DataPayload{}, fmt.Errorf("invalid CPA credential: %w", err)
+	}
+	if !strings.EqualFold(strings.TrimSpace(source.Type), "xai") {
+		return DataPayload{}, fmt.Errorf("unsupported CPA credential type: %s", source.Type)
+	}
+	if authKind := strings.TrimSpace(source.AuthKind); authKind != "" && !strings.EqualFold(authKind, "oauth") {
+		return DataPayload{}, fmt.Errorf("unsupported xAI auth_kind: %s", source.AuthKind)
+	}
+	accessToken := strings.TrimSpace(source.AccessToken)
+	if accessToken == "" {
+		return DataPayload{}, errors.New("xAI access_token is required")
+	}
+
+	profile, ok := xai.SubscriptionProfileFor(firstNonEmptyString(source.SubscriptionTier, source.Tier))
+	if !ok {
+		return DataPayload{}, fmt.Errorf("unsupported Grok subscription tier: %s", firstNonEmptyString(source.SubscriptionTier, source.Tier))
+	}
+	credentials := map[string]any{
+		"access_token":             accessToken,
+		"token_type":               firstNonEmptyString(source.TokenType, "Bearer"),
+		"client_id":                xai.DefaultClientID,
+		"scope":                    xai.DefaultScope,
+		"base_url":                 xai.DefaultCLIBaseURL,
+		"token_endpoint":           xai.DefaultTokenURL,
+		"auth_kind":                "oauth",
+		"headers":                  xai.DefaultCLICredentialHeaders(),
+		"subscription_tier":        profile.Tier,
+		"context_limit_tokens":     profile.ContextLimitTokens,
+		"usage_refresh_seconds":    profile.UsageRefreshSeconds,
+		"usage_endpoint_available": profile.UsageEndpointAvailable,
+	}
+	setStringCredential(credentials, "refresh_token", source.RefreshToken)
+	setStringCredential(credentials, "id_token", source.IDToken)
+	setStringCredential(credentials, "email", source.Email)
+	setStringCredential(credentials, "sub", source.Subject)
+	setStringCredential(credentials, "last_refresh", source.LastRefresh)
+	setStringCredential(credentials, "entitlement_status", source.EntitlementStatus)
+	if source.ExpiresIn > 0 {
+		credentials["expires_in"] = source.ExpiresIn
+	}
+	if expired := strings.TrimSpace(source.Expired); expired != "" {
+		parsed, err := time.Parse(time.RFC3339, expired)
+		if err != nil {
+			return DataPayload{}, fmt.Errorf("invalid xAI expired timestamp: %w", err)
+		}
+		credentials["expires_at"] = parsed.UTC().Format(time.RFC3339)
+	} else if source.ExpiresIn > 0 {
+		credentials["expires_at"] = time.Now().UTC().Add(time.Duration(source.ExpiresIn) * time.Second).Format(time.RFC3339)
+	}
+
+	name := firstNonEmptyString(source.Email, source.Subject, "grok-cpa-import")
+	return DataPayload{
+		Type:       dataType,
+		Version:    dataVersion,
+		ExportedAt: time.Now().UTC().Format(time.RFC3339),
+		Proxies:    []DataProxy{},
+		Accounts: []DataAccount{{
+			Name:        name,
+			Platform:    service.PlatformGrok,
+			Type:        service.AccountTypeOAuth,
+			Credentials: credentials,
+			Concurrency: 1,
+			Priority:    50,
+		}},
+	}, nil
+}
+
+func setStringCredential(credentials map[string]any, key, value string) {
+	if value = strings.TrimSpace(value); value != "" {
+		credentials[key] = value
+	}
+}
+
+func firstNonEmptyString(values ...string) string {
+	for _, value := range values {
+		if value = strings.TrimSpace(value); value != "" {
+			return value
+		}
+	}
+	return ""
 }
 
 type DataImportResult struct {

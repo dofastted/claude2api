@@ -52,6 +52,9 @@ func RegisterAdminRoutes(
 		// Claude OAuth 环境胶囊池
 		registerClaudeOAuthPoolRoutes(admin, h)
 
+		// Grok OAuth
+		registerGrokOAuthRoutes(admin, h)
+
 		// 代理管理
 		registerProxyRoutes(admin, h)
 
@@ -416,6 +419,20 @@ func registerClaudeOAuthPoolRoutes(admin *gin.RouterGroup, h *handler.Handlers) 
 		pools.POST("/:id/capsules/:version/activate", h.Admin.ClaudeOAuthPool.ActivateCapsule)
 		pools.GET("/:id/shadow-metrics", h.Admin.ClaudeOAuthPool.ShadowMetrics)
 		pools.POST("/:id/mode", h.Admin.ClaudeOAuthPool.SetMode)
+	}
+}
+
+func registerGrokOAuthRoutes(admin *gin.RouterGroup, h *handler.Handlers) {
+	grok := admin.Group("/grok")
+	{
+		grok.POST("/oauth/auth-url", h.Admin.GrokOAuth.GenerateAuthURL)
+		grok.POST("/oauth/exchange-code", h.Admin.GrokOAuth.ExchangeCode)
+		grok.POST("/oauth/refresh-token", h.Admin.GrokOAuth.RefreshToken)
+		grok.POST("/oauth/create-from-oauth", h.Admin.GrokOAuth.CreateAccountFromOAuth)
+		grok.POST("/accounts/:id/refresh", h.Admin.GrokOAuth.RefreshAccountToken)
+		grok.GET("/accounts/:id/quota", h.Admin.GrokOAuth.QueryQuota)
+		grok.POST("/accounts/:id/reset-quota", h.Admin.GrokOAuth.ResetQuota)
+		grok.GET("/runtime-sanity", h.Admin.GrokOAuth.RuntimeSanity)
 	}
 }
 
