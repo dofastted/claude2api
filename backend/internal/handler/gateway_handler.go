@@ -25,6 +25,7 @@ import (
 	"github.com/dofastted/claude2api/internal/pkg/logger"
 	"github.com/dofastted/claude2api/internal/pkg/openai"
 	"github.com/dofastted/claude2api/internal/pkg/timezone"
+	"github.com/dofastted/claude2api/internal/pkg/xai"
 	middleware2 "github.com/dofastted/claude2api/internal/server/middleware"
 	"github.com/dofastted/claude2api/internal/service"
 
@@ -1156,6 +1157,8 @@ func defaultModelIDsForPlatform(platform string) []string {
 			ids = append(ids, model.ID)
 		}
 		return ids
+	case service.PlatformGrok:
+		return xai.DefaultModelIDs()
 	default:
 		ids := make([]string, 0, len(claude.DefaultModels))
 		for _, model := range claude.DefaultModels {
