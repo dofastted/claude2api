@@ -12,6 +12,7 @@ ARG ALPINE_IMAGE=alpine:3.21
 ARG POSTGRES_IMAGE=postgres:18-alpine
 ARG GOPROXY=https://goproxy.cn,direct
 ARG GOSUMDB=sum.golang.google.cn
+ARG CLAUDE_CODE_CLI_VERSION=2.1.202
 
 # -----------------------------------------------------------------------------
 # Stage 1: Frontend Builder
@@ -87,13 +88,14 @@ FROM ${POSTGRES_IMAGE} AS pg-client
 # Stage 4: Final Runtime Image
 # -----------------------------------------------------------------------------
 FROM ${ALPINE_IMAGE}
+ARG CLAUDE_CODE_CLI_VERSION
 
 # Labels
 LABEL maintainer="dofastted <github.com/dofastted>"
 LABEL description="claude2api - AI API Gateway Platform"
 LABEL org.opencontainers.image.source="https://github.com/dofastted/claude2api"
 
-# Install runtime dependencies
+# Install runtime dependencies. nodejs/npm are required by the optional Claude Code CLI runtime probe.
 RUN apk add --no-cache \
     ca-certificates \
     tzdata \
@@ -104,7 +106,11 @@ RUN apk add --no-cache \
     krb5-libs \
     libldap \
     libedit \
-    && rm -rf /var/cache/apk/*
+    nodejs \
+    npm \
+    && npm install -g "@anthropic-ai/claude-code@${CLAUDE_CODE_CLI_VERSION}" \
+    && npm cache clean --force \
+    && rm -rf /var/cache/apk/* /tmp/*
 
 # Copy pg_dump and psql from the same postgres image used in docker-compose
 # This ensures version consistency between backup tools and the database server

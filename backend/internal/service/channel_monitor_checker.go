@@ -13,6 +13,8 @@ import (
 	"strings"
 	"time"
 
+	"github.com/dofastted/claude2api/internal/pkg/claude"
+	"github.com/google/uuid"
 	"github.com/tidwall/gjson"
 )
 
@@ -77,6 +79,13 @@ func runCheckForModel(ctx context.Context, provider, endpoint, apiKey, model str
 		return res
 	}
 	if statusCode < 200 || statusCode >= 300 {
+		if provider == MonitorProviderAnthropic && isClaudeCodeRelayGuardError(statusCode, []byte(rawBody)) {
+			if err := verifyAnthropicModelViaModelsEndpoint(ctx, endpoint, apiKey, model); err == nil {
+				res.Status = MonitorStatusDegraded
+				res.Message = truncateMessage("message probe blocked by upstream Claude Code anti-relay guard; /v1/models verified the model")
+				return res
+			}
+		}
 		// 错误路径：用 rawBody 而非 respText（gjson textPath 抽取在错误响应里通常为空，
 		// 会丢掉真正的上游错误信息，例如 `{"error":{"message":"No available accounts ..."}}`）。
 		res.Status = MonitorStatusError
@@ -170,17 +179,10 @@ var providerAdapters = map[string]providerAdapter{
 	MonitorProviderAnthropic: {
 		buildPath: func(string) string { return providerAnthropicPath },
 		buildBody: func(model, prompt string) ([]byte, error) {
-			return json.Marshal(map[string]any{
-				"model":      model,
-				"messages":   []map[string]string{{"role": "user", "content": prompt}},
-				"max_tokens": monitorChallengeMaxTokens,
-			})
+			return buildAnthropicClaudeCodeMonitorBody(model, prompt)
 		},
 		buildHeaders: func(apiKey string) map[string]string {
-			return map[string]string{
-				"x-api-key":         apiKey,
-				"anthropic-version": monitorAnthropicAPIVersion,
-			}
+			return buildAnthropicClaudeCodeMonitorHeaders(apiKey)
 		},
 		textPath: "content.0.text",
 	},
@@ -254,6 +256,92 @@ func isSupportedProvider(p string) bool {
 	return ok
 }
 
+func buildAnthropicClaudeCodeMonitorBody(model, prompt string) ([]byte, error) {
+	profile := resolveClaudeCodeProbeProfile(nil, nil, nil)
+	cliVersion := defaultClaudeCLIVersion()
+	if profile != nil {
+		if profileVersion := strings.TrimSpace(profile.ClientVersion); profileVersion != "" {
+			cliVersion = profileVersion
+		} else if profileVersion := ExtractCLIVersion(profile.UserAgent); profileVersion != "" {
+			cliVersion = profileVersion
+		}
+	}
+	body, err := json.Marshal(map[string]any{
+		"model": model,
+		"messages": []map[string]any{
+			{
+				"role": "user",
+				"content": []map[string]any{
+					{
+						"type": "text",
+						"text": prompt,
+						"cache_control": map[string]string{
+							"type": "ephemeral",
+						},
+					},
+				},
+			},
+		},
+		"metadata": map[string]string{
+			"user_id": "",
+		},
+		"max_tokens":  monitorChallengeMaxTokens,
+		"temperature": 1,
+		"stream":      false,
+	})
+	if err != nil {
+		return nil, err
+	}
+	body = applyClaudeCodeProbeProfileToBody(body, nil, profile)
+	systemBlocks, err := buildClaudeOAuthSystemPromptBlocksJSON(body, "", "", cliVersion)
+	if err != nil {
+		return nil, err
+	}
+	body, ok := setJSONRawBytes(body, "system", buildJSONArrayRaw(systemBlocks))
+	if !ok {
+		return nil, errors.New("failed to create Anthropic monitor system blocks")
+	}
+	body = rewriteCacheControlForClaudeEnvironmentProfile(profile, body)
+	return body, nil
+}
+
+func buildAnthropicClaudeCodeMonitorHeaders(apiKey string) map[string]string {
+	return buildAnthropicClaudeCodeMonitorHeadersWithAuth(anthropicAuthCandidate{
+		name:  "x-api-key",
+		key:   "x-api-key",
+		value: apiKey,
+	})
+}
+
+func buildAnthropicClaudeCodeMonitorHeadersWithAuth(candidate anthropicAuthCandidate) map[string]string {
+	profile := resolveClaudeCodeProbeProfile(nil, nil, nil)
+	headers := claude.GetHeaders(nil)
+	out := make(map[string]string, len(headers)+8)
+	for key, value := range headers {
+		if value == "" {
+			continue
+		}
+		out[resolveWireCasing(key)] = value
+	}
+	applyClaudeEnvironmentProfileHeaderMap(out, profile)
+	out[candidate.key] = candidate.value
+	out["anthropic-version"] = monitorAnthropicAPIVersion
+	if candidate.key == "authorization" {
+		out["anthropic-beta"] = claude.DefaultBetaHeader
+	} else {
+		out["anthropic-beta"] = claude.APIKeyBetaHeader
+	}
+	out["x-client-request-id"] = uuid.NewString()
+	return out
+}
+
+func finalizeProviderRequestBody(provider string, body []byte) []byte {
+	if provider != MonitorProviderAnthropic {
+		return body
+	}
+	return signBillingHeaderCCH(body)
+}
+
 // callProvider 通过 providerAdapters 分发到具体实现。
 // opts 承载用户的自定义 headers / body 覆盖（可为 nil）。
 //
@@ -275,9 +363,8 @@ func callProvider(ctx context.Context, provider, endpoint, apiKey, model, prompt
 	if err != nil {
 		return "", "", 0, err
 	}
-	headers := mergeHeaders(adapter.buildHeaders(apiKey), opts)
 	full := joinURL(endpoint, adapter.buildPath(model))
-	respBytes, status, err := postRawJSON(ctx, full, body, headers)
+	respBytes, status, err := postProviderJSON(ctx, provider, apiMode, full, body, apiKey, adapter, opts)
 	if err != nil {
 		return "", "", status, err
 	}
@@ -285,6 +372,23 @@ func callProvider(ctx context.Context, provider, endpoint, apiKey, model, prompt
 		return extractOpenAIResponsesText(respBytes), string(respBytes), status, nil
 	}
 	return gjson.GetBytes(respBytes, adapter.textPath).String(), string(respBytes), status, nil
+}
+
+func postProviderJSON(ctx context.Context, provider, apiMode, fullURL string, body []byte, apiKey string, adapter providerAdapter, opts *CheckOptions) ([]byte, int, error) {
+	headers := mergeHeaders(adapter.buildHeaders(apiKey), opts)
+	respBytes, status, err := postRawJSON(ctx, fullURL, body, headers)
+	if err != nil || provider != MonitorProviderAnthropic || apiMode != MonitorAPIModeChatCompletions {
+		return respBytes, status, err
+	}
+	if !shouldRetryClaudeMessageProbeAuth(status, respBytes, false) {
+		return respBytes, status, nil
+	}
+	retryHeaders := mergeHeaders(buildAnthropicClaudeCodeMonitorHeadersWithAuth(anthropicAuthCandidate{
+		name:  "authorization",
+		key:   "authorization",
+		value: "Bearer " + apiKey,
+	}), opts)
+	return postRawJSON(ctx, fullURL, body, retryHeaders)
 }
 
 // extractOpenAIResponsesText 聚合 Responses API 的最终 assistant 文本。
@@ -370,7 +474,7 @@ func buildRequestBody(adapter providerAdapter, provider, apiMode, model, prompt 
 		if err != nil {
 			return nil, fmt.Errorf("marshal body_override (replace): %w", err)
 		}
-		return body, nil
+		return finalizeProviderRequestBody(provider, body), nil
 	}
 
 	defaultBody, err := adapter.buildBody(model, prompt)
@@ -378,7 +482,7 @@ func buildRequestBody(adapter providerAdapter, provider, apiMode, model, prompt 
 		return nil, fmt.Errorf("marshal default body: %w", err)
 	}
 	if mode != MonitorBodyOverrideModeMerge || opts == nil || len(opts.BodyOverride) == 0 {
-		return defaultBody, nil
+		return finalizeProviderRequestBody(provider, defaultBody), nil
 	}
 
 	var defaultMap map[string]any
@@ -396,7 +500,7 @@ func buildRequestBody(adapter providerAdapter, provider, apiMode, model, prompt 
 	if err != nil {
 		return nil, fmt.Errorf("marshal merged body: %w", err)
 	}
-	return merged, nil
+	return finalizeProviderRequestBody(provider, merged), nil
 }
 
 // bodyMergeKeyDenyList 在 merge 模式下，禁止用户覆盖这些 provider-specific 的关键字段。
@@ -464,6 +568,81 @@ func hasNonEmptyBodyValue(v any) bool {
 	}
 }
 
+func verifyAnthropicModelViaModelsEndpoint(ctx context.Context, endpoint, apiKey, model string) error {
+	if strings.TrimSpace(model) == "" {
+		return errors.New("model is empty")
+	}
+	baseHeaders := buildAnthropicClaudeCodeMonitorProbeHeaders()
+	modelsURL := joinURL(endpoint, "/v1/models")
+	var lastErr error
+	for _, candidate := range anthropicAuthCandidates(apiKey, false) {
+		headers := cloneMonitorHeaders(baseHeaders)
+		headers[candidate.key] = candidate.value
+		body, status, err := getRawJSON(ctx, modelsURL, headers)
+		if err != nil {
+			lastErr = fmt.Errorf("%s: %w", candidate.name, err)
+			continue
+		}
+		if status < 200 || status >= 300 {
+			lastErr = fmt.Errorf("%s: /v1/models returned %d: %s", candidate.name, status, truncateForErrorBody(string(body)))
+			continue
+		}
+		if !anthropicModelsResponseContains(body, model) {
+			return fmt.Errorf("/v1/models did not list model %q", model)
+		}
+		return nil
+	}
+	if lastErr == nil {
+		lastErr = errors.New("no authentication candidates attempted")
+	}
+	return lastErr
+}
+
+func buildAnthropicClaudeCodeMonitorProbeHeaders() map[string]string {
+	headers := claude.GetHeaders(nil)
+	out := make(map[string]string, len(headers)+3)
+	for key, value := range headers {
+		if value == "" {
+			continue
+		}
+		out[resolveWireCasing(key)] = value
+	}
+	out["accept"] = "application/json"
+	out["anthropic-version"] = monitorAnthropicAPIVersion
+	out["x-client-request-id"] = uuid.NewString()
+	return out
+}
+
+func cloneMonitorHeaders(headers map[string]string) map[string]string {
+	out := make(map[string]string, len(headers)+1)
+	for key, value := range headers {
+		out[key] = value
+	}
+	return out
+}
+
+func getRawJSON(ctx context.Context, fullURL string, headers map[string]string) ([]byte, int, error) {
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet, fullURL, nil)
+	if err != nil {
+		return nil, 0, fmt.Errorf("build request: %w", err)
+	}
+	for k, v := range headers {
+		setHeaderRaw(req.Header, resolveWireCasing(k), v)
+	}
+
+	resp, err := monitorHTTPClient.Do(req)
+	if err != nil {
+		return nil, 0, fmt.Errorf("do request: %w", err)
+	}
+	defer func() { _ = resp.Body.Close() }()
+
+	respBody, err := io.ReadAll(io.LimitReader(resp.Body, monitorResponseMaxBytes))
+	if err != nil {
+		return nil, resp.StatusCode, fmt.Errorf("read body: %w", err)
+	}
+	return respBody, resp.StatusCode, nil
+}
+
 // postRawJSON 发送 POST + 已序列化好的 JSON 字节，限制响应体大小，返回响应字节、HTTP status、错误。
 // adapter 自行 marshal 是为了精确控制字段顺序与类型，所以这里直接收 []byte 而不是 any。
 func postRawJSON(ctx context.Context, fullURL string, payload []byte, headers map[string]string) ([]byte, int, error) {
@@ -471,11 +650,12 @@ func postRawJSON(ctx context.Context, fullURL string, payload []byte, headers ma
 	if err != nil {
 		return nil, 0, fmt.Errorf("build request: %w", err)
 	}
-	req.Header.Set("Content-Type", "application/json")
-	req.Header.Set("Accept", "application/json")
+	setHeaderRaw(req.Header, "content-type", "application/json")
+	setHeaderRaw(req.Header, "Accept", "application/json")
 	for k, v := range headers {
-		req.Header.Set(k, v)
+		setHeaderRaw(req.Header, resolveWireCasing(k), v)
 	}
+	setClaudeCodeSessionHeaderFromBody(req.Header, payload)
 
 	resp, err := monitorHTTPClient.Do(req)
 	if err != nil {

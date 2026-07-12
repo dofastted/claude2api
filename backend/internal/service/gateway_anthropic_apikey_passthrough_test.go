@@ -26,6 +26,7 @@ type anthropicHTTPUpstreamRecorder struct {
 	lastBody []byte
 	resp     *http.Response
 	err      error
+	tlsFlags []bool
 }
 
 func newAnthropicAPIKeyAccountForTest() *Account {
@@ -62,6 +63,7 @@ func (u *anthropicHTTPUpstreamRecorder) Do(req *http.Request, proxyURL string, a
 }
 
 func (u *anthropicHTTPUpstreamRecorder) DoWithTLS(req *http.Request, proxyURL string, accountID int64, accountConcurrency int, profile *tlsfingerprint.Profile) (*http.Response, error) {
+	u.tlsFlags = append(u.tlsFlags, profile != nil)
 	return u.Do(req, proxyURL, accountID, accountConcurrency)
 }
 
@@ -183,6 +185,7 @@ func TestGatewayService_AnthropicAPIKeyPassthrough_ForwardStreamPreservesBodyAnd
 	require.Equal(t, "2023-06-01", getHeaderRaw(upstream.lastReq.Header, "anthropic-version"))
 	require.Equal(t, "interleaved-thinking-2025-05-14", getHeaderRaw(upstream.lastReq.Header, "anthropic-beta"))
 	require.Empty(t, getHeaderRaw(upstream.lastReq.Header, "x-stainless-lang"), "API Key 透传不应注入 OAuth 指纹头")
+	require.Equal(t, []bool{true}, upstream.tlsFlags, "API Key 透传应使用 Claude Code family TLS profile")
 
 	require.Contains(t, rec.Body.String(), `"cached_tokens":7`)
 	require.NotContains(t, rec.Body.String(), `"cache_read_input_tokens":7`, "透传输出不应被网关改写")

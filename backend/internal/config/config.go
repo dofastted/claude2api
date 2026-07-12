@@ -95,6 +95,7 @@ type Config struct {
 	Gemini                  GeminiConfig                  `mapstructure:"gemini"`
 	Update                  UpdateConfig                  `mapstructure:"update"`
 	Idempotency             IdempotencyConfig             `mapstructure:"idempotency"`
+	ClaudeCLIRuntimeProbe   ClaudeCLIRuntimeProbeConfig   `mapstructure:"claude_cli_runtime_probe"`
 }
 
 type LogConfig struct {
@@ -175,6 +176,14 @@ type IdempotencyConfig struct {
 	CleanupIntervalSeconds int `mapstructure:"cleanup_interval_seconds"`
 	// CleanupBatchSize 每次清理的最大记录数。
 	CleanupBatchSize int `mapstructure:"cleanup_batch_size"`
+}
+
+type ClaudeCLIRuntimeProbeConfig struct {
+	Enabled         bool   `mapstructure:"enabled"`
+	BinaryPath      string `mapstructure:"binary_path"`
+	TimeoutSeconds  int    `mapstructure:"timeout_seconds"`
+	MaxOutputBytes  int    `mapstructure:"max_output_bytes"`
+	AttributionMode string `mapstructure:"attribution_mode"`
 }
 
 type LinuxDoConnectConfig struct {
@@ -1417,6 +1426,7 @@ func load(allowMissingJWTSecret bool) (*Config, error) {
 	if !cfg.Gateway.OpenAIScheduler.StickyEscapeEnabled && !viper.IsSet("gateway.openai_scheduler.sticky_escape_enabled") {
 		cfg.Gateway.OpenAIScheduler.StickyEscapeEnabled = true
 	}
+	normalizeClaudeCLIRuntimeProbeConfig(&cfg)
 
 	cfg.RunMode = NormalizeRunMode(cfg.RunMode)
 	cfg.Server.Mode = strings.ToLower(strings.TrimSpace(cfg.Server.Mode))
@@ -1977,10 +1987,37 @@ func setDefaults() {
 	viper.SetDefault("gemini.oauth.scopes", "")
 	viper.SetDefault("gemini.quota.policy", "")
 
+	// Claude Code CLI runtime probe. Used only for strict Anthropic API-key passthrough account tests.
+	viper.SetDefault("claude_cli_runtime_probe.enabled", true)
+	viper.SetDefault("claude_cli_runtime_probe.binary_path", "claude")
+	viper.SetDefault("claude_cli_runtime_probe.timeout_seconds", 60)
+	viper.SetDefault("claude_cli_runtime_probe.max_output_bytes", 4096)
+	viper.SetDefault("claude_cli_runtime_probe.attribution_mode", "disabled")
 	// Subscription Maintenance (bounded queue + worker pool)
 	viper.SetDefault("subscription_maintenance.worker_count", 2)
 	viper.SetDefault("subscription_maintenance.queue_size", 1024)
 
+}
+
+func normalizeClaudeCLIRuntimeProbeConfig(cfg *Config) {
+	if cfg == nil {
+		return
+	}
+	if !cfg.ClaudeCLIRuntimeProbe.Enabled && os.Getenv("CLAUDE_CLI_RUNTIME_PROBE_ENABLED") == "" && !viper.InConfig("claude_cli_runtime_probe.enabled") {
+		cfg.ClaudeCLIRuntimeProbe.Enabled = true
+	}
+	if strings.TrimSpace(cfg.ClaudeCLIRuntimeProbe.BinaryPath) == "" {
+		cfg.ClaudeCLIRuntimeProbe.BinaryPath = "claude"
+	}
+	if cfg.ClaudeCLIRuntimeProbe.TimeoutSeconds <= 0 {
+		cfg.ClaudeCLIRuntimeProbe.TimeoutSeconds = 60
+	}
+	if cfg.ClaudeCLIRuntimeProbe.MaxOutputBytes <= 0 {
+		cfg.ClaudeCLIRuntimeProbe.MaxOutputBytes = 4096
+	}
+	if strings.TrimSpace(cfg.ClaudeCLIRuntimeProbe.AttributionMode) == "" {
+		cfg.ClaudeCLIRuntimeProbe.AttributionMode = "disabled"
+	}
 }
 
 func (c *Config) Validate() error {
@@ -2279,6 +2316,17 @@ func (c *Config) Validate() error {
 		}
 		if c.Billing.CircuitBreaker.HalfOpenRequests <= 0 {
 			return fmt.Errorf("billing.circuit_breaker.half_open_requests must be positive")
+		}
+	}
+	if c.ClaudeCLIRuntimeProbe.Enabled {
+		if strings.TrimSpace(c.ClaudeCLIRuntimeProbe.BinaryPath) == "" {
+			return fmt.Errorf("claude_cli_runtime_probe.binary_path is required when claude_cli_runtime_probe.enabled=true")
+		}
+		if c.ClaudeCLIRuntimeProbe.TimeoutSeconds <= 0 {
+			return fmt.Errorf("claude_cli_runtime_probe.timeout_seconds must be positive")
+		}
+		if c.ClaudeCLIRuntimeProbe.MaxOutputBytes <= 0 {
+			return fmt.Errorf("claude_cli_runtime_probe.max_output_bytes must be positive")
 		}
 	}
 	if c.Database.MaxOpenConns <= 0 {

@@ -12,6 +12,8 @@ import (
 	"strings"
 	"testing"
 	"time"
+
+	"github.com/dofastted/claude2api/internal/pkg/claude"
 )
 
 // swapMonitorHTTPClient 临时替换 monitorHTTPClient 为不带 SSRF 校验的普通 client，
@@ -25,10 +27,11 @@ func swapMonitorHTTPClient(t *testing.T) {
 
 // captureHandler 把每次收到的请求 body 和 headers 存起来，测试断言用。
 type captureHandler struct {
-	lastBody    map[string]any
-	lastHeaders http.Header
-	respondText string // 写到 Anthropic content[0].text 里（校验用）
-	status      int
+	lastBody              map[string]any
+	lastHeaders           http.Header
+	respondText           string // 写到 Anthropic content[0].text 里（校验用）
+	deriveChallengeAnswer bool
+	status                int
 }
 
 func (h *captureHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
@@ -41,12 +44,16 @@ func (h *captureHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	if h.status == 0 {
 		h.status = 200
 	}
+	text := h.respondText
+	if h.deriveChallengeAnswer {
+		text = answerFromAnthropicRequest(parsed)
+	}
 	w.Header().Set("Content-Type", "application/json")
 	w.WriteHeader(h.status)
-	// 构造 Anthropic 格式的响应：content[0].text = h.respondText
+	// 构造 Anthropic 格式的响应：content[0].text = text
 	_ = json.NewEncoder(w).Encode(map[string]any{
 		"content": []map[string]any{
-			{"type": "text", "text": h.respondText},
+			{"type": "text", "text": text},
 		},
 	})
 }
@@ -128,6 +135,25 @@ func answerFromOpenAIRequest(body map[string]any) string {
 	return answerFromChallengePrompt(prompt)
 }
 
+func answerFromAnthropicRequest(body map[string]any) string {
+	messages, _ := body["messages"].([]any)
+	if len(messages) == 0 {
+		return "0"
+	}
+	msg, _ := messages[0].(map[string]any)
+	content := msg["content"]
+	if text, ok := content.(string); ok {
+		return answerFromChallengePrompt(text)
+	}
+	blocks, _ := content.([]any)
+	if len(blocks) == 0 {
+		return "0"
+	}
+	block, _ := blocks[0].(map[string]any)
+	text, _ := block["text"].(string)
+	return answerFromChallengePrompt(text)
+}
+
 var challengeQuestionRegex = regexp.MustCompile(`Q: (\d+) ([+-]) (\d+) = \?\nA:$`)
 
 func answerFromChallengePrompt(prompt string) string {
@@ -158,6 +184,205 @@ func TestRunCheckForModel_OffMode_PreservesDefaultBody(t *testing.T) {
 	}
 	if h.lastHeaders.Get("x-api-key") != "sk-fake" {
 		t.Errorf("expected adapter's x-api-key header, got %q", h.lastHeaders.Get("x-api-key"))
+	}
+}
+
+func TestRunCheckForModel_AnthropicDefaultUsesClaudeCodeSignedBodyAndHeaders(t *testing.T) {
+	h := &captureHandler{deriveChallengeAnswer: true}
+	endpoint := setupFakeAnthropic(t, h)
+
+	res := runCheckForModel(context.Background(), MonitorProviderAnthropic, endpoint, "sk-fake", "claude-sonnet-4-6", nil)
+
+	if res.Status != MonitorStatusOperational {
+		t.Fatalf("Anthropic Claude Code monitor request should pass challenge, got status=%s message=%q", res.Status, res.Message)
+	}
+	if h.lastBody["model"] != "claude-sonnet-4-6" {
+		t.Fatalf("expected model to be preserved, got %v", h.lastBody["model"])
+	}
+	system, _ := h.lastBody["system"].([]any)
+	if len(system) < 3 {
+		t.Fatalf("expected Claude Code system blocks, got %#v", h.lastBody["system"])
+	}
+	billingBlock, _ := system[0].(map[string]any)
+	billingText, _ := billingBlock["text"].(string)
+	if !strings.Contains(billingText, "x-anthropic-billing-header:") {
+		t.Fatalf("expected billing header block, got %q", billingText)
+	}
+	if strings.Contains(billingText, "cch=00000") {
+		t.Fatalf("expected signed cch, got %q", billingText)
+	}
+	if !regexp.MustCompile(`cch=[0-9a-f]{5};`).MatchString(billingText) {
+		t.Fatalf("expected 5-hex cch, got %q", billingText)
+	}
+	metadata, _ := h.lastBody["metadata"].(map[string]any)
+	if metadata["user_id"] == "" {
+		t.Fatalf("expected metadata.user_id")
+	}
+	messages, _ := h.lastBody["messages"].([]any)
+	msg, _ := messages[0].(map[string]any)
+	blocks, _ := msg["content"].([]any)
+	if len(blocks) == 0 {
+		t.Fatalf("expected Claude Code text content block")
+	}
+	if h.lastHeaders.Get("User-Agent") == "" || !strings.Contains(h.lastHeaders.Get("User-Agent"), "claude-cli/") {
+		t.Fatalf("expected Claude CLI User-Agent, got %q", h.lastHeaders.Get("User-Agent"))
+	}
+	if h.lastHeaders.Get("X-App") != "cli" {
+		t.Fatalf("expected x-app=cli, got %q", h.lastHeaders.Get("X-App"))
+	}
+	if h.lastHeaders.Get("X-Stainless-Package-Version") != claude.DefaultHeaders["X-Stainless-Package-Version"] {
+		t.Fatalf("expected SDK package version, got %q", h.lastHeaders.Get("X-Stainless-Package-Version"))
+	}
+	if h.lastHeaders.Get("anthropic-beta") != claude.APIKeyBetaHeader {
+		t.Fatalf("expected API-key Claude beta header, got %q", h.lastHeaders.Get("anthropic-beta"))
+	}
+	if h.lastHeaders.Get("anthropic-version") != monitorAnthropicAPIVersion {
+		t.Fatalf("expected anthropic-version, got %q", h.lastHeaders.Get("anthropic-version"))
+	}
+	if h.lastHeaders.Get("x-client-request-id") == "" {
+		t.Fatalf("expected x-client-request-id")
+	}
+	parsed := ParseMetadataUserID(metadata["user_id"].(string))
+	if parsed == nil || h.lastHeaders.Get("X-Claude-Code-Session-Id") != parsed.SessionID {
+		t.Fatalf("expected X-Claude-Code-Session-Id to match metadata session, got header=%q metadata=%v", h.lastHeaders.Get("X-Claude-Code-Session-Id"), parsed)
+	}
+	if h.lastHeaders.Get("x-api-key") != "sk-fake" {
+		t.Fatalf("expected x-api-key auth, got %q", h.lastHeaders.Get("x-api-key"))
+	}
+}
+
+type anthropicRetryMessageProbeHandler struct {
+	paths   []string
+	headers []http.Header
+}
+
+func (h *anthropicRetryMessageProbeHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
+	h.paths = append(h.paths, r.URL.Path)
+	h.headers = append(h.headers, r.Header.Clone())
+	defer func() { _ = r.Body.Close() }()
+	var parsed map[string]any
+	_ = json.NewDecoder(r.Body).Decode(&parsed)
+	w.Header().Set("Content-Type", "application/json")
+	if r.Header.Get("Authorization") != "Bearer sk-fake" {
+		w.WriteHeader(http.StatusForbidden)
+		_, _ = w.Write([]byte(`{"error":{"message":"Your request body appears to have been tampered with. Please use our official distribution platform."}}`))
+		return
+	}
+	_ = json.NewEncoder(w).Encode(map[string]any{
+		"content": []map[string]any{{"type": "text", "text": answerFromAnthropicRequest(parsed)}},
+	})
+}
+
+func TestRunCheckForModel_AnthropicRetriesBearerMessageProbe(t *testing.T) {
+	swapMonitorHTTPClient(t)
+	h := &anthropicRetryMessageProbeHandler{}
+	srv := httptest.NewServer(h)
+	t.Cleanup(srv.Close)
+
+	res := runCheckForModel(context.Background(), MonitorProviderAnthropic, srv.URL, "sk-fake", "claude-sonnet-4-6", nil)
+
+	if res.Status != MonitorStatusOperational {
+		t.Fatalf("expected bearer message retry to pass, got status=%s message=%q", res.Status, res.Message)
+	}
+	if len(h.paths) != 2 {
+		t.Fatalf("expected x-api-key then bearer message probe, got paths=%v", h.paths)
+	}
+	if h.headers[0].Get("x-api-key") != "sk-fake" {
+		t.Fatalf("first probe should use x-api-key, got %q", h.headers[0].Get("x-api-key"))
+	}
+	if h.headers[1].Get("Authorization") != "Bearer sk-fake" {
+		t.Fatalf("second probe should use bearer, got %q", h.headers[1].Get("Authorization"))
+	}
+	if h.headers[0].Get("anthropic-beta") != claude.APIKeyBetaHeader {
+		t.Fatalf("first probe should use API-key beta, got %q", h.headers[0].Get("anthropic-beta"))
+	}
+	if h.headers[1].Get("anthropic-beta") != claude.DefaultBetaHeader {
+		t.Fatalf("second probe should use Claude Code OAuth beta, got %q", h.headers[1].Get("anthropic-beta"))
+	}
+}
+
+type anthropicGuardThenModelsHandler struct {
+	paths   []string
+	headers []http.Header
+}
+
+func (h *anthropicGuardThenModelsHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
+	h.paths = append(h.paths, r.URL.Path)
+	h.headers = append(h.headers, r.Header.Clone())
+	defer func() { _ = r.Body.Close() }()
+	w.Header().Set("Content-Type", "application/json")
+	if r.URL.Path == "/v1/models" {
+		if r.Header.Get("Authorization") != "Bearer sk-fake" {
+			w.WriteHeader(http.StatusUnauthorized)
+			_, _ = w.Write([]byte(`{"error":{"message":"missing bearer"}}`))
+			return
+		}
+		_, _ = w.Write([]byte(`{"data":[{"id":"claude-sonnet-4-6"}]}`))
+		return
+	}
+	w.WriteHeader(http.StatusForbidden)
+	_, _ = w.Write([]byte(`{"error":{"message":"Your request body appears to have been tampered with. Please use our official distribution platform."}}`))
+}
+
+func TestRunCheckForModel_AnthropicGuardFallsBackToModelsEndpoint(t *testing.T) {
+	swapMonitorHTTPClient(t)
+	h := &anthropicGuardThenModelsHandler{}
+	srv := httptest.NewServer(h)
+	t.Cleanup(srv.Close)
+
+	res := runCheckForModel(context.Background(), MonitorProviderAnthropic, srv.URL, "sk-fake", "claude-sonnet-4-6", nil)
+
+	if res.Status != MonitorStatusDegraded {
+		t.Fatalf("expected degraded model-list fallback, got status=%s message=%q", res.Status, res.Message)
+	}
+	if !strings.Contains(res.Message, "/v1/models verified") {
+		t.Fatalf("expected fallback message, got %q", res.Message)
+	}
+	if len(h.paths) != 4 {
+		t.Fatalf("expected two message probes + two model-list auth attempts, got paths=%v", h.paths)
+	}
+	if h.paths[0] != providerAnthropicPath || h.paths[1] != providerAnthropicPath || h.paths[2] != "/v1/models" || h.paths[3] != "/v1/models" {
+		t.Fatalf("unexpected paths: %v", h.paths)
+	}
+	if h.headers[0].Get("x-api-key") != "sk-fake" {
+		t.Fatalf("first message probe should try x-api-key, got %q", h.headers[0].Get("x-api-key"))
+	}
+	if h.headers[1].Get("Authorization") != "Bearer sk-fake" {
+		t.Fatalf("second message probe should try bearer, got %q", h.headers[1].Get("Authorization"))
+	}
+	if h.headers[2].Get("x-api-key") != "sk-fake" {
+		t.Fatalf("first model-list fallback should try x-api-key, got %q", h.headers[2].Get("x-api-key"))
+	}
+	if h.headers[3].Get("Authorization") != "Bearer sk-fake" {
+		t.Fatalf("second model-list fallback should try bearer, got %q", h.headers[3].Get("Authorization"))
+	}
+}
+
+func TestBuildRequestBody_AnthropicMergeModeResignsBillingHeaderAfterOverride(t *testing.T) {
+	body, err := buildRequestBody(providerAdapters[MonitorProviderAnthropic], MonitorProviderAnthropic, MonitorAPIModeChatCompletions, "claude-x", "Q: 1 + 1 = ?\nA:", &CheckOptions{
+		BodyOverrideMode: MonitorBodyOverrideModeMerge,
+		BodyOverride: map[string]any{
+			"max_tokens": float64(999),
+		},
+	})
+	if err != nil {
+		t.Fatalf("buildRequestBody error = %v", err)
+	}
+	var parsed map[string]any
+	if err := json.Unmarshal(body, &parsed); err != nil {
+		t.Fatalf("unmarshal body error = %v", err)
+	}
+	if parsed["max_tokens"] != float64(999) {
+		t.Fatalf("expected merged max_tokens=999, got %v", parsed["max_tokens"])
+	}
+	got := regexp.MustCompile(`cch=([0-9a-f]{5});`).FindStringSubmatch(string(body))
+	if len(got) != 2 {
+		t.Fatalf("expected signed cch in body: %s", string(body))
+	}
+	restored := regexp.MustCompile(`cch=[0-9a-f]{5};`).ReplaceAllString(string(body), "cch=00000;")
+	want := regexp.MustCompile(`cch=([0-9a-f]{5});`).FindStringSubmatch(string(signBillingHeaderCCH([]byte(restored))))
+	if len(want) != 2 || got[1] != want[1] {
+		t.Fatalf("cch not signed against final merged body: got %v want %v", got, want)
 	}
 }
 
