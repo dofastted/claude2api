@@ -71,6 +71,7 @@ type AccountTestService struct {
 	accountRepo                       AccountRepository
 	geminiTokenProvider               *GeminiTokenProvider
 	claudeTokenProvider               *ClaudeTokenProvider
+	grokTokenProvider                 *GrokTokenProvider
 	antigravityGatewayService         *AntigravityGatewayService
 	httpUpstream                      HTTPUpstream
 	cfg                               *config.Config
@@ -84,6 +85,7 @@ func NewAccountTestService(
 	accountRepo AccountRepository,
 	geminiTokenProvider *GeminiTokenProvider,
 	claudeTokenProvider *ClaudeTokenProvider,
+	grokTokenProvider *GrokTokenProvider,
 	antigravityGatewayService *AntigravityGatewayService,
 	httpUpstream HTTPUpstream,
 	cfg *config.Config,
@@ -97,6 +99,7 @@ func NewAccountTestService(
 		accountRepo:                       accountRepo,
 		geminiTokenProvider:               geminiTokenProvider,
 		claudeTokenProvider:               claudeTokenProvider,
+		grokTokenProvider:                 grokTokenProvider,
 		antigravityGatewayService:         antigravityGatewayService,
 		httpUpstream:                      httpUpstream,
 		cfg:                               cfg,
@@ -312,10 +315,9 @@ func (s *AccountTestService) createClaudeCodeHealthProbePayloadBytes(account *Ac
 	return applyClaudeCodeProbeProfileToBody(body, account, profile), nil
 }
 
-// TestAccountConnection tests an account's connection by sending a test request
-// All account types use full Claude Code client characteristics, only auth header differs
-// modelID is optional - if empty, defaults to claude.DefaultTestModel
-// mode is optional - "compact" routes OpenAI accounts to the /responses/compact probe path
+// TestAccountConnection tests an account through its platform-native upstream path.
+// modelID is optional and each platform applies its own default mapping.
+// mode is optional; "compact" routes OpenAI accounts to the /responses/compact probe path.
 func (s *AccountTestService) TestAccountConnection(c *gin.Context, accountID int64, modelID string, prompt string, mode string) error {
 	ctx := c.Request.Context()
 
@@ -334,11 +336,89 @@ func (s *AccountTestService) TestAccountConnection(c *gin.Context, accountID int
 		return s.testGeminiAccountConnection(c, account, modelID, prompt)
 	}
 
+	if account.IsGrok() {
+		return s.testGrokAccountConnection(c, account, modelID, prompt)
+	}
+
 	if account.Platform == PlatformAntigravity {
 		return s.routeAntigravityTest(c, account, modelID, prompt)
 	}
 
 	return s.testClaudeAccountConnection(c, account, modelID)
+}
+
+// testGrokAccountConnection tests a Grok OAuth account through the same CLI chat-proxy path used by gateway traffic.
+func (s *AccountTestService) testGrokAccountConnection(c *gin.Context, account *Account, modelID string, prompt string) error {
+	if s.grokTokenProvider == nil {
+		return s.sendErrorAndEnd(c, "Grok token provider is not available")
+	}
+
+	ctx := c.Request.Context()
+	token, err := s.grokTokenProvider.GetAccessToken(ctx, account)
+	if err != nil {
+		return s.sendErrorAndEnd(c, fmt.Sprintf("Failed to acquire Grok access token: %s", err.Error()))
+	}
+
+	testModelID := strings.TrimSpace(modelID)
+	if testModelID == "" {
+		testModelID = "grok"
+	}
+	testModelID = account.GetMappedModel(testModelID)
+
+	testPrompt := strings.TrimSpace(prompt)
+	if testPrompt == "" {
+		testPrompt = "hi"
+	}
+	payloadBytes, err := json.Marshal(map[string]any{
+		"model": testModelID,
+		"messages": []map[string]string{{
+			"role":    "user",
+			"content": testPrompt,
+		}},
+		"stream": true,
+	})
+	if err != nil {
+		return s.sendErrorAndEnd(c, "Failed to create Grok test payload")
+	}
+
+	baseURL, err := s.validateUpstreamBaseURL(account.GetGrokBaseURL())
+	if err != nil {
+		return s.sendErrorAndEnd(c, fmt.Sprintf("Invalid Grok base URL: %s", err.Error()))
+	}
+	apiURL := strings.TrimRight(baseURL, "/") + "/chat/completions"
+	req, err := http.NewRequestWithContext(ctx, http.MethodPost, apiURL, bytes.NewReader(payloadBytes))
+	if err != nil {
+		return s.sendErrorAndEnd(c, "Failed to create Grok test request")
+	}
+	req = req.WithContext(WithHTTPUpstreamProfile(req.Context(), HTTPUpstreamProfileOpenAI))
+	req.Header.Set("Content-Type", "application/json")
+	req.Header.Set("Accept", "text/event-stream")
+	req.Header.Set("Authorization", "Bearer "+token)
+	applyGrokUpstreamIdentityHeaders(req.Header, account)
+
+	c.Writer.Header().Set("Content-Type", "text/event-stream")
+	c.Writer.Header().Set("Cache-Control", "no-cache")
+	c.Writer.Header().Set("Connection", "keep-alive")
+	c.Writer.Header().Set("X-Accel-Buffering", "no")
+	c.Writer.Flush()
+	s.sendEvent(c, TestEvent{Type: "test_start", Model: testModelID})
+	s.sendEvent(c, TestEvent{Type: "status", Text: "正在通过 Grok CLI /v1/chat/completions 测试连接"})
+
+	proxyURL := ""
+	if account.ProxyID != nil && account.Proxy != nil {
+		proxyURL = account.Proxy.URL()
+	}
+	resp, err := s.httpUpstream.Do(req, proxyURL, account.ID, account.Concurrency)
+	if err != nil {
+		return s.sendErrorAndEnd(c, fmt.Sprintf("Grok API (/v1/chat/completions) request failed: %s", err.Error()))
+	}
+	defer func() { _ = resp.Body.Close() }()
+
+	if resp.StatusCode != http.StatusOK {
+		body, _ := io.ReadAll(resp.Body)
+		return s.sendErrorAndEnd(c, fmt.Sprintf("Grok API (/v1/chat/completions) returned %d: %s", resp.StatusCode, string(body)))
+	}
+	return s.processOpenAIChatCompletionsStream(c, resp.Body)
 }
 
 // testClaudeAccountConnection tests an Anthropic Claude account's connection
