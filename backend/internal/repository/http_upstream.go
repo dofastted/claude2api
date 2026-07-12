@@ -144,6 +144,32 @@ func NewHTTPUpstream(cfg *config.Config) service.HTTPUpstream {
 	}
 }
 
+func (s *httpUpstreamService) enforceClaudeOAuthBoundTransport(req *http.Request, proxyURL string) (string, error) {
+	policy, bound, err := service.ValidateClaudeOAuthBoundTransport(req, proxyURL)
+	if err != nil {
+		return "", err
+	}
+	if !bound {
+		return proxyURL, nil
+	}
+	if s.effectiveProxyURL(proxyURL) != policy.ProxyURL {
+		return "", fmt.Errorf("%w: global proxy conflicts with pool egress", service.ErrClaudeOAuthBoundTransport)
+	}
+	return policy.ProxyURL, nil
+}
+
+func (s *httpUpstreamService) boundAwareRedirectChecker(req *http.Request, via []*http.Request) error {
+	if req != nil {
+		if policy, ok := service.ClaudeOAuthBoundTransportFromContext(req.Context()); ok && !policy.AllowsURL(req.URL) {
+			return fmt.Errorf("%w: redirect origin is not allowed", service.ErrClaudeOAuthBoundTransport)
+		}
+	}
+	if s.shouldValidateResolvedIP() {
+		return s.redirectChecker(req, via)
+	}
+	return nil
+}
+
 // Do 执行 HTTP 请求
 // 根据隔离策略获取或创建客户端，并跟踪请求生命周期
 //
@@ -161,6 +187,11 @@ func NewHTTPUpstream(cfg *config.Config) service.HTTPUpstream {
 //   - 调用方必须关闭 resp.Body，否则会导致 inFlight 计数泄漏
 //   - inFlight > 0 的客户端不会被淘汰，确保活跃请求不被中断
 func (s *httpUpstreamService) Do(req *http.Request, proxyURL string, accountID int64, accountConcurrency int) (*http.Response, error) {
+	var err error
+	proxyURL, err = s.enforceClaudeOAuthBoundTransport(req, proxyURL)
+	if err != nil {
+		return nil, err
+	}
 	if err := s.validateRequestHost(req); err != nil {
 		return nil, err
 	}
@@ -204,6 +235,11 @@ func (s *httpUpstreamService) Do(req *http.Request, proxyURL string, accountID i
 // profile 为 nil 时不启用 TLS 指纹，行为与 Do 方法相同。
 // profile 非 nil 时使用指定的 Profile 进行 TLS 指纹伪装。
 func (s *httpUpstreamService) DoWithTLS(req *http.Request, proxyURL string, accountID int64, accountConcurrency int, profile *tlsfingerprint.Profile) (*http.Response, error) {
+	var err error
+	proxyURL, err = s.enforceClaudeOAuthBoundTransport(req, proxyURL)
+	if err != nil {
+		return nil, err
+	}
 	if profile == nil {
 		return s.Do(req, proxyURL, accountID, accountConcurrency)
 	}
@@ -337,9 +373,7 @@ func (s *httpUpstreamService) getClientEntryWithTLS(proxyURL string, accountID i
 	}
 
 	client := &http.Client{Transport: transport}
-	if s.shouldValidateResolvedIP() {
-		client.CheckRedirect = s.redirectChecker
-	}
+	client.CheckRedirect = s.boundAwareRedirectChecker
 
 	entry := &upstreamClientEntry{
 		client:   client,
@@ -490,9 +524,7 @@ func (s *httpUpstreamService) getClientEntry(proxyURL string, accountID int64, a
 		return nil, fmt.Errorf("build transport: %w", err)
 	}
 	client := &http.Client{Transport: transport}
-	if s.shouldValidateResolvedIP() {
-		client.CheckRedirect = s.redirectChecker
-	}
+	client.CheckRedirect = s.boundAwareRedirectChecker
 	entry := &upstreamClientEntry{
 		client:       client,
 		proxyKey:     proxyKey,

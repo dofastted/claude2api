@@ -9,6 +9,7 @@ import (
 
 	"github.com/dofastted/claude2api/internal/config"
 	"github.com/dofastted/claude2api/internal/pkg/antigravity"
+	"github.com/dofastted/claude2api/internal/pkg/clientidentity"
 	"github.com/dofastted/claude2api/internal/pkg/logger"
 	"github.com/google/wire"
 	"github.com/redis/go-redis/v9"
@@ -538,8 +539,12 @@ var ProviderSet = wire.NewSet(
 	ProvideBillingCacheService,
 	NewAnnouncementService,
 	NewAdminService,
-	NewGatewayService,
-	NewOpenAIGatewayService,
+	ProvideGatewayService,
+	ProvideClaudeOAuthSessionResolver,
+	ProvideClaudeOAuthPoolSelector,
+	ProvideClaudeOAuthMigrationManager,
+	NewClaudeOAuthPoolAdminService,
+	ProvideOpenAIGatewayService,
 	wire.Bind(new(AccountRuntimeBlocker), new(*OpenAIGatewayService)),
 	NewOAuthService,
 	ProvideOpenAIOAuthService,
@@ -606,6 +611,8 @@ var ProviderSet = wire.NewSet(
 	NewModelPricingResolver,
 	NewContentModerationService,
 	NewAffiliateService,
+	clientidentity.NewRegistry,
+	NewVersionFetcherService,
 	ProvideBalanceNotifyService,
 	ProvideChannelMonitorService,
 	ProvideChannelMonitorRunner,

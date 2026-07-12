@@ -913,6 +913,29 @@ func HasAccountsWith(preds ...predicate.Account) predicate.Proxy {
 	})
 }
 
+// HasOauthPools applies the HasEdge predicate on the "oauth_pools" edge.
+func HasOauthPools() predicate.Proxy {
+	return predicate.Proxy(func(s *sql.Selector) {
+		step := sqlgraph.NewStep(
+			sqlgraph.From(Table, FieldID),
+			sqlgraph.Edge(sqlgraph.O2M, false, OauthPoolsTable, OauthPoolsColumn),
+		)
+		sqlgraph.HasNeighbors(s, step)
+	})
+}
+
+// HasOauthPoolsWith applies the HasEdge predicate on the "oauth_pools" edge with a given conditions (other predicates).
+func HasOauthPoolsWith(preds ...predicate.OAuthPool) predicate.Proxy {
+	return predicate.Proxy(func(s *sql.Selector) {
+		step := newOauthPoolsStep()
+		sqlgraph.HasNeighborsWith(s, step, func(s *sql.Selector) {
+			for _, p := range preds {
+				p(s)
+			}
+		})
+	})
+}
+
 // HasBackupProxy applies the HasEdge predicate on the "backup_proxy" edge.
 func HasBackupProxy() predicate.Proxy {
 	return predicate.Proxy(func(s *sql.Selector) {

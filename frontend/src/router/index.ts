@@ -514,6 +514,18 @@ const routes: RouteRecordRaw[] = [
     }
   },
   {
+    path: '/admin/claude-oauth-pools',
+    name: 'AdminClaudeOAuthPools',
+    component: () => import('@/views/admin/ClaudeOAuthPoolsView.vue'),
+    meta: {
+      requiresAuth: true,
+      requiresAdmin: true,
+      title: 'Claude OAuth Pools',
+      titleKey: 'admin.claudeOAuthPools.title',
+      descriptionKey: 'admin.claudeOAuthPools.description'
+    }
+  },
+  {
     path: '/admin/redeem',
     name: 'AdminRedeem',
     component: () => import('@/views/admin/RedeemView.vue'),

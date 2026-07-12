@@ -14,6 +14,7 @@ import (
 	"github.com/dofastted/claude2api/ent/account"
 	"github.com/dofastted/claude2api/ent/apikey"
 	"github.com/dofastted/claude2api/ent/group"
+	"github.com/dofastted/claude2api/ent/oauthpool"
 	"github.com/dofastted/claude2api/ent/redeemcode"
 	"github.com/dofastted/claude2api/ent/usagelog"
 	"github.com/dofastted/claude2api/ent/user"
@@ -481,6 +482,20 @@ func (_c *GroupCreate) SetNillableModelsListConfig(v *domain.GroupModelsListConf
 	return _c
 }
 
+// SetOauthPoolID sets the "oauth_pool_id" field.
+func (_c *GroupCreate) SetOauthPoolID(v int64) *GroupCreate {
+	_c.mutation.SetOauthPoolID(v)
+	return _c
+}
+
+// SetNillableOauthPoolID sets the "oauth_pool_id" field if the given value is not nil.
+func (_c *GroupCreate) SetNillableOauthPoolID(v *int64) *GroupCreate {
+	if v != nil {
+		_c.SetOauthPoolID(*v)
+	}
+	return _c
+}
+
 // SetRpmLimit sets the "rpm_limit" field.
 func (_c *GroupCreate) SetRpmLimit(v int) *GroupCreate {
 	_c.mutation.SetRpmLimit(v)
@@ -583,6 +598,11 @@ func (_c *GroupCreate) AddAllowedUsers(v ...*User) *GroupCreate {
 		ids[i] = v[i].ID
 	}
 	return _c.AddAllowedUserIDs(ids...)
+}
+
+// SetOauthPool sets the "oauth_pool" edge to the OAuthPool entity.
+func (_c *GroupCreate) SetOauthPool(v *OAuthPool) *GroupCreate {
+	return _c.SetOauthPoolID(v.ID)
 }
 
 // Mutation returns the GroupMutation object of the builder.
@@ -1091,6 +1111,23 @@ func (_c *GroupCreate) createSpec() (*Group, *sqlgraph.CreateSpec) {
 		createE.defaults()
 		_, specE := createE.createSpec()
 		edge.Target.Fields = specE.Fields
+		_spec.Edges = append(_spec.Edges, edge)
+	}
+	if nodes := _c.mutation.OauthPoolIDs(); len(nodes) > 0 {
+		edge := &sqlgraph.EdgeSpec{
+			Rel:     sqlgraph.M2O,
+			Inverse: true,
+			Table:   group.OauthPoolTable,
+			Columns: []string{group.OauthPoolColumn},
+			Bidi:    false,
+			Target: &sqlgraph.EdgeTarget{
+				IDSpec: sqlgraph.NewFieldSpec(oauthpool.FieldID, field.TypeInt64),
+			},
+		}
+		for _, k := range nodes {
+			edge.Target.Nodes = append(edge.Target.Nodes, k)
+		}
+		_node.OauthPoolID = &nodes[0]
 		_spec.Edges = append(_spec.Edges, edge)
 	}
 	return _node, _spec
@@ -1676,6 +1713,24 @@ func (u *GroupUpsert) SetModelsListConfig(v domain.GroupModelsListConfig) *Group
 // UpdateModelsListConfig sets the "models_list_config" field to the value that was provided on create.
 func (u *GroupUpsert) UpdateModelsListConfig() *GroupUpsert {
 	u.SetExcluded(group.FieldModelsListConfig)
+	return u
+}
+
+// SetOauthPoolID sets the "oauth_pool_id" field.
+func (u *GroupUpsert) SetOauthPoolID(v int64) *GroupUpsert {
+	u.Set(group.FieldOauthPoolID, v)
+	return u
+}
+
+// UpdateOauthPoolID sets the "oauth_pool_id" field to the value that was provided on create.
+func (u *GroupUpsert) UpdateOauthPoolID() *GroupUpsert {
+	u.SetExcluded(group.FieldOauthPoolID)
+	return u
+}
+
+// ClearOauthPoolID clears the value of the "oauth_pool_id" field.
+func (u *GroupUpsert) ClearOauthPoolID() *GroupUpsert {
+	u.SetNull(group.FieldOauthPoolID)
 	return u
 }
 
@@ -2362,6 +2417,27 @@ func (u *GroupUpsertOne) SetModelsListConfig(v domain.GroupModelsListConfig) *Gr
 func (u *GroupUpsertOne) UpdateModelsListConfig() *GroupUpsertOne {
 	return u.Update(func(s *GroupUpsert) {
 		s.UpdateModelsListConfig()
+	})
+}
+
+// SetOauthPoolID sets the "oauth_pool_id" field.
+func (u *GroupUpsertOne) SetOauthPoolID(v int64) *GroupUpsertOne {
+	return u.Update(func(s *GroupUpsert) {
+		s.SetOauthPoolID(v)
+	})
+}
+
+// UpdateOauthPoolID sets the "oauth_pool_id" field to the value that was provided on create.
+func (u *GroupUpsertOne) UpdateOauthPoolID() *GroupUpsertOne {
+	return u.Update(func(s *GroupUpsert) {
+		s.UpdateOauthPoolID()
+	})
+}
+
+// ClearOauthPoolID clears the value of the "oauth_pool_id" field.
+func (u *GroupUpsertOne) ClearOauthPoolID() *GroupUpsertOne {
+	return u.Update(func(s *GroupUpsert) {
+		s.ClearOauthPoolID()
 	})
 }
 
@@ -3217,6 +3293,27 @@ func (u *GroupUpsertBulk) SetModelsListConfig(v domain.GroupModelsListConfig) *G
 func (u *GroupUpsertBulk) UpdateModelsListConfig() *GroupUpsertBulk {
 	return u.Update(func(s *GroupUpsert) {
 		s.UpdateModelsListConfig()
+	})
+}
+
+// SetOauthPoolID sets the "oauth_pool_id" field.
+func (u *GroupUpsertBulk) SetOauthPoolID(v int64) *GroupUpsertBulk {
+	return u.Update(func(s *GroupUpsert) {
+		s.SetOauthPoolID(v)
+	})
+}
+
+// UpdateOauthPoolID sets the "oauth_pool_id" field to the value that was provided on create.
+func (u *GroupUpsertBulk) UpdateOauthPoolID() *GroupUpsertBulk {
+	return u.Update(func(s *GroupUpsert) {
+		s.UpdateOauthPoolID()
+	})
+}
+
+// ClearOauthPoolID clears the value of the "oauth_pool_id" field.
+func (u *GroupUpsertBulk) ClearOauthPoolID() *GroupUpsertBulk {
+	return u.Update(func(s *GroupUpsert) {
+		s.ClearOauthPoolID()
 	})
 }
 

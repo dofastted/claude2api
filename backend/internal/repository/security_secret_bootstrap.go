@@ -3,6 +3,7 @@ package repository
 import (
 	"context"
 	"crypto/rand"
+	"crypto/sha256"
 	"database/sql"
 	"encoding/hex"
 	"errors"
@@ -17,9 +18,11 @@ import (
 )
 
 const (
-	securitySecretKeyJWT        = "jwt_secret"
-	securitySecretReadRetryMax  = 5
-	securitySecretReadRetryWait = 10 * time.Millisecond
+	securitySecretKeyJWT                       = "jwt_secret"
+	securitySecretKeyClaudeOAuthSessionSigning = "claude_oauth_session_signing"
+	securitySecretKeyClaudeOAuthSessionBinding = "claude_oauth_session_binding"
+	securitySecretReadRetryMax                 = 5
+	securitySecretReadRetryWait                = 10 * time.Millisecond
 )
 
 var readRandomBytes = rand.Read
@@ -42,17 +45,31 @@ func ensureBootstrapSecrets(ctx context.Context, client *ent.Client, cfg *config
 			log.Println("Warning: configured JWT secret mismatches persisted value; using persisted secret for cross-instance consistency.")
 		}
 		cfg.JWT.Secret = storedSecret
-		return nil
+	} else {
+		secret, created, err := getOrCreateGeneratedSecuritySecret(ctx, client, securitySecretKeyJWT, 32)
+		if err != nil {
+			return fmt.Errorf("ensure jwt secret: %w", err)
+		}
+		cfg.JWT.Secret = secret
+		if created {
+			log.Println("Warning: JWT secret auto-generated and persisted to database. Consider rotating to a managed secret for production.")
+		}
 	}
 
-	secret, created, err := getOrCreateGeneratedSecuritySecret(ctx, client, securitySecretKeyJWT, 32)
+	signingKey, signingCreated, err := getOrCreateGeneratedSecuritySecret(ctx, client, securitySecretKeyClaudeOAuthSessionSigning, 32)
 	if err != nil {
-		return fmt.Errorf("ensure jwt secret: %w", err)
+		return fmt.Errorf("ensure claude oauth session signing secret: %w", err)
 	}
-	cfg.JWT.Secret = secret
-
-	if created {
-		log.Println("Warning: JWT secret auto-generated and persisted to database. Consider rotating to a managed secret for production.")
+	bindingKey, bindingCreated, err := getOrCreateGeneratedSecuritySecret(ctx, client, securitySecretKeyClaudeOAuthSessionBinding, 32)
+	if err != nil {
+		return fmt.Errorf("ensure claude oauth session binding secret: %w", err)
+	}
+	signingDigest := sha256.Sum256([]byte(signingKey))
+	cfg.ClaudeOAuthCapsule.SessionSigningKeyID = hex.EncodeToString(signingDigest[:8])
+	cfg.ClaudeOAuthCapsule.SessionSigningKey = signingKey
+	cfg.ClaudeOAuthCapsule.SessionBindingKey = bindingKey
+	if signingCreated || bindingCreated {
+		log.Println("Warning: Claude OAuth capsule secrets auto-generated and persisted to database.")
 	}
 	return nil
 }

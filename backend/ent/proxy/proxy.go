@@ -45,6 +45,8 @@ const (
 	FieldExpiryWarnDays = "expiry_warn_days"
 	// EdgeAccounts holds the string denoting the accounts edge name in mutations.
 	EdgeAccounts = "accounts"
+	// EdgeOauthPools holds the string denoting the oauth_pools edge name in mutations.
+	EdgeOauthPools = "oauth_pools"
 	// EdgeBackupProxy holds the string denoting the backup_proxy edge name in mutations.
 	EdgeBackupProxy = "backup_proxy"
 	// Table holds the table name of the proxy in the database.
@@ -56,6 +58,13 @@ const (
 	AccountsInverseTable = "accounts"
 	// AccountsColumn is the table column denoting the accounts relation/edge.
 	AccountsColumn = "proxy_id"
+	// OauthPoolsTable is the table that holds the oauth_pools relation/edge.
+	OauthPoolsTable = "oauth_pools"
+	// OauthPoolsInverseTable is the table name for the OAuthPool entity.
+	// It exists in this package in order to avoid circular dependency with the "oauthpool" package.
+	OauthPoolsInverseTable = "oauth_pools"
+	// OauthPoolsColumn is the table column denoting the oauth_pools relation/edge.
+	OauthPoolsColumn = "egress_route_id"
 	// BackupProxyTable is the table that holds the backup_proxy relation/edge.
 	BackupProxyTable = "proxies"
 	// BackupProxyColumn is the table column denoting the backup_proxy relation/edge.
@@ -219,6 +228,20 @@ func ByAccounts(term sql.OrderTerm, terms ...sql.OrderTerm) OrderOption {
 	}
 }
 
+// ByOauthPoolsCount orders the results by oauth_pools count.
+func ByOauthPoolsCount(opts ...sql.OrderTermOption) OrderOption {
+	return func(s *sql.Selector) {
+		sqlgraph.OrderByNeighborsCount(s, newOauthPoolsStep(), opts...)
+	}
+}
+
+// ByOauthPools orders the results by oauth_pools terms.
+func ByOauthPools(term sql.OrderTerm, terms ...sql.OrderTerm) OrderOption {
+	return func(s *sql.Selector) {
+		sqlgraph.OrderByNeighborTerms(s, newOauthPoolsStep(), append([]sql.OrderTerm{term}, terms...)...)
+	}
+}
+
 // ByBackupProxyField orders the results by backup_proxy field.
 func ByBackupProxyField(field string, opts ...sql.OrderTermOption) OrderOption {
 	return func(s *sql.Selector) {
@@ -230,6 +253,13 @@ func newAccountsStep() *sqlgraph.Step {
 		sqlgraph.From(Table, FieldID),
 		sqlgraph.To(AccountsInverseTable, FieldID),
 		sqlgraph.Edge(sqlgraph.O2M, true, AccountsTable, AccountsColumn),
+	)
+}
+func newOauthPoolsStep() *sqlgraph.Step {
+	return sqlgraph.NewStep(
+		sqlgraph.From(Table, FieldID),
+		sqlgraph.To(OauthPoolsInverseTable, FieldID),
+		sqlgraph.Edge(sqlgraph.O2M, false, OauthPoolsTable, OauthPoolsColumn),
 	)
 }
 func newBackupProxyStep() *sqlgraph.Step {

@@ -16,6 +16,7 @@ import (
 	"github.com/dofastted/claude2api/ent/account"
 	"github.com/dofastted/claude2api/ent/accountgroup"
 	"github.com/dofastted/claude2api/ent/group"
+	"github.com/dofastted/claude2api/ent/oauthpoolcredential"
 	"github.com/dofastted/claude2api/ent/predicate"
 	"github.com/dofastted/claude2api/ent/proxy"
 	"github.com/dofastted/claude2api/ent/usagelog"
@@ -24,15 +25,16 @@ import (
 // AccountQuery is the builder for querying Account entities.
 type AccountQuery struct {
 	config
-	ctx               *QueryContext
-	order             []account.OrderOption
-	inters            []Interceptor
-	predicates        []predicate.Account
-	withGroups        *GroupQuery
-	withProxy         *ProxyQuery
-	withUsageLogs     *UsageLogQuery
-	withAccountGroups *AccountGroupQuery
-	modifiers         []func(*sql.Selector)
+	ctx                     *QueryContext
+	order                   []account.OrderOption
+	inters                  []Interceptor
+	predicates              []predicate.Account
+	withGroups              *GroupQuery
+	withProxy               *ProxyQuery
+	withOauthPoolCredential *OAuthPoolCredentialQuery
+	withUsageLogs           *UsageLogQuery
+	withAccountGroups       *AccountGroupQuery
+	modifiers               []func(*sql.Selector)
 	// intermediate query (i.e. traversal path).
 	sql  *sql.Selector
 	path func(context.Context) (*sql.Selector, error)
@@ -106,6 +108,28 @@ func (_q *AccountQuery) QueryProxy() *ProxyQuery {
 			sqlgraph.From(account.Table, account.FieldID, selector),
 			sqlgraph.To(proxy.Table, proxy.FieldID),
 			sqlgraph.Edge(sqlgraph.M2O, false, account.ProxyTable, account.ProxyColumn),
+		)
+		fromU = sqlgraph.SetNeighbors(_q.driver.Dialect(), step)
+		return fromU, nil
+	}
+	return query
+}
+
+// QueryOauthPoolCredential chains the current query on the "oauth_pool_credential" edge.
+func (_q *AccountQuery) QueryOauthPoolCredential() *OAuthPoolCredentialQuery {
+	query := (&OAuthPoolCredentialClient{config: _q.config}).Query()
+	query.path = func(ctx context.Context) (fromU *sql.Selector, err error) {
+		if err := _q.prepareQuery(ctx); err != nil {
+			return nil, err
+		}
+		selector := _q.sqlQuery(ctx)
+		if err := selector.Err(); err != nil {
+			return nil, err
+		}
+		step := sqlgraph.NewStep(
+			sqlgraph.From(account.Table, account.FieldID, selector),
+			sqlgraph.To(oauthpoolcredential.Table, oauthpoolcredential.FieldID),
+			sqlgraph.Edge(sqlgraph.O2O, false, account.OauthPoolCredentialTable, account.OauthPoolCredentialColumn),
 		)
 		fromU = sqlgraph.SetNeighbors(_q.driver.Dialect(), step)
 		return fromU, nil
@@ -344,15 +368,16 @@ func (_q *AccountQuery) Clone() *AccountQuery {
 		return nil
 	}
 	return &AccountQuery{
-		config:            _q.config,
-		ctx:               _q.ctx.Clone(),
-		order:             append([]account.OrderOption{}, _q.order...),
-		inters:            append([]Interceptor{}, _q.inters...),
-		predicates:        append([]predicate.Account{}, _q.predicates...),
-		withGroups:        _q.withGroups.Clone(),
-		withProxy:         _q.withProxy.Clone(),
-		withUsageLogs:     _q.withUsageLogs.Clone(),
-		withAccountGroups: _q.withAccountGroups.Clone(),
+		config:                  _q.config,
+		ctx:                     _q.ctx.Clone(),
+		order:                   append([]account.OrderOption{}, _q.order...),
+		inters:                  append([]Interceptor{}, _q.inters...),
+		predicates:              append([]predicate.Account{}, _q.predicates...),
+		withGroups:              _q.withGroups.Clone(),
+		withProxy:               _q.withProxy.Clone(),
+		withOauthPoolCredential: _q.withOauthPoolCredential.Clone(),
+		withUsageLogs:           _q.withUsageLogs.Clone(),
+		withAccountGroups:       _q.withAccountGroups.Clone(),
 		// clone intermediate query.
 		sql:  _q.sql.Clone(),
 		path: _q.path,
@@ -378,6 +403,17 @@ func (_q *AccountQuery) WithProxy(opts ...func(*ProxyQuery)) *AccountQuery {
 		opt(query)
 	}
 	_q.withProxy = query
+	return _q
+}
+
+// WithOauthPoolCredential tells the query-builder to eager-load the nodes that are connected to
+// the "oauth_pool_credential" edge. The optional arguments are used to configure the query builder of the edge.
+func (_q *AccountQuery) WithOauthPoolCredential(opts ...func(*OAuthPoolCredentialQuery)) *AccountQuery {
+	query := (&OAuthPoolCredentialClient{config: _q.config}).Query()
+	for _, opt := range opts {
+		opt(query)
+	}
+	_q.withOauthPoolCredential = query
 	return _q
 }
 
@@ -481,9 +517,10 @@ func (_q *AccountQuery) sqlAll(ctx context.Context, hooks ...queryHook) ([]*Acco
 	var (
 		nodes       = []*Account{}
 		_spec       = _q.querySpec()
-		loadedTypes = [4]bool{
+		loadedTypes = [5]bool{
 			_q.withGroups != nil,
 			_q.withProxy != nil,
+			_q.withOauthPoolCredential != nil,
 			_q.withUsageLogs != nil,
 			_q.withAccountGroups != nil,
 		}
@@ -519,6 +556,12 @@ func (_q *AccountQuery) sqlAll(ctx context.Context, hooks ...queryHook) ([]*Acco
 	if query := _q.withProxy; query != nil {
 		if err := _q.loadProxy(ctx, query, nodes, nil,
 			func(n *Account, e *Proxy) { n.Edges.Proxy = e }); err != nil {
+			return nil, err
+		}
+	}
+	if query := _q.withOauthPoolCredential; query != nil {
+		if err := _q.loadOauthPoolCredential(ctx, query, nodes, nil,
+			func(n *Account, e *OAuthPoolCredential) { n.Edges.OauthPoolCredential = e }); err != nil {
 			return nil, err
 		}
 	}
@@ -629,6 +672,33 @@ func (_q *AccountQuery) loadProxy(ctx context.Context, query *ProxyQuery, nodes 
 		for i := range nodes {
 			assign(nodes[i], n)
 		}
+	}
+	return nil
+}
+func (_q *AccountQuery) loadOauthPoolCredential(ctx context.Context, query *OAuthPoolCredentialQuery, nodes []*Account, init func(*Account), assign func(*Account, *OAuthPoolCredential)) error {
+	fks := make([]driver.Value, 0, len(nodes))
+	nodeids := make(map[int64]*Account)
+	for i := range nodes {
+		fks = append(fks, nodes[i].ID)
+		nodeids[nodes[i].ID] = nodes[i]
+	}
+	if len(query.ctx.Fields) > 0 {
+		query.ctx.AppendFieldOnce(oauthpoolcredential.FieldAccountID)
+	}
+	query.Where(predicate.OAuthPoolCredential(func(s *sql.Selector) {
+		s.Where(sql.InValues(s.C(account.OauthPoolCredentialColumn), fks...))
+	}))
+	neighbors, err := query.All(ctx)
+	if err != nil {
+		return err
+	}
+	for _, n := range neighbors {
+		fk := n.AccountID
+		node, ok := nodeids[fk]
+		if !ok {
+			return fmt.Errorf(`unexpected referenced foreign-key "account_id" returned %v for node %v`, fk, n.ID)
+		}
+		assign(node, n)
 	}
 	return nil
 }

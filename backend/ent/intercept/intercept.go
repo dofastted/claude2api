@@ -23,6 +23,9 @@ import (
 	"github.com/dofastted/claude2api/ent/group"
 	"github.com/dofastted/claude2api/ent/idempotencyrecord"
 	"github.com/dofastted/claude2api/ent/identityadoptiondecision"
+	"github.com/dofastted/claude2api/ent/oauthcapsuleset"
+	"github.com/dofastted/claude2api/ent/oauthpool"
+	"github.com/dofastted/claude2api/ent/oauthpoolcredential"
 	"github.com/dofastted/claude2api/ent/paymentauditlog"
 	"github.com/dofastted/claude2api/ent/paymentorder"
 	"github.com/dofastted/claude2api/ent/paymentproviderinstance"
@@ -505,6 +508,87 @@ func (f TraverseIdentityAdoptionDecision) Traverse(ctx context.Context, q ent.Qu
 		return f(ctx, q)
 	}
 	return fmt.Errorf("unexpected query type %T. expect *ent.IdentityAdoptionDecisionQuery", q)
+}
+
+// The OAuthCapsuleSetFunc type is an adapter to allow the use of ordinary function as a Querier.
+type OAuthCapsuleSetFunc func(context.Context, *ent.OAuthCapsuleSetQuery) (ent.Value, error)
+
+// Query calls f(ctx, q).
+func (f OAuthCapsuleSetFunc) Query(ctx context.Context, q ent.Query) (ent.Value, error) {
+	if q, ok := q.(*ent.OAuthCapsuleSetQuery); ok {
+		return f(ctx, q)
+	}
+	return nil, fmt.Errorf("unexpected query type %T. expect *ent.OAuthCapsuleSetQuery", q)
+}
+
+// The TraverseOAuthCapsuleSet type is an adapter to allow the use of ordinary function as Traverser.
+type TraverseOAuthCapsuleSet func(context.Context, *ent.OAuthCapsuleSetQuery) error
+
+// Intercept is a dummy implementation of Intercept that returns the next Querier in the pipeline.
+func (f TraverseOAuthCapsuleSet) Intercept(next ent.Querier) ent.Querier {
+	return next
+}
+
+// Traverse calls f(ctx, q).
+func (f TraverseOAuthCapsuleSet) Traverse(ctx context.Context, q ent.Query) error {
+	if q, ok := q.(*ent.OAuthCapsuleSetQuery); ok {
+		return f(ctx, q)
+	}
+	return fmt.Errorf("unexpected query type %T. expect *ent.OAuthCapsuleSetQuery", q)
+}
+
+// The OAuthPoolFunc type is an adapter to allow the use of ordinary function as a Querier.
+type OAuthPoolFunc func(context.Context, *ent.OAuthPoolQuery) (ent.Value, error)
+
+// Query calls f(ctx, q).
+func (f OAuthPoolFunc) Query(ctx context.Context, q ent.Query) (ent.Value, error) {
+	if q, ok := q.(*ent.OAuthPoolQuery); ok {
+		return f(ctx, q)
+	}
+	return nil, fmt.Errorf("unexpected query type %T. expect *ent.OAuthPoolQuery", q)
+}
+
+// The TraverseOAuthPool type is an adapter to allow the use of ordinary function as Traverser.
+type TraverseOAuthPool func(context.Context, *ent.OAuthPoolQuery) error
+
+// Intercept is a dummy implementation of Intercept that returns the next Querier in the pipeline.
+func (f TraverseOAuthPool) Intercept(next ent.Querier) ent.Querier {
+	return next
+}
+
+// Traverse calls f(ctx, q).
+func (f TraverseOAuthPool) Traverse(ctx context.Context, q ent.Query) error {
+	if q, ok := q.(*ent.OAuthPoolQuery); ok {
+		return f(ctx, q)
+	}
+	return fmt.Errorf("unexpected query type %T. expect *ent.OAuthPoolQuery", q)
+}
+
+// The OAuthPoolCredentialFunc type is an adapter to allow the use of ordinary function as a Querier.
+type OAuthPoolCredentialFunc func(context.Context, *ent.OAuthPoolCredentialQuery) (ent.Value, error)
+
+// Query calls f(ctx, q).
+func (f OAuthPoolCredentialFunc) Query(ctx context.Context, q ent.Query) (ent.Value, error) {
+	if q, ok := q.(*ent.OAuthPoolCredentialQuery); ok {
+		return f(ctx, q)
+	}
+	return nil, fmt.Errorf("unexpected query type %T. expect *ent.OAuthPoolCredentialQuery", q)
+}
+
+// The TraverseOAuthPoolCredential type is an adapter to allow the use of ordinary function as Traverser.
+type TraverseOAuthPoolCredential func(context.Context, *ent.OAuthPoolCredentialQuery) error
+
+// Intercept is a dummy implementation of Intercept that returns the next Querier in the pipeline.
+func (f TraverseOAuthPoolCredential) Intercept(next ent.Querier) ent.Querier {
+	return next
+}
+
+// Traverse calls f(ctx, q).
+func (f TraverseOAuthPoolCredential) Traverse(ctx context.Context, q ent.Query) error {
+	if q, ok := q.(*ent.OAuthPoolCredentialQuery); ok {
+		return f(ctx, q)
+	}
+	return fmt.Errorf("unexpected query type %T. expect *ent.OAuthPoolCredentialQuery", q)
 }
 
 // The PaymentAuditLogFunc type is an adapter to allow the use of ordinary function as a Querier.
@@ -1080,6 +1164,12 @@ func NewQuery(q ent.Query) (Query, error) {
 		return &query[*ent.IdempotencyRecordQuery, predicate.IdempotencyRecord, idempotencyrecord.OrderOption]{typ: ent.TypeIdempotencyRecord, tq: q}, nil
 	case *ent.IdentityAdoptionDecisionQuery:
 		return &query[*ent.IdentityAdoptionDecisionQuery, predicate.IdentityAdoptionDecision, identityadoptiondecision.OrderOption]{typ: ent.TypeIdentityAdoptionDecision, tq: q}, nil
+	case *ent.OAuthCapsuleSetQuery:
+		return &query[*ent.OAuthCapsuleSetQuery, predicate.OAuthCapsuleSet, oauthcapsuleset.OrderOption]{typ: ent.TypeOAuthCapsuleSet, tq: q}, nil
+	case *ent.OAuthPoolQuery:
+		return &query[*ent.OAuthPoolQuery, predicate.OAuthPool, oauthpool.OrderOption]{typ: ent.TypeOAuthPool, tq: q}, nil
+	case *ent.OAuthPoolCredentialQuery:
+		return &query[*ent.OAuthPoolCredentialQuery, predicate.OAuthPoolCredential, oauthpoolcredential.OrderOption]{typ: ent.TypeOAuthPoolCredential, tq: q}, nil
 	case *ent.PaymentAuditLogQuery:
 		return &query[*ent.PaymentAuditLogQuery, predicate.PaymentAuditLog, paymentauditlog.OrderOption]{typ: ent.TypePaymentAuditLog, tq: q}, nil
 	case *ent.PaymentOrderQuery:

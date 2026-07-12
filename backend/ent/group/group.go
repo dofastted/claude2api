@@ -84,6 +84,8 @@ const (
 	FieldMessagesDispatchModelConfig = "messages_dispatch_model_config"
 	// FieldModelsListConfig holds the string denoting the models_list_config field in the database.
 	FieldModelsListConfig = "models_list_config"
+	// FieldOauthPoolID holds the string denoting the oauth_pool_id field in the database.
+	FieldOauthPoolID = "oauth_pool_id"
 	// FieldRpmLimit holds the string denoting the rpm_limit field in the database.
 	FieldRpmLimit = "rpm_limit"
 	// EdgeAPIKeys holds the string denoting the api_keys edge name in mutations.
@@ -98,6 +100,8 @@ const (
 	EdgeAccounts = "accounts"
 	// EdgeAllowedUsers holds the string denoting the allowed_users edge name in mutations.
 	EdgeAllowedUsers = "allowed_users"
+	// EdgeOauthPool holds the string denoting the oauth_pool edge name in mutations.
+	EdgeOauthPool = "oauth_pool"
 	// EdgeAccountGroups holds the string denoting the account_groups edge name in mutations.
 	EdgeAccountGroups = "account_groups"
 	// EdgeUserAllowedGroups holds the string denoting the user_allowed_groups edge name in mutations.
@@ -142,6 +146,13 @@ const (
 	// AllowedUsersInverseTable is the table name for the User entity.
 	// It exists in this package in order to avoid circular dependency with the "user" package.
 	AllowedUsersInverseTable = "users"
+	// OauthPoolTable is the table that holds the oauth_pool relation/edge.
+	OauthPoolTable = "groups"
+	// OauthPoolInverseTable is the table name for the OAuthPool entity.
+	// It exists in this package in order to avoid circular dependency with the "oauthpool" package.
+	OauthPoolInverseTable = "oauth_pools"
+	// OauthPoolColumn is the table column denoting the oauth_pool relation/edge.
+	OauthPoolColumn = "oauth_pool_id"
 	// AccountGroupsTable is the table that holds the account_groups relation/edge.
 	AccountGroupsTable = "account_groups"
 	// AccountGroupsInverseTable is the table name for the AccountGroup entity.
@@ -195,6 +206,7 @@ var Columns = []string{
 	FieldDefaultMappedModel,
 	FieldMessagesDispatchModelConfig,
 	FieldModelsListConfig,
+	FieldOauthPoolID,
 	FieldRpmLimit,
 }
 
@@ -443,6 +455,11 @@ func ByDefaultMappedModel(opts ...sql.OrderTermOption) OrderOption {
 	return sql.OrderByField(FieldDefaultMappedModel, opts...).ToFunc()
 }
 
+// ByOauthPoolID orders the results by the oauth_pool_id field.
+func ByOauthPoolID(opts ...sql.OrderTermOption) OrderOption {
+	return sql.OrderByField(FieldOauthPoolID, opts...).ToFunc()
+}
+
 // ByRpmLimit orders the results by the rpm_limit field.
 func ByRpmLimit(opts ...sql.OrderTermOption) OrderOption {
 	return sql.OrderByField(FieldRpmLimit, opts...).ToFunc()
@@ -532,6 +549,13 @@ func ByAllowedUsers(term sql.OrderTerm, terms ...sql.OrderTerm) OrderOption {
 	}
 }
 
+// ByOauthPoolField orders the results by oauth_pool field.
+func ByOauthPoolField(field string, opts ...sql.OrderTermOption) OrderOption {
+	return func(s *sql.Selector) {
+		sqlgraph.OrderByNeighborTerms(s, newOauthPoolStep(), sql.OrderByField(field, opts...))
+	}
+}
+
 // ByAccountGroupsCount orders the results by account_groups count.
 func ByAccountGroupsCount(opts ...sql.OrderTermOption) OrderOption {
 	return func(s *sql.Selector) {
@@ -599,6 +623,13 @@ func newAllowedUsersStep() *sqlgraph.Step {
 		sqlgraph.From(Table, FieldID),
 		sqlgraph.To(AllowedUsersInverseTable, FieldID),
 		sqlgraph.Edge(sqlgraph.M2M, true, AllowedUsersTable, AllowedUsersPrimaryKey...),
+	)
+}
+func newOauthPoolStep() *sqlgraph.Step {
+	return sqlgraph.NewStep(
+		sqlgraph.From(Table, FieldID),
+		sqlgraph.To(OauthPoolInverseTable, FieldID),
+		sqlgraph.Edge(sqlgraph.M2O, true, OauthPoolTable, OauthPoolColumn),
 	)
 }
 func newAccountGroupsStep() *sqlgraph.Step {

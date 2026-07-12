@@ -12,6 +12,7 @@ import (
 	"entgo.io/ent/dialect/sql/sqlgraph"
 	"entgo.io/ent/schema/field"
 	"github.com/dofastted/claude2api/ent/account"
+	"github.com/dofastted/claude2api/ent/oauthpool"
 	"github.com/dofastted/claude2api/ent/proxy"
 )
 
@@ -200,6 +201,21 @@ func (_c *ProxyCreate) AddAccounts(v ...*Account) *ProxyCreate {
 		ids[i] = v[i].ID
 	}
 	return _c.AddAccountIDs(ids...)
+}
+
+// AddOauthPoolIDs adds the "oauth_pools" edge to the OAuthPool entity by IDs.
+func (_c *ProxyCreate) AddOauthPoolIDs(ids ...int64) *ProxyCreate {
+	_c.mutation.AddOauthPoolIDs(ids...)
+	return _c
+}
+
+// AddOauthPools adds the "oauth_pools" edges to the OAuthPool entity.
+func (_c *ProxyCreate) AddOauthPools(v ...*OAuthPool) *ProxyCreate {
+	ids := make([]int64, len(v))
+	for i := range v {
+		ids[i] = v[i].ID
+	}
+	return _c.AddOauthPoolIDs(ids...)
 }
 
 // SetBackupProxy sets the "backup_proxy" edge to the Proxy entity.
@@ -425,6 +441,22 @@ func (_c *ProxyCreate) createSpec() (*Proxy, *sqlgraph.CreateSpec) {
 			Bidi:    false,
 			Target: &sqlgraph.EdgeTarget{
 				IDSpec: sqlgraph.NewFieldSpec(account.FieldID, field.TypeInt64),
+			},
+		}
+		for _, k := range nodes {
+			edge.Target.Nodes = append(edge.Target.Nodes, k)
+		}
+		_spec.Edges = append(_spec.Edges, edge)
+	}
+	if nodes := _c.mutation.OauthPoolsIDs(); len(nodes) > 0 {
+		edge := &sqlgraph.EdgeSpec{
+			Rel:     sqlgraph.O2M,
+			Inverse: false,
+			Table:   proxy.OauthPoolsTable,
+			Columns: []string{proxy.OauthPoolsColumn},
+			Bidi:    false,
+			Target: &sqlgraph.EdgeTarget{
+				IDSpec: sqlgraph.NewFieldSpec(oauthpool.FieldID, field.TypeInt64),
 			},
 		}
 		for _, k := range nodes {

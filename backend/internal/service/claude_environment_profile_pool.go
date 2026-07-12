@@ -264,9 +264,6 @@ func buildClaudeEnvironmentProfileForClass(env EnvironmentClass) *ClaudeEnvironm
 	return profile
 }
 
-// buildFrozenClaudeEnvironmentProfileForSlot 为指定 OS 槽位模拟生成一份冻结 profile。
-// device_id/client_id 模拟生成并冻结；cli_version/beta_set 取传入版本的自洽集合。
-// desktop 槽位不应出现（routeToSlot 已归并到 windows），此处仅处理 windows/macos/linux。
 func buildFrozenClaudeEnvironmentProfileForSlot(env EnvironmentClass, cliVersion string) *ClaudeEnvironmentProfile {
 	return buildFrozenClaudeEnvironmentProfileForSlotWithTimezone(env, cliVersion, EnvironmentProfileFallbackTimezone)
 }

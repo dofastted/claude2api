@@ -62,6 +62,15 @@ func TestEnsureBootstrapSecretsGenerateAndPersistJWTSecret(t *testing.T) {
 	stored, err := client.SecuritySecret.Query().Where(securitysecret.KeyEQ(securitySecretKeyJWT)).Only(context.Background())
 	require.NoError(t, err)
 	require.Equal(t, cfg.JWT.Secret, stored.Value)
+	require.NotEmpty(t, cfg.ClaudeOAuthCapsule.SessionSigningKeyID)
+	require.GreaterOrEqual(t, len(cfg.ClaudeOAuthCapsule.SessionSigningKey), 32)
+	require.GreaterOrEqual(t, len(cfg.ClaudeOAuthCapsule.SessionBindingKey), 32)
+	storedSigning, err := client.SecuritySecret.Query().Where(securitysecret.KeyEQ(securitySecretKeyClaudeOAuthSessionSigning)).Only(context.Background())
+	require.NoError(t, err)
+	require.Equal(t, cfg.ClaudeOAuthCapsule.SessionSigningKey, storedSigning.Value)
+	storedBinding, err := client.SecuritySecret.Query().Where(securitysecret.KeyEQ(securitySecretKeyClaudeOAuthSessionBinding)).Only(context.Background())
+	require.NoError(t, err)
+	require.Equal(t, cfg.ClaudeOAuthCapsule.SessionBindingKey, storedBinding.Value)
 }
 
 func TestEnsureBootstrapSecretsLoadExistingJWTSecret(t *testing.T) {

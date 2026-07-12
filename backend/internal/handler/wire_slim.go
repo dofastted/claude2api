@@ -40,6 +40,7 @@ func ProvideAdminHandlers(
 	contentModerationHandler *admin.ContentModerationHandler,
 	affiliateHandler *admin.AffiliateHandler,
 	complianceHandler *admin.ComplianceHandler,
+	claudeOAuthPoolHandler *admin.ClaudeOAuthPoolHandler,
 ) *AdminHandlers {
 	return &AdminHandlers{
 		Dashboard:              dashboardHandler,
@@ -71,6 +72,7 @@ func ProvideAdminHandlers(
 		ContentModeration:      contentModerationHandler,
 		Affiliate:              affiliateHandler,
 		Compliance:             complianceHandler,
+		ClaudeOAuthPool:        claudeOAuthPoolHandler,
 	}
 }
 
@@ -139,7 +141,7 @@ var ProviderSet = wire.NewSet(
 	NewAnnouncementHandler,
 	NewChannelMonitorUserHandler,
 	NewBillingGate,
-	NewGatewayHandler,
+	ProvideGatewayHandler,
 	NewOpenAIGatewayHandler,
 	NewTotpHandler,
 	ProvideSettingHandler,
@@ -175,6 +177,7 @@ var ProviderSet = wire.NewSet(
 	admin.NewContentModerationHandler,
 	admin.NewAffiliateHandler,
 	admin.NewComplianceHandler,
+	admin.NewClaudeOAuthPoolHandler,
 
 	// AdminHandlers and Handlers constructors
 	ProvideAdminHandlers,

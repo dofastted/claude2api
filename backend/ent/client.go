@@ -30,6 +30,9 @@ import (
 	"github.com/dofastted/claude2api/ent/group"
 	"github.com/dofastted/claude2api/ent/idempotencyrecord"
 	"github.com/dofastted/claude2api/ent/identityadoptiondecision"
+	"github.com/dofastted/claude2api/ent/oauthcapsuleset"
+	"github.com/dofastted/claude2api/ent/oauthpool"
+	"github.com/dofastted/claude2api/ent/oauthpoolcredential"
 	"github.com/dofastted/claude2api/ent/paymentauditlog"
 	"github.com/dofastted/claude2api/ent/paymentorder"
 	"github.com/dofastted/claude2api/ent/paymentproviderinstance"
@@ -89,6 +92,12 @@ type Client struct {
 	IdempotencyRecord *IdempotencyRecordClient
 	// IdentityAdoptionDecision is the client for interacting with the IdentityAdoptionDecision builders.
 	IdentityAdoptionDecision *IdentityAdoptionDecisionClient
+	// OAuthCapsuleSet is the client for interacting with the OAuthCapsuleSet builders.
+	OAuthCapsuleSet *OAuthCapsuleSetClient
+	// OAuthPool is the client for interacting with the OAuthPool builders.
+	OAuthPool *OAuthPoolClient
+	// OAuthPoolCredential is the client for interacting with the OAuthPoolCredential builders.
+	OAuthPoolCredential *OAuthPoolCredentialClient
 	// PaymentAuditLog is the client for interacting with the PaymentAuditLog builders.
 	PaymentAuditLog *PaymentAuditLogClient
 	// PaymentOrder is the client for interacting with the PaymentOrder builders.
@@ -155,6 +164,9 @@ func (c *Client) init() {
 	c.Group = NewGroupClient(c.config)
 	c.IdempotencyRecord = NewIdempotencyRecordClient(c.config)
 	c.IdentityAdoptionDecision = NewIdentityAdoptionDecisionClient(c.config)
+	c.OAuthCapsuleSet = NewOAuthCapsuleSetClient(c.config)
+	c.OAuthPool = NewOAuthPoolClient(c.config)
+	c.OAuthPoolCredential = NewOAuthPoolCredentialClient(c.config)
 	c.PaymentAuditLog = NewPaymentAuditLogClient(c.config)
 	c.PaymentOrder = NewPaymentOrderClient(c.config)
 	c.PaymentProviderInstance = NewPaymentProviderInstanceClient(c.config)
@@ -282,6 +294,9 @@ func (c *Client) Tx(ctx context.Context) (*Tx, error) {
 		Group:                         NewGroupClient(cfg),
 		IdempotencyRecord:             NewIdempotencyRecordClient(cfg),
 		IdentityAdoptionDecision:      NewIdentityAdoptionDecisionClient(cfg),
+		OAuthCapsuleSet:               NewOAuthCapsuleSetClient(cfg),
+		OAuthPool:                     NewOAuthPoolClient(cfg),
+		OAuthPoolCredential:           NewOAuthPoolCredentialClient(cfg),
 		PaymentAuditLog:               NewPaymentAuditLogClient(cfg),
 		PaymentOrder:                  NewPaymentOrderClient(cfg),
 		PaymentProviderInstance:       NewPaymentProviderInstanceClient(cfg),
@@ -336,6 +351,9 @@ func (c *Client) BeginTx(ctx context.Context, opts *sql.TxOptions) (*Tx, error) 
 		Group:                         NewGroupClient(cfg),
 		IdempotencyRecord:             NewIdempotencyRecordClient(cfg),
 		IdentityAdoptionDecision:      NewIdentityAdoptionDecisionClient(cfg),
+		OAuthCapsuleSet:               NewOAuthCapsuleSetClient(cfg),
+		OAuthPool:                     NewOAuthPoolClient(cfg),
+		OAuthPoolCredential:           NewOAuthPoolCredentialClient(cfg),
 		PaymentAuditLog:               NewPaymentAuditLogClient(cfg),
 		PaymentOrder:                  NewPaymentOrderClient(cfg),
 		PaymentProviderInstance:       NewPaymentProviderInstanceClient(cfg),
@@ -389,11 +407,12 @@ func (c *Client) Use(hooks ...Hook) {
 		c.AuthIdentity, c.AuthIdentityChannel, c.ChannelMonitor,
 		c.ChannelMonitorDailyRollup, c.ChannelMonitorHistory,
 		c.ChannelMonitorRequestTemplate, c.ErrorPassthroughRule, c.Group,
-		c.IdempotencyRecord, c.IdentityAdoptionDecision, c.PaymentAuditLog,
-		c.PaymentOrder, c.PaymentProviderInstance, c.PendingAuthSession, c.PromoCode,
-		c.PromoCodeUsage, c.Proxy, c.RedeemCode, c.SecuritySecret, c.Setting,
-		c.SubscriptionPlan, c.TLSFingerprintProfile, c.UsageCleanupTask, c.UsageLog,
-		c.User, c.UserAllowedGroup, c.UserAttributeDefinition, c.UserAttributeValue,
+		c.IdempotencyRecord, c.IdentityAdoptionDecision, c.OAuthCapsuleSet,
+		c.OAuthPool, c.OAuthPoolCredential, c.PaymentAuditLog, c.PaymentOrder,
+		c.PaymentProviderInstance, c.PendingAuthSession, c.PromoCode, c.PromoCodeUsage,
+		c.Proxy, c.RedeemCode, c.SecuritySecret, c.Setting, c.SubscriptionPlan,
+		c.TLSFingerprintProfile, c.UsageCleanupTask, c.UsageLog, c.User,
+		c.UserAllowedGroup, c.UserAttributeDefinition, c.UserAttributeValue,
 		c.UserPlatformQuota, c.UserSubscription,
 	} {
 		n.Use(hooks...)
@@ -408,11 +427,12 @@ func (c *Client) Intercept(interceptors ...Interceptor) {
 		c.AuthIdentity, c.AuthIdentityChannel, c.ChannelMonitor,
 		c.ChannelMonitorDailyRollup, c.ChannelMonitorHistory,
 		c.ChannelMonitorRequestTemplate, c.ErrorPassthroughRule, c.Group,
-		c.IdempotencyRecord, c.IdentityAdoptionDecision, c.PaymentAuditLog,
-		c.PaymentOrder, c.PaymentProviderInstance, c.PendingAuthSession, c.PromoCode,
-		c.PromoCodeUsage, c.Proxy, c.RedeemCode, c.SecuritySecret, c.Setting,
-		c.SubscriptionPlan, c.TLSFingerprintProfile, c.UsageCleanupTask, c.UsageLog,
-		c.User, c.UserAllowedGroup, c.UserAttributeDefinition, c.UserAttributeValue,
+		c.IdempotencyRecord, c.IdentityAdoptionDecision, c.OAuthCapsuleSet,
+		c.OAuthPool, c.OAuthPoolCredential, c.PaymentAuditLog, c.PaymentOrder,
+		c.PaymentProviderInstance, c.PendingAuthSession, c.PromoCode, c.PromoCodeUsage,
+		c.Proxy, c.RedeemCode, c.SecuritySecret, c.Setting, c.SubscriptionPlan,
+		c.TLSFingerprintProfile, c.UsageCleanupTask, c.UsageLog, c.User,
+		c.UserAllowedGroup, c.UserAttributeDefinition, c.UserAttributeValue,
 		c.UserPlatformQuota, c.UserSubscription,
 	} {
 		n.Intercept(interceptors...)
@@ -452,6 +472,12 @@ func (c *Client) Mutate(ctx context.Context, m Mutation) (Value, error) {
 		return c.IdempotencyRecord.mutate(ctx, m)
 	case *IdentityAdoptionDecisionMutation:
 		return c.IdentityAdoptionDecision.mutate(ctx, m)
+	case *OAuthCapsuleSetMutation:
+		return c.OAuthCapsuleSet.mutate(ctx, m)
+	case *OAuthPoolMutation:
+		return c.OAuthPool.mutate(ctx, m)
+	case *OAuthPoolCredentialMutation:
+		return c.OAuthPoolCredential.mutate(ctx, m)
 	case *PaymentAuditLogMutation:
 		return c.PaymentAuditLog.mutate(ctx, m)
 	case *PaymentOrderMutation:
@@ -813,6 +839,22 @@ func (c *AccountClient) QueryProxy(_m *Account) *ProxyQuery {
 			sqlgraph.From(account.Table, account.FieldID, id),
 			sqlgraph.To(proxy.Table, proxy.FieldID),
 			sqlgraph.Edge(sqlgraph.M2O, false, account.ProxyTable, account.ProxyColumn),
+		)
+		fromV = sqlgraph.Neighbors(_m.driver.Dialect(), step)
+		return fromV, nil
+	}
+	return query
+}
+
+// QueryOauthPoolCredential queries the oauth_pool_credential edge of a Account.
+func (c *AccountClient) QueryOauthPoolCredential(_m *Account) *OAuthPoolCredentialQuery {
+	query := (&OAuthPoolCredentialClient{config: c.config}).Query()
+	query.path = func(context.Context) (fromV *sql.Selector, _ error) {
+		id := _m.ID
+		step := sqlgraph.NewStep(
+			sqlgraph.From(account.Table, account.FieldID, id),
+			sqlgraph.To(oauthpoolcredential.Table, oauthpoolcredential.FieldID),
+			sqlgraph.Edge(sqlgraph.O2O, false, account.OauthPoolCredentialTable, account.OauthPoolCredentialColumn),
 		)
 		fromV = sqlgraph.Neighbors(_m.driver.Dialect(), step)
 		return fromV, nil
@@ -2604,6 +2646,22 @@ func (c *GroupClient) QueryAllowedUsers(_m *Group) *UserQuery {
 	return query
 }
 
+// QueryOauthPool queries the oauth_pool edge of a Group.
+func (c *GroupClient) QueryOauthPool(_m *Group) *OAuthPoolQuery {
+	query := (&OAuthPoolClient{config: c.config}).Query()
+	query.path = func(context.Context) (fromV *sql.Selector, _ error) {
+		id := _m.ID
+		step := sqlgraph.NewStep(
+			sqlgraph.From(group.Table, group.FieldID, id),
+			sqlgraph.To(oauthpool.Table, oauthpool.FieldID),
+			sqlgraph.Edge(sqlgraph.M2O, true, group.OauthPoolTable, group.OauthPoolColumn),
+		)
+		fromV = sqlgraph.Neighbors(_m.driver.Dialect(), step)
+		return fromV, nil
+	}
+	return query
+}
+
 // QueryAccountGroups queries the account_groups edge of a Group.
 func (c *GroupClient) QueryAccountGroups(_m *Group) *AccountGroupQuery {
 	query := (&AccountGroupClient{config: c.config}).Query()
@@ -2958,6 +3016,519 @@ func (c *IdentityAdoptionDecisionClient) mutate(ctx context.Context, m *Identity
 		return (&IdentityAdoptionDecisionDelete{config: c.config, hooks: c.Hooks(), mutation: m}).Exec(ctx)
 	default:
 		return nil, fmt.Errorf("ent: unknown IdentityAdoptionDecision mutation op: %q", m.Op())
+	}
+}
+
+// OAuthCapsuleSetClient is a client for the OAuthCapsuleSet schema.
+type OAuthCapsuleSetClient struct {
+	config
+}
+
+// NewOAuthCapsuleSetClient returns a client for the OAuthCapsuleSet from the given config.
+func NewOAuthCapsuleSetClient(c config) *OAuthCapsuleSetClient {
+	return &OAuthCapsuleSetClient{config: c}
+}
+
+// Use adds a list of mutation hooks to the hooks stack.
+// A call to `Use(f, g, h)` equals to `oauthcapsuleset.Hooks(f(g(h())))`.
+func (c *OAuthCapsuleSetClient) Use(hooks ...Hook) {
+	c.hooks.OAuthCapsuleSet = append(c.hooks.OAuthCapsuleSet, hooks...)
+}
+
+// Intercept adds a list of query interceptors to the interceptors stack.
+// A call to `Intercept(f, g, h)` equals to `oauthcapsuleset.Intercept(f(g(h())))`.
+func (c *OAuthCapsuleSetClient) Intercept(interceptors ...Interceptor) {
+	c.inters.OAuthCapsuleSet = append(c.inters.OAuthCapsuleSet, interceptors...)
+}
+
+// Create returns a builder for creating a OAuthCapsuleSet entity.
+func (c *OAuthCapsuleSetClient) Create() *OAuthCapsuleSetCreate {
+	mutation := newOAuthCapsuleSetMutation(c.config, OpCreate)
+	return &OAuthCapsuleSetCreate{config: c.config, hooks: c.Hooks(), mutation: mutation}
+}
+
+// CreateBulk returns a builder for creating a bulk of OAuthCapsuleSet entities.
+func (c *OAuthCapsuleSetClient) CreateBulk(builders ...*OAuthCapsuleSetCreate) *OAuthCapsuleSetCreateBulk {
+	return &OAuthCapsuleSetCreateBulk{config: c.config, builders: builders}
+}
+
+// MapCreateBulk creates a bulk creation builder from the given slice. For each item in the slice, the function creates
+// a builder and applies setFunc on it.
+func (c *OAuthCapsuleSetClient) MapCreateBulk(slice any, setFunc func(*OAuthCapsuleSetCreate, int)) *OAuthCapsuleSetCreateBulk {
+	rv := reflect.ValueOf(slice)
+	if rv.Kind() != reflect.Slice {
+		return &OAuthCapsuleSetCreateBulk{err: fmt.Errorf("calling to OAuthCapsuleSetClient.MapCreateBulk with wrong type %T, need slice", slice)}
+	}
+	builders := make([]*OAuthCapsuleSetCreate, rv.Len())
+	for i := 0; i < rv.Len(); i++ {
+		builders[i] = c.Create()
+		setFunc(builders[i], i)
+	}
+	return &OAuthCapsuleSetCreateBulk{config: c.config, builders: builders}
+}
+
+// Update returns an update builder for OAuthCapsuleSet.
+func (c *OAuthCapsuleSetClient) Update() *OAuthCapsuleSetUpdate {
+	mutation := newOAuthCapsuleSetMutation(c.config, OpUpdate)
+	return &OAuthCapsuleSetUpdate{config: c.config, hooks: c.Hooks(), mutation: mutation}
+}
+
+// UpdateOne returns an update builder for the given entity.
+func (c *OAuthCapsuleSetClient) UpdateOne(_m *OAuthCapsuleSet) *OAuthCapsuleSetUpdateOne {
+	mutation := newOAuthCapsuleSetMutation(c.config, OpUpdateOne, withOAuthCapsuleSet(_m))
+	return &OAuthCapsuleSetUpdateOne{config: c.config, hooks: c.Hooks(), mutation: mutation}
+}
+
+// UpdateOneID returns an update builder for the given id.
+func (c *OAuthCapsuleSetClient) UpdateOneID(id int64) *OAuthCapsuleSetUpdateOne {
+	mutation := newOAuthCapsuleSetMutation(c.config, OpUpdateOne, withOAuthCapsuleSetID(id))
+	return &OAuthCapsuleSetUpdateOne{config: c.config, hooks: c.Hooks(), mutation: mutation}
+}
+
+// Delete returns a delete builder for OAuthCapsuleSet.
+func (c *OAuthCapsuleSetClient) Delete() *OAuthCapsuleSetDelete {
+	mutation := newOAuthCapsuleSetMutation(c.config, OpDelete)
+	return &OAuthCapsuleSetDelete{config: c.config, hooks: c.Hooks(), mutation: mutation}
+}
+
+// DeleteOne returns a builder for deleting the given entity.
+func (c *OAuthCapsuleSetClient) DeleteOne(_m *OAuthCapsuleSet) *OAuthCapsuleSetDeleteOne {
+	return c.DeleteOneID(_m.ID)
+}
+
+// DeleteOneID returns a builder for deleting the given entity by its id.
+func (c *OAuthCapsuleSetClient) DeleteOneID(id int64) *OAuthCapsuleSetDeleteOne {
+	builder := c.Delete().Where(oauthcapsuleset.ID(id))
+	builder.mutation.id = &id
+	builder.mutation.op = OpDeleteOne
+	return &OAuthCapsuleSetDeleteOne{builder}
+}
+
+// Query returns a query builder for OAuthCapsuleSet.
+func (c *OAuthCapsuleSetClient) Query() *OAuthCapsuleSetQuery {
+	return &OAuthCapsuleSetQuery{
+		config: c.config,
+		ctx:    &QueryContext{Type: TypeOAuthCapsuleSet},
+		inters: c.Interceptors(),
+	}
+}
+
+// Get returns a OAuthCapsuleSet entity by its id.
+func (c *OAuthCapsuleSetClient) Get(ctx context.Context, id int64) (*OAuthCapsuleSet, error) {
+	return c.Query().Where(oauthcapsuleset.ID(id)).Only(ctx)
+}
+
+// GetX is like Get, but panics if an error occurs.
+func (c *OAuthCapsuleSetClient) GetX(ctx context.Context, id int64) *OAuthCapsuleSet {
+	obj, err := c.Get(ctx, id)
+	if err != nil {
+		panic(err)
+	}
+	return obj
+}
+
+// QueryPool queries the pool edge of a OAuthCapsuleSet.
+func (c *OAuthCapsuleSetClient) QueryPool(_m *OAuthCapsuleSet) *OAuthPoolQuery {
+	query := (&OAuthPoolClient{config: c.config}).Query()
+	query.path = func(context.Context) (fromV *sql.Selector, _ error) {
+		id := _m.ID
+		step := sqlgraph.NewStep(
+			sqlgraph.From(oauthcapsuleset.Table, oauthcapsuleset.FieldID, id),
+			sqlgraph.To(oauthpool.Table, oauthpool.FieldID),
+			sqlgraph.Edge(sqlgraph.M2O, true, oauthcapsuleset.PoolTable, oauthcapsuleset.PoolColumn),
+		)
+		fromV = sqlgraph.Neighbors(_m.driver.Dialect(), step)
+		return fromV, nil
+	}
+	return query
+}
+
+// Hooks returns the client hooks.
+func (c *OAuthCapsuleSetClient) Hooks() []Hook {
+	return c.hooks.OAuthCapsuleSet
+}
+
+// Interceptors returns the client interceptors.
+func (c *OAuthCapsuleSetClient) Interceptors() []Interceptor {
+	return c.inters.OAuthCapsuleSet
+}
+
+func (c *OAuthCapsuleSetClient) mutate(ctx context.Context, m *OAuthCapsuleSetMutation) (Value, error) {
+	switch m.Op() {
+	case OpCreate:
+		return (&OAuthCapsuleSetCreate{config: c.config, hooks: c.Hooks(), mutation: m}).Save(ctx)
+	case OpUpdate:
+		return (&OAuthCapsuleSetUpdate{config: c.config, hooks: c.Hooks(), mutation: m}).Save(ctx)
+	case OpUpdateOne:
+		return (&OAuthCapsuleSetUpdateOne{config: c.config, hooks: c.Hooks(), mutation: m}).Save(ctx)
+	case OpDelete, OpDeleteOne:
+		return (&OAuthCapsuleSetDelete{config: c.config, hooks: c.Hooks(), mutation: m}).Exec(ctx)
+	default:
+		return nil, fmt.Errorf("ent: unknown OAuthCapsuleSet mutation op: %q", m.Op())
+	}
+}
+
+// OAuthPoolClient is a client for the OAuthPool schema.
+type OAuthPoolClient struct {
+	config
+}
+
+// NewOAuthPoolClient returns a client for the OAuthPool from the given config.
+func NewOAuthPoolClient(c config) *OAuthPoolClient {
+	return &OAuthPoolClient{config: c}
+}
+
+// Use adds a list of mutation hooks to the hooks stack.
+// A call to `Use(f, g, h)` equals to `oauthpool.Hooks(f(g(h())))`.
+func (c *OAuthPoolClient) Use(hooks ...Hook) {
+	c.hooks.OAuthPool = append(c.hooks.OAuthPool, hooks...)
+}
+
+// Intercept adds a list of query interceptors to the interceptors stack.
+// A call to `Intercept(f, g, h)` equals to `oauthpool.Intercept(f(g(h())))`.
+func (c *OAuthPoolClient) Intercept(interceptors ...Interceptor) {
+	c.inters.OAuthPool = append(c.inters.OAuthPool, interceptors...)
+}
+
+// Create returns a builder for creating a OAuthPool entity.
+func (c *OAuthPoolClient) Create() *OAuthPoolCreate {
+	mutation := newOAuthPoolMutation(c.config, OpCreate)
+	return &OAuthPoolCreate{config: c.config, hooks: c.Hooks(), mutation: mutation}
+}
+
+// CreateBulk returns a builder for creating a bulk of OAuthPool entities.
+func (c *OAuthPoolClient) CreateBulk(builders ...*OAuthPoolCreate) *OAuthPoolCreateBulk {
+	return &OAuthPoolCreateBulk{config: c.config, builders: builders}
+}
+
+// MapCreateBulk creates a bulk creation builder from the given slice. For each item in the slice, the function creates
+// a builder and applies setFunc on it.
+func (c *OAuthPoolClient) MapCreateBulk(slice any, setFunc func(*OAuthPoolCreate, int)) *OAuthPoolCreateBulk {
+	rv := reflect.ValueOf(slice)
+	if rv.Kind() != reflect.Slice {
+		return &OAuthPoolCreateBulk{err: fmt.Errorf("calling to OAuthPoolClient.MapCreateBulk with wrong type %T, need slice", slice)}
+	}
+	builders := make([]*OAuthPoolCreate, rv.Len())
+	for i := 0; i < rv.Len(); i++ {
+		builders[i] = c.Create()
+		setFunc(builders[i], i)
+	}
+	return &OAuthPoolCreateBulk{config: c.config, builders: builders}
+}
+
+// Update returns an update builder for OAuthPool.
+func (c *OAuthPoolClient) Update() *OAuthPoolUpdate {
+	mutation := newOAuthPoolMutation(c.config, OpUpdate)
+	return &OAuthPoolUpdate{config: c.config, hooks: c.Hooks(), mutation: mutation}
+}
+
+// UpdateOne returns an update builder for the given entity.
+func (c *OAuthPoolClient) UpdateOne(_m *OAuthPool) *OAuthPoolUpdateOne {
+	mutation := newOAuthPoolMutation(c.config, OpUpdateOne, withOAuthPool(_m))
+	return &OAuthPoolUpdateOne{config: c.config, hooks: c.Hooks(), mutation: mutation}
+}
+
+// UpdateOneID returns an update builder for the given id.
+func (c *OAuthPoolClient) UpdateOneID(id int64) *OAuthPoolUpdateOne {
+	mutation := newOAuthPoolMutation(c.config, OpUpdateOne, withOAuthPoolID(id))
+	return &OAuthPoolUpdateOne{config: c.config, hooks: c.Hooks(), mutation: mutation}
+}
+
+// Delete returns a delete builder for OAuthPool.
+func (c *OAuthPoolClient) Delete() *OAuthPoolDelete {
+	mutation := newOAuthPoolMutation(c.config, OpDelete)
+	return &OAuthPoolDelete{config: c.config, hooks: c.Hooks(), mutation: mutation}
+}
+
+// DeleteOne returns a builder for deleting the given entity.
+func (c *OAuthPoolClient) DeleteOne(_m *OAuthPool) *OAuthPoolDeleteOne {
+	return c.DeleteOneID(_m.ID)
+}
+
+// DeleteOneID returns a builder for deleting the given entity by its id.
+func (c *OAuthPoolClient) DeleteOneID(id int64) *OAuthPoolDeleteOne {
+	builder := c.Delete().Where(oauthpool.ID(id))
+	builder.mutation.id = &id
+	builder.mutation.op = OpDeleteOne
+	return &OAuthPoolDeleteOne{builder}
+}
+
+// Query returns a query builder for OAuthPool.
+func (c *OAuthPoolClient) Query() *OAuthPoolQuery {
+	return &OAuthPoolQuery{
+		config: c.config,
+		ctx:    &QueryContext{Type: TypeOAuthPool},
+		inters: c.Interceptors(),
+	}
+}
+
+// Get returns a OAuthPool entity by its id.
+func (c *OAuthPoolClient) Get(ctx context.Context, id int64) (*OAuthPool, error) {
+	return c.Query().Where(oauthpool.ID(id)).Only(ctx)
+}
+
+// GetX is like Get, but panics if an error occurs.
+func (c *OAuthPoolClient) GetX(ctx context.Context, id int64) *OAuthPool {
+	obj, err := c.Get(ctx, id)
+	if err != nil {
+		panic(err)
+	}
+	return obj
+}
+
+// QueryEgressRoute queries the egress_route edge of a OAuthPool.
+func (c *OAuthPoolClient) QueryEgressRoute(_m *OAuthPool) *ProxyQuery {
+	query := (&ProxyClient{config: c.config}).Query()
+	query.path = func(context.Context) (fromV *sql.Selector, _ error) {
+		id := _m.ID
+		step := sqlgraph.NewStep(
+			sqlgraph.From(oauthpool.Table, oauthpool.FieldID, id),
+			sqlgraph.To(proxy.Table, proxy.FieldID),
+			sqlgraph.Edge(sqlgraph.M2O, true, oauthpool.EgressRouteTable, oauthpool.EgressRouteColumn),
+		)
+		fromV = sqlgraph.Neighbors(_m.driver.Dialect(), step)
+		return fromV, nil
+	}
+	return query
+}
+
+// QueryCredentials queries the credentials edge of a OAuthPool.
+func (c *OAuthPoolClient) QueryCredentials(_m *OAuthPool) *OAuthPoolCredentialQuery {
+	query := (&OAuthPoolCredentialClient{config: c.config}).Query()
+	query.path = func(context.Context) (fromV *sql.Selector, _ error) {
+		id := _m.ID
+		step := sqlgraph.NewStep(
+			sqlgraph.From(oauthpool.Table, oauthpool.FieldID, id),
+			sqlgraph.To(oauthpoolcredential.Table, oauthpoolcredential.FieldID),
+			sqlgraph.Edge(sqlgraph.O2M, false, oauthpool.CredentialsTable, oauthpool.CredentialsColumn),
+		)
+		fromV = sqlgraph.Neighbors(_m.driver.Dialect(), step)
+		return fromV, nil
+	}
+	return query
+}
+
+// QueryCapsuleSets queries the capsule_sets edge of a OAuthPool.
+func (c *OAuthPoolClient) QueryCapsuleSets(_m *OAuthPool) *OAuthCapsuleSetQuery {
+	query := (&OAuthCapsuleSetClient{config: c.config}).Query()
+	query.path = func(context.Context) (fromV *sql.Selector, _ error) {
+		id := _m.ID
+		step := sqlgraph.NewStep(
+			sqlgraph.From(oauthpool.Table, oauthpool.FieldID, id),
+			sqlgraph.To(oauthcapsuleset.Table, oauthcapsuleset.FieldID),
+			sqlgraph.Edge(sqlgraph.O2M, false, oauthpool.CapsuleSetsTable, oauthpool.CapsuleSetsColumn),
+		)
+		fromV = sqlgraph.Neighbors(_m.driver.Dialect(), step)
+		return fromV, nil
+	}
+	return query
+}
+
+// QueryGroups queries the groups edge of a OAuthPool.
+func (c *OAuthPoolClient) QueryGroups(_m *OAuthPool) *GroupQuery {
+	query := (&GroupClient{config: c.config}).Query()
+	query.path = func(context.Context) (fromV *sql.Selector, _ error) {
+		id := _m.ID
+		step := sqlgraph.NewStep(
+			sqlgraph.From(oauthpool.Table, oauthpool.FieldID, id),
+			sqlgraph.To(group.Table, group.FieldID),
+			sqlgraph.Edge(sqlgraph.O2M, false, oauthpool.GroupsTable, oauthpool.GroupsColumn),
+		)
+		fromV = sqlgraph.Neighbors(_m.driver.Dialect(), step)
+		return fromV, nil
+	}
+	return query
+}
+
+// Hooks returns the client hooks.
+func (c *OAuthPoolClient) Hooks() []Hook {
+	hooks := c.hooks.OAuthPool
+	return append(hooks[:len(hooks):len(hooks)], oauthpool.Hooks[:]...)
+}
+
+// Interceptors returns the client interceptors.
+func (c *OAuthPoolClient) Interceptors() []Interceptor {
+	inters := c.inters.OAuthPool
+	return append(inters[:len(inters):len(inters)], oauthpool.Interceptors[:]...)
+}
+
+func (c *OAuthPoolClient) mutate(ctx context.Context, m *OAuthPoolMutation) (Value, error) {
+	switch m.Op() {
+	case OpCreate:
+		return (&OAuthPoolCreate{config: c.config, hooks: c.Hooks(), mutation: m}).Save(ctx)
+	case OpUpdate:
+		return (&OAuthPoolUpdate{config: c.config, hooks: c.Hooks(), mutation: m}).Save(ctx)
+	case OpUpdateOne:
+		return (&OAuthPoolUpdateOne{config: c.config, hooks: c.Hooks(), mutation: m}).Save(ctx)
+	case OpDelete, OpDeleteOne:
+		return (&OAuthPoolDelete{config: c.config, hooks: c.Hooks(), mutation: m}).Exec(ctx)
+	default:
+		return nil, fmt.Errorf("ent: unknown OAuthPool mutation op: %q", m.Op())
+	}
+}
+
+// OAuthPoolCredentialClient is a client for the OAuthPoolCredential schema.
+type OAuthPoolCredentialClient struct {
+	config
+}
+
+// NewOAuthPoolCredentialClient returns a client for the OAuthPoolCredential from the given config.
+func NewOAuthPoolCredentialClient(c config) *OAuthPoolCredentialClient {
+	return &OAuthPoolCredentialClient{config: c}
+}
+
+// Use adds a list of mutation hooks to the hooks stack.
+// A call to `Use(f, g, h)` equals to `oauthpoolcredential.Hooks(f(g(h())))`.
+func (c *OAuthPoolCredentialClient) Use(hooks ...Hook) {
+	c.hooks.OAuthPoolCredential = append(c.hooks.OAuthPoolCredential, hooks...)
+}
+
+// Intercept adds a list of query interceptors to the interceptors stack.
+// A call to `Intercept(f, g, h)` equals to `oauthpoolcredential.Intercept(f(g(h())))`.
+func (c *OAuthPoolCredentialClient) Intercept(interceptors ...Interceptor) {
+	c.inters.OAuthPoolCredential = append(c.inters.OAuthPoolCredential, interceptors...)
+}
+
+// Create returns a builder for creating a OAuthPoolCredential entity.
+func (c *OAuthPoolCredentialClient) Create() *OAuthPoolCredentialCreate {
+	mutation := newOAuthPoolCredentialMutation(c.config, OpCreate)
+	return &OAuthPoolCredentialCreate{config: c.config, hooks: c.Hooks(), mutation: mutation}
+}
+
+// CreateBulk returns a builder for creating a bulk of OAuthPoolCredential entities.
+func (c *OAuthPoolCredentialClient) CreateBulk(builders ...*OAuthPoolCredentialCreate) *OAuthPoolCredentialCreateBulk {
+	return &OAuthPoolCredentialCreateBulk{config: c.config, builders: builders}
+}
+
+// MapCreateBulk creates a bulk creation builder from the given slice. For each item in the slice, the function creates
+// a builder and applies setFunc on it.
+func (c *OAuthPoolCredentialClient) MapCreateBulk(slice any, setFunc func(*OAuthPoolCredentialCreate, int)) *OAuthPoolCredentialCreateBulk {
+	rv := reflect.ValueOf(slice)
+	if rv.Kind() != reflect.Slice {
+		return &OAuthPoolCredentialCreateBulk{err: fmt.Errorf("calling to OAuthPoolCredentialClient.MapCreateBulk with wrong type %T, need slice", slice)}
+	}
+	builders := make([]*OAuthPoolCredentialCreate, rv.Len())
+	for i := 0; i < rv.Len(); i++ {
+		builders[i] = c.Create()
+		setFunc(builders[i], i)
+	}
+	return &OAuthPoolCredentialCreateBulk{config: c.config, builders: builders}
+}
+
+// Update returns an update builder for OAuthPoolCredential.
+func (c *OAuthPoolCredentialClient) Update() *OAuthPoolCredentialUpdate {
+	mutation := newOAuthPoolCredentialMutation(c.config, OpUpdate)
+	return &OAuthPoolCredentialUpdate{config: c.config, hooks: c.Hooks(), mutation: mutation}
+}
+
+// UpdateOne returns an update builder for the given entity.
+func (c *OAuthPoolCredentialClient) UpdateOne(_m *OAuthPoolCredential) *OAuthPoolCredentialUpdateOne {
+	mutation := newOAuthPoolCredentialMutation(c.config, OpUpdateOne, withOAuthPoolCredential(_m))
+	return &OAuthPoolCredentialUpdateOne{config: c.config, hooks: c.Hooks(), mutation: mutation}
+}
+
+// UpdateOneID returns an update builder for the given id.
+func (c *OAuthPoolCredentialClient) UpdateOneID(id int64) *OAuthPoolCredentialUpdateOne {
+	mutation := newOAuthPoolCredentialMutation(c.config, OpUpdateOne, withOAuthPoolCredentialID(id))
+	return &OAuthPoolCredentialUpdateOne{config: c.config, hooks: c.Hooks(), mutation: mutation}
+}
+
+// Delete returns a delete builder for OAuthPoolCredential.
+func (c *OAuthPoolCredentialClient) Delete() *OAuthPoolCredentialDelete {
+	mutation := newOAuthPoolCredentialMutation(c.config, OpDelete)
+	return &OAuthPoolCredentialDelete{config: c.config, hooks: c.Hooks(), mutation: mutation}
+}
+
+// DeleteOne returns a builder for deleting the given entity.
+func (c *OAuthPoolCredentialClient) DeleteOne(_m *OAuthPoolCredential) *OAuthPoolCredentialDeleteOne {
+	return c.DeleteOneID(_m.ID)
+}
+
+// DeleteOneID returns a builder for deleting the given entity by its id.
+func (c *OAuthPoolCredentialClient) DeleteOneID(id int64) *OAuthPoolCredentialDeleteOne {
+	builder := c.Delete().Where(oauthpoolcredential.ID(id))
+	builder.mutation.id = &id
+	builder.mutation.op = OpDeleteOne
+	return &OAuthPoolCredentialDeleteOne{builder}
+}
+
+// Query returns a query builder for OAuthPoolCredential.
+func (c *OAuthPoolCredentialClient) Query() *OAuthPoolCredentialQuery {
+	return &OAuthPoolCredentialQuery{
+		config: c.config,
+		ctx:    &QueryContext{Type: TypeOAuthPoolCredential},
+		inters: c.Interceptors(),
+	}
+}
+
+// Get returns a OAuthPoolCredential entity by its id.
+func (c *OAuthPoolCredentialClient) Get(ctx context.Context, id int64) (*OAuthPoolCredential, error) {
+	return c.Query().Where(oauthpoolcredential.ID(id)).Only(ctx)
+}
+
+// GetX is like Get, but panics if an error occurs.
+func (c *OAuthPoolCredentialClient) GetX(ctx context.Context, id int64) *OAuthPoolCredential {
+	obj, err := c.Get(ctx, id)
+	if err != nil {
+		panic(err)
+	}
+	return obj
+}
+
+// QueryPool queries the pool edge of a OAuthPoolCredential.
+func (c *OAuthPoolCredentialClient) QueryPool(_m *OAuthPoolCredential) *OAuthPoolQuery {
+	query := (&OAuthPoolClient{config: c.config}).Query()
+	query.path = func(context.Context) (fromV *sql.Selector, _ error) {
+		id := _m.ID
+		step := sqlgraph.NewStep(
+			sqlgraph.From(oauthpoolcredential.Table, oauthpoolcredential.FieldID, id),
+			sqlgraph.To(oauthpool.Table, oauthpool.FieldID),
+			sqlgraph.Edge(sqlgraph.M2O, true, oauthpoolcredential.PoolTable, oauthpoolcredential.PoolColumn),
+		)
+		fromV = sqlgraph.Neighbors(_m.driver.Dialect(), step)
+		return fromV, nil
+	}
+	return query
+}
+
+// QueryAccount queries the account edge of a OAuthPoolCredential.
+func (c *OAuthPoolCredentialClient) QueryAccount(_m *OAuthPoolCredential) *AccountQuery {
+	query := (&AccountClient{config: c.config}).Query()
+	query.path = func(context.Context) (fromV *sql.Selector, _ error) {
+		id := _m.ID
+		step := sqlgraph.NewStep(
+			sqlgraph.From(oauthpoolcredential.Table, oauthpoolcredential.FieldID, id),
+			sqlgraph.To(account.Table, account.FieldID),
+			sqlgraph.Edge(sqlgraph.O2O, true, oauthpoolcredential.AccountTable, oauthpoolcredential.AccountColumn),
+		)
+		fromV = sqlgraph.Neighbors(_m.driver.Dialect(), step)
+		return fromV, nil
+	}
+	return query
+}
+
+// Hooks returns the client hooks.
+func (c *OAuthPoolCredentialClient) Hooks() []Hook {
+	return c.hooks.OAuthPoolCredential
+}
+
+// Interceptors returns the client interceptors.
+func (c *OAuthPoolCredentialClient) Interceptors() []Interceptor {
+	return c.inters.OAuthPoolCredential
+}
+
+func (c *OAuthPoolCredentialClient) mutate(ctx context.Context, m *OAuthPoolCredentialMutation) (Value, error) {
+	switch m.Op() {
+	case OpCreate:
+		return (&OAuthPoolCredentialCreate{config: c.config, hooks: c.Hooks(), mutation: m}).Save(ctx)
+	case OpUpdate:
+		return (&OAuthPoolCredentialUpdate{config: c.config, hooks: c.Hooks(), mutation: m}).Save(ctx)
+	case OpUpdateOne:
+		return (&OAuthPoolCredentialUpdateOne{config: c.config, hooks: c.Hooks(), mutation: m}).Save(ctx)
+	case OpDelete, OpDeleteOne:
+		return (&OAuthPoolCredentialDelete{config: c.config, hooks: c.Hooks(), mutation: m}).Exec(ctx)
+	default:
+		return nil, fmt.Errorf("ent: unknown OAuthPoolCredential mutation op: %q", m.Op())
 	}
 }
 
@@ -3972,6 +4543,22 @@ func (c *ProxyClient) QueryAccounts(_m *Proxy) *AccountQuery {
 			sqlgraph.From(proxy.Table, proxy.FieldID, id),
 			sqlgraph.To(account.Table, account.FieldID),
 			sqlgraph.Edge(sqlgraph.O2M, true, proxy.AccountsTable, proxy.AccountsColumn),
+		)
+		fromV = sqlgraph.Neighbors(_m.driver.Dialect(), step)
+		return fromV, nil
+	}
+	return query
+}
+
+// QueryOauthPools queries the oauth_pools edge of a Proxy.
+func (c *ProxyClient) QueryOauthPools(_m *Proxy) *OAuthPoolQuery {
+	query := (&OAuthPoolClient{config: c.config}).Query()
+	query.path = func(context.Context) (fromV *sql.Selector, _ error) {
+		id := _m.ID
+		step := sqlgraph.NewStep(
+			sqlgraph.From(proxy.Table, proxy.FieldID, id),
+			sqlgraph.To(oauthpool.Table, oauthpool.FieldID),
+			sqlgraph.Edge(sqlgraph.O2M, false, proxy.OauthPoolsTable, proxy.OauthPoolsColumn),
 		)
 		fromV = sqlgraph.Neighbors(_m.driver.Dialect(), step)
 		return fromV, nil
@@ -6212,23 +6799,23 @@ type (
 		APIKey, Account, AccountGroup, Announcement, AnnouncementRead, AuthIdentity,
 		AuthIdentityChannel, ChannelMonitor, ChannelMonitorDailyRollup,
 		ChannelMonitorHistory, ChannelMonitorRequestTemplate, ErrorPassthroughRule,
-		Group, IdempotencyRecord, IdentityAdoptionDecision, PaymentAuditLog,
-		PaymentOrder, PaymentProviderInstance, PendingAuthSession, PromoCode,
-		PromoCodeUsage, Proxy, RedeemCode, SecuritySecret, Setting, SubscriptionPlan,
-		TLSFingerprintProfile, UsageCleanupTask, UsageLog, User, UserAllowedGroup,
-		UserAttributeDefinition, UserAttributeValue, UserPlatformQuota,
-		UserSubscription []ent.Hook
+		Group, IdempotencyRecord, IdentityAdoptionDecision, OAuthCapsuleSet, OAuthPool,
+		OAuthPoolCredential, PaymentAuditLog, PaymentOrder, PaymentProviderInstance,
+		PendingAuthSession, PromoCode, PromoCodeUsage, Proxy, RedeemCode,
+		SecuritySecret, Setting, SubscriptionPlan, TLSFingerprintProfile,
+		UsageCleanupTask, UsageLog, User, UserAllowedGroup, UserAttributeDefinition,
+		UserAttributeValue, UserPlatformQuota, UserSubscription []ent.Hook
 	}
 	inters struct {
 		APIKey, Account, AccountGroup, Announcement, AnnouncementRead, AuthIdentity,
 		AuthIdentityChannel, ChannelMonitor, ChannelMonitorDailyRollup,
 		ChannelMonitorHistory, ChannelMonitorRequestTemplate, ErrorPassthroughRule,
-		Group, IdempotencyRecord, IdentityAdoptionDecision, PaymentAuditLog,
-		PaymentOrder, PaymentProviderInstance, PendingAuthSession, PromoCode,
-		PromoCodeUsage, Proxy, RedeemCode, SecuritySecret, Setting, SubscriptionPlan,
-		TLSFingerprintProfile, UsageCleanupTask, UsageLog, User, UserAllowedGroup,
-		UserAttributeDefinition, UserAttributeValue, UserPlatformQuota,
-		UserSubscription []ent.Interceptor
+		Group, IdempotencyRecord, IdentityAdoptionDecision, OAuthCapsuleSet, OAuthPool,
+		OAuthPoolCredential, PaymentAuditLog, PaymentOrder, PaymentProviderInstance,
+		PendingAuthSession, PromoCode, PromoCodeUsage, Proxy, RedeemCode,
+		SecuritySecret, Setting, SubscriptionPlan, TLSFingerprintProfile,
+		UsageCleanupTask, UsageLog, User, UserAllowedGroup, UserAttributeDefinition,
+		UserAttributeValue, UserPlatformQuota, UserSubscription []ent.Interceptor
 	}
 )
 

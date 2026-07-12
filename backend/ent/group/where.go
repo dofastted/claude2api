@@ -205,6 +205,11 @@ func DefaultMappedModel(v string) predicate.Group {
 	return predicate.Group(sql.FieldEQ(FieldDefaultMappedModel, v))
 }
 
+// OauthPoolID applies equality check predicate on the "oauth_pool_id" field. It's identical to OauthPoolIDEQ.
+func OauthPoolID(v int64) predicate.Group {
+	return predicate.Group(sql.FieldEQ(FieldOauthPoolID, v))
+}
+
 // RpmLimit applies equality check predicate on the "rpm_limit" field. It's identical to RpmLimitEQ.
 func RpmLimit(v int) predicate.Group {
 	return predicate.Group(sql.FieldEQ(FieldRpmLimit, v))
@@ -1400,6 +1405,36 @@ func DefaultMappedModelContainsFold(v string) predicate.Group {
 	return predicate.Group(sql.FieldContainsFold(FieldDefaultMappedModel, v))
 }
 
+// OauthPoolIDEQ applies the EQ predicate on the "oauth_pool_id" field.
+func OauthPoolIDEQ(v int64) predicate.Group {
+	return predicate.Group(sql.FieldEQ(FieldOauthPoolID, v))
+}
+
+// OauthPoolIDNEQ applies the NEQ predicate on the "oauth_pool_id" field.
+func OauthPoolIDNEQ(v int64) predicate.Group {
+	return predicate.Group(sql.FieldNEQ(FieldOauthPoolID, v))
+}
+
+// OauthPoolIDIn applies the In predicate on the "oauth_pool_id" field.
+func OauthPoolIDIn(vs ...int64) predicate.Group {
+	return predicate.Group(sql.FieldIn(FieldOauthPoolID, vs...))
+}
+
+// OauthPoolIDNotIn applies the NotIn predicate on the "oauth_pool_id" field.
+func OauthPoolIDNotIn(vs ...int64) predicate.Group {
+	return predicate.Group(sql.FieldNotIn(FieldOauthPoolID, vs...))
+}
+
+// OauthPoolIDIsNil applies the IsNil predicate on the "oauth_pool_id" field.
+func OauthPoolIDIsNil() predicate.Group {
+	return predicate.Group(sql.FieldIsNull(FieldOauthPoolID))
+}
+
+// OauthPoolIDNotNil applies the NotNil predicate on the "oauth_pool_id" field.
+func OauthPoolIDNotNil() predicate.Group {
+	return predicate.Group(sql.FieldNotNull(FieldOauthPoolID))
+}
+
 // RpmLimitEQ applies the EQ predicate on the "rpm_limit" field.
 func RpmLimitEQ(v int) predicate.Group {
 	return predicate.Group(sql.FieldEQ(FieldRpmLimit, v))
@@ -1570,6 +1605,29 @@ func HasAllowedUsers() predicate.Group {
 func HasAllowedUsersWith(preds ...predicate.User) predicate.Group {
 	return predicate.Group(func(s *sql.Selector) {
 		step := newAllowedUsersStep()
+		sqlgraph.HasNeighborsWith(s, step, func(s *sql.Selector) {
+			for _, p := range preds {
+				p(s)
+			}
+		})
+	})
+}
+
+// HasOauthPool applies the HasEdge predicate on the "oauth_pool" edge.
+func HasOauthPool() predicate.Group {
+	return predicate.Group(func(s *sql.Selector) {
+		step := sqlgraph.NewStep(
+			sqlgraph.From(Table, FieldID),
+			sqlgraph.Edge(sqlgraph.M2O, true, OauthPoolTable, OauthPoolColumn),
+		)
+		sqlgraph.HasNeighbors(s, step)
+	})
+}
+
+// HasOauthPoolWith applies the HasEdge predicate on the "oauth_pool" edge with a given conditions (other predicates).
+func HasOauthPoolWith(preds ...predicate.OAuthPool) predicate.Group {
+	return predicate.Group(func(s *sql.Selector) {
+		step := newOauthPoolStep()
 		sqlgraph.HasNeighborsWith(s, step, func(s *sql.Selector) {
 			for _, p := range preds {
 				p(s)

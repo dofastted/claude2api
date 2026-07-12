@@ -77,6 +77,8 @@ const (
 	EdgeGroups = "groups"
 	// EdgeProxy holds the string denoting the proxy edge name in mutations.
 	EdgeProxy = "proxy"
+	// EdgeOauthPoolCredential holds the string denoting the oauth_pool_credential edge name in mutations.
+	EdgeOauthPoolCredential = "oauth_pool_credential"
 	// EdgeUsageLogs holds the string denoting the usage_logs edge name in mutations.
 	EdgeUsageLogs = "usage_logs"
 	// EdgeAccountGroups holds the string denoting the account_groups edge name in mutations.
@@ -95,6 +97,13 @@ const (
 	ProxyInverseTable = "proxies"
 	// ProxyColumn is the table column denoting the proxy relation/edge.
 	ProxyColumn = "proxy_id"
+	// OauthPoolCredentialTable is the table that holds the oauth_pool_credential relation/edge.
+	OauthPoolCredentialTable = "oauth_pool_credentials"
+	// OauthPoolCredentialInverseTable is the table name for the OAuthPoolCredential entity.
+	// It exists in this package in order to avoid circular dependency with the "oauthpoolcredential" package.
+	OauthPoolCredentialInverseTable = "oauth_pool_credentials"
+	// OauthPoolCredentialColumn is the table column denoting the oauth_pool_credential relation/edge.
+	OauthPoolCredentialColumn = "account_id"
 	// UsageLogsTable is the table that holds the usage_logs relation/edge.
 	UsageLogsTable = "usage_logs"
 	// UsageLogsInverseTable is the table name for the UsageLog entity.
@@ -367,6 +376,13 @@ func ByProxyField(field string, opts ...sql.OrderTermOption) OrderOption {
 	}
 }
 
+// ByOauthPoolCredentialField orders the results by oauth_pool_credential field.
+func ByOauthPoolCredentialField(field string, opts ...sql.OrderTermOption) OrderOption {
+	return func(s *sql.Selector) {
+		sqlgraph.OrderByNeighborTerms(s, newOauthPoolCredentialStep(), sql.OrderByField(field, opts...))
+	}
+}
+
 // ByUsageLogsCount orders the results by usage_logs count.
 func ByUsageLogsCount(opts ...sql.OrderTermOption) OrderOption {
 	return func(s *sql.Selector) {
@@ -406,6 +422,13 @@ func newProxyStep() *sqlgraph.Step {
 		sqlgraph.From(Table, FieldID),
 		sqlgraph.To(ProxyInverseTable, FieldID),
 		sqlgraph.Edge(sqlgraph.M2O, false, ProxyTable, ProxyColumn),
+	)
+}
+func newOauthPoolCredentialStep() *sqlgraph.Step {
+	return sqlgraph.NewStep(
+		sqlgraph.From(Table, FieldID),
+		sqlgraph.To(OauthPoolCredentialInverseTable, FieldID),
+		sqlgraph.Edge(sqlgraph.O2O, false, OauthPoolCredentialTable, OauthPoolCredentialColumn),
 	)
 }
 func newUsageLogsStep() *sqlgraph.Step {

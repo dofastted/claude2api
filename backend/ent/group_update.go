@@ -15,6 +15,7 @@ import (
 	"github.com/dofastted/claude2api/ent/account"
 	"github.com/dofastted/claude2api/ent/apikey"
 	"github.com/dofastted/claude2api/ent/group"
+	"github.com/dofastted/claude2api/ent/oauthpool"
 	"github.com/dofastted/claude2api/ent/predicate"
 	"github.com/dofastted/claude2api/ent/redeemcode"
 	"github.com/dofastted/claude2api/ent/usagelog"
@@ -630,6 +631,26 @@ func (_u *GroupUpdate) SetNillableModelsListConfig(v *domain.GroupModelsListConf
 	return _u
 }
 
+// SetOauthPoolID sets the "oauth_pool_id" field.
+func (_u *GroupUpdate) SetOauthPoolID(v int64) *GroupUpdate {
+	_u.mutation.SetOauthPoolID(v)
+	return _u
+}
+
+// SetNillableOauthPoolID sets the "oauth_pool_id" field if the given value is not nil.
+func (_u *GroupUpdate) SetNillableOauthPoolID(v *int64) *GroupUpdate {
+	if v != nil {
+		_u.SetOauthPoolID(*v)
+	}
+	return _u
+}
+
+// ClearOauthPoolID clears the value of the "oauth_pool_id" field.
+func (_u *GroupUpdate) ClearOauthPoolID() *GroupUpdate {
+	_u.mutation.ClearOauthPoolID()
+	return _u
+}
+
 // SetRpmLimit sets the "rpm_limit" field.
 func (_u *GroupUpdate) SetRpmLimit(v int) *GroupUpdate {
 	_u.mutation.ResetRpmLimit()
@@ -739,6 +760,11 @@ func (_u *GroupUpdate) AddAllowedUsers(v ...*User) *GroupUpdate {
 		ids[i] = v[i].ID
 	}
 	return _u.AddAllowedUserIDs(ids...)
+}
+
+// SetOauthPool sets the "oauth_pool" edge to the OAuthPool entity.
+func (_u *GroupUpdate) SetOauthPool(v *OAuthPool) *GroupUpdate {
+	return _u.SetOauthPoolID(v.ID)
 }
 
 // Mutation returns the GroupMutation object of the builder.
@@ -870,6 +896,12 @@ func (_u *GroupUpdate) RemoveAllowedUsers(v ...*User) *GroupUpdate {
 		ids[i] = v[i].ID
 	}
 	return _u.RemoveAllowedUserIDs(ids...)
+}
+
+// ClearOauthPool clears the "oauth_pool" edge to the OAuthPool entity.
+func (_u *GroupUpdate) ClearOauthPool() *GroupUpdate {
+	_u.mutation.ClearOauthPool()
+	return _u
 }
 
 // Save executes the query and returns the number of nodes affected by the update operation.
@@ -1427,6 +1459,35 @@ func (_u *GroupUpdate) sqlSave(ctx context.Context) (_node int, err error) {
 		createE.defaults()
 		_, specE := createE.createSpec()
 		edge.Target.Fields = specE.Fields
+		_spec.Edges.Add = append(_spec.Edges.Add, edge)
+	}
+	if _u.mutation.OauthPoolCleared() {
+		edge := &sqlgraph.EdgeSpec{
+			Rel:     sqlgraph.M2O,
+			Inverse: true,
+			Table:   group.OauthPoolTable,
+			Columns: []string{group.OauthPoolColumn},
+			Bidi:    false,
+			Target: &sqlgraph.EdgeTarget{
+				IDSpec: sqlgraph.NewFieldSpec(oauthpool.FieldID, field.TypeInt64),
+			},
+		}
+		_spec.Edges.Clear = append(_spec.Edges.Clear, edge)
+	}
+	if nodes := _u.mutation.OauthPoolIDs(); len(nodes) > 0 {
+		edge := &sqlgraph.EdgeSpec{
+			Rel:     sqlgraph.M2O,
+			Inverse: true,
+			Table:   group.OauthPoolTable,
+			Columns: []string{group.OauthPoolColumn},
+			Bidi:    false,
+			Target: &sqlgraph.EdgeTarget{
+				IDSpec: sqlgraph.NewFieldSpec(oauthpool.FieldID, field.TypeInt64),
+			},
+		}
+		for _, k := range nodes {
+			edge.Target.Nodes = append(edge.Target.Nodes, k)
+		}
 		_spec.Edges.Add = append(_spec.Edges.Add, edge)
 	}
 	if _node, err = sqlgraph.UpdateNodes(ctx, _u.driver, _spec); err != nil {
@@ -2043,6 +2104,26 @@ func (_u *GroupUpdateOne) SetNillableModelsListConfig(v *domain.GroupModelsListC
 	return _u
 }
 
+// SetOauthPoolID sets the "oauth_pool_id" field.
+func (_u *GroupUpdateOne) SetOauthPoolID(v int64) *GroupUpdateOne {
+	_u.mutation.SetOauthPoolID(v)
+	return _u
+}
+
+// SetNillableOauthPoolID sets the "oauth_pool_id" field if the given value is not nil.
+func (_u *GroupUpdateOne) SetNillableOauthPoolID(v *int64) *GroupUpdateOne {
+	if v != nil {
+		_u.SetOauthPoolID(*v)
+	}
+	return _u
+}
+
+// ClearOauthPoolID clears the value of the "oauth_pool_id" field.
+func (_u *GroupUpdateOne) ClearOauthPoolID() *GroupUpdateOne {
+	_u.mutation.ClearOauthPoolID()
+	return _u
+}
+
 // SetRpmLimit sets the "rpm_limit" field.
 func (_u *GroupUpdateOne) SetRpmLimit(v int) *GroupUpdateOne {
 	_u.mutation.ResetRpmLimit()
@@ -2152,6 +2233,11 @@ func (_u *GroupUpdateOne) AddAllowedUsers(v ...*User) *GroupUpdateOne {
 		ids[i] = v[i].ID
 	}
 	return _u.AddAllowedUserIDs(ids...)
+}
+
+// SetOauthPool sets the "oauth_pool" edge to the OAuthPool entity.
+func (_u *GroupUpdateOne) SetOauthPool(v *OAuthPool) *GroupUpdateOne {
+	return _u.SetOauthPoolID(v.ID)
 }
 
 // Mutation returns the GroupMutation object of the builder.
@@ -2283,6 +2369,12 @@ func (_u *GroupUpdateOne) RemoveAllowedUsers(v ...*User) *GroupUpdateOne {
 		ids[i] = v[i].ID
 	}
 	return _u.RemoveAllowedUserIDs(ids...)
+}
+
+// ClearOauthPool clears the "oauth_pool" edge to the OAuthPool entity.
+func (_u *GroupUpdateOne) ClearOauthPool() *GroupUpdateOne {
+	_u.mutation.ClearOauthPool()
+	return _u
 }
 
 // Where appends a list predicates to the GroupUpdate builder.
@@ -2870,6 +2962,35 @@ func (_u *GroupUpdateOne) sqlSave(ctx context.Context) (_node *Group, err error)
 		createE.defaults()
 		_, specE := createE.createSpec()
 		edge.Target.Fields = specE.Fields
+		_spec.Edges.Add = append(_spec.Edges.Add, edge)
+	}
+	if _u.mutation.OauthPoolCleared() {
+		edge := &sqlgraph.EdgeSpec{
+			Rel:     sqlgraph.M2O,
+			Inverse: true,
+			Table:   group.OauthPoolTable,
+			Columns: []string{group.OauthPoolColumn},
+			Bidi:    false,
+			Target: &sqlgraph.EdgeTarget{
+				IDSpec: sqlgraph.NewFieldSpec(oauthpool.FieldID, field.TypeInt64),
+			},
+		}
+		_spec.Edges.Clear = append(_spec.Edges.Clear, edge)
+	}
+	if nodes := _u.mutation.OauthPoolIDs(); len(nodes) > 0 {
+		edge := &sqlgraph.EdgeSpec{
+			Rel:     sqlgraph.M2O,
+			Inverse: true,
+			Table:   group.OauthPoolTable,
+			Columns: []string{group.OauthPoolColumn},
+			Bidi:    false,
+			Target: &sqlgraph.EdgeTarget{
+				IDSpec: sqlgraph.NewFieldSpec(oauthpool.FieldID, field.TypeInt64),
+			},
+		}
+		for _, k := range nodes {
+			edge.Target.Nodes = append(edge.Target.Nodes, k)
+		}
 		_spec.Edges.Add = append(_spec.Edges.Add, edge)
 	}
 	_node = &Group{config: _u.config}

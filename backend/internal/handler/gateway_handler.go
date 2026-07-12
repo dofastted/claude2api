@@ -38,23 +38,24 @@ var gatewayCompatibilityMetricsLogCounter atomic.Uint64
 
 // GatewayHandler handles API gateway requests
 type GatewayHandler struct {
-	gatewayService            *service.GatewayService
-	geminiCompatService       *service.GeminiMessagesCompatService
-	antigravityGatewayService *service.AntigravityGatewayService
-	userService               *service.UserService
-	billingCacheService       *service.BillingCacheService
-	billingGate               BillingGate
-	usageService              *service.UsageService
-	apiKeyService             *service.APIKeyService
-	usageRecordWorkerPool     *service.UsageRecordWorkerPool
-	errorPassthroughService   *service.ErrorPassthroughService
-	contentModerationService  *service.ContentModerationService
-	concurrencyHelper         *ConcurrencyHelper
-	userMsgQueueHelper        *UserMsgQueueHelper
-	maxAccountSwitches        int
-	maxAccountSwitchesGemini  int
-	cfg                       *config.Config
-	settingService            *service.SettingService
+	gatewayService             *service.GatewayService
+	geminiCompatService        *service.GeminiMessagesCompatService
+	antigravityGatewayService  *service.AntigravityGatewayService
+	userService                *service.UserService
+	billingCacheService        *service.BillingCacheService
+	billingGate                BillingGate
+	usageService               *service.UsageService
+	apiKeyService              *service.APIKeyService
+	usageRecordWorkerPool      *service.UsageRecordWorkerPool
+	errorPassthroughService    *service.ErrorPassthroughService
+	contentModerationService   *service.ContentModerationService
+	concurrencyHelper          *ConcurrencyHelper
+	userMsgQueueHelper         *UserMsgQueueHelper
+	maxAccountSwitches         int
+	maxAccountSwitchesGemini   int
+	cfg                        *config.Config
+	settingService             *service.SettingService
+	claudeOAuthSessionResolver *service.ClaudeOAuthSessionResolver
 }
 
 // NewGatewayHandler creates a new GatewayHandler
@@ -115,6 +116,89 @@ func NewGatewayHandler(
 	}
 }
 
+func (h *GatewayHandler) SetClaudeOAuthSessionResolver(resolver *service.ClaudeOAuthSessionResolver) {
+	h.claudeOAuthSessionResolver = resolver
+}
+
+func (h *GatewayHandler) resolveClaudeOAuthSession(c *gin.Context, apiKey *service.APIKey, metadataUserID string) (*service.ClaudeOAuthResolvedSession, error) {
+	if apiKey == nil || apiKey.Group == nil || apiKey.Group.OAuthPoolID == nil {
+		return nil, nil
+	}
+	if h.claudeOAuthSessionResolver == nil {
+		return nil, fmt.Errorf("%w: resolver unavailable", service.ErrClaudeOAuthSessionInvalid)
+	}
+	resolved, err := h.claudeOAuthSessionResolver.Resolve(service.ClaudeOAuthSessionNamespace{
+		GroupID:  apiKey.Group.ID,
+		APIKeyID: apiKey.ID,
+	}, service.ClaudeOAuthSessionInput{
+		SignedToken: c.GetHeader(service.ClaudeOAuthSignedSessionHeader),
+		NativeCandidates: []string{
+			c.GetHeader(service.ClaudeOAuthNativeSessionHeader),
+			metadataUserID,
+		},
+	})
+	if errors.Is(err, service.ErrClaudeOAuthSessionConflict) {
+		h.gatewayService.RecordClaudeOAuthShadowSessionConflict(c.Request.Context(), *apiKey.Group.OAuthPoolID)
+	}
+	return resolved, err
+}
+
+type issueClaudeOAuthSessionRequest struct {
+	NativeSessionID string `json:"native_session_id"`
+}
+
+// IssueClaudeOAuthSession exchanges an authenticated native session ID for a namespaced signed token.
+func (h *GatewayHandler) IssueClaudeOAuthSession(c *gin.Context) {
+	apiKey, ok := middleware2.GetAPIKeyFromContext(c)
+	if !ok {
+		h.errorResponse(c, http.StatusUnauthorized, "authentication_error", "Invalid API key")
+		return
+	}
+	if apiKey.Group == nil || apiKey.Group.OAuthPoolID == nil {
+		h.errorResponse(c, http.StatusConflict, "oauth_pool_required", "API key group is not assigned to an OAuth pool")
+		return
+	}
+	if h.claudeOAuthSessionResolver == nil {
+		h.errorResponse(c, http.StatusServiceUnavailable, "api_error", "Claude OAuth session service unavailable")
+		return
+	}
+
+	var req issueClaudeOAuthSessionRequest
+	if c.Request.ContentLength != 0 {
+		if err := c.ShouldBindJSON(&req); err != nil {
+			h.errorResponse(c, http.StatusBadRequest, "invalid_request_error", "Invalid session request")
+			return
+		}
+	}
+	bodySessionID := strings.TrimSpace(req.NativeSessionID)
+	headerSessionID := strings.TrimSpace(c.GetHeader(service.ClaudeOAuthNativeSessionHeader))
+	if bodySessionID != "" && headerSessionID != "" && bodySessionID != headerSessionID {
+		h.errorResponse(c, http.StatusConflict, service.ErrClaudeOAuthSessionConflict.Error(), "Conflicting native session identifiers")
+		return
+	}
+	if bodySessionID == "" {
+		bodySessionID = headerSessionID
+	}
+	if bodySessionID == "" {
+		h.errorResponse(c, http.StatusBadRequest, "invalid_request_error", "native_session_id is required")
+		return
+	}
+
+	issued, err := h.claudeOAuthSessionResolver.Issue(service.ClaudeOAuthSessionNamespace{
+		GroupID:  apiKey.Group.ID,
+		APIKeyID: apiKey.ID,
+	}, bodySessionID)
+	if err != nil {
+		h.errorResponse(c, http.StatusBadRequest, "invalid_request_error", err.Error())
+		return
+	}
+	c.Header(service.ClaudeOAuthSignedSessionHeader, issued.SignedToken)
+	c.JSON(http.StatusCreated, gin.H{
+		"session_id": issued.SignedToken,
+		"expires_in": service.ClaudeOAuthSessionTTLSeconds,
+	})
+}
+
 // Messages handles Claude API compatible messages endpoint
 // POST /v1/messages
 func (h *GatewayHandler) Messages(c *gin.Context) {
@@ -166,6 +250,23 @@ func (h *GatewayHandler) Messages(c *gin.Context) {
 	reqModel := parsedReq.Model
 	reqStream := parsedReq.Stream
 	reqLog = reqLog.With(zap.String("model", reqModel), zap.Bool("stream", reqStream))
+
+	claudeOAuthSession, err := h.resolveClaudeOAuthSession(c, apiKey, parsedReq.MetadataUserID)
+	if err != nil {
+		switch {
+		case errors.Is(err, service.ErrClaudeOAuthSessionMissing):
+			h.errorResponse(c, http.StatusBadRequest, service.ErrClaudeOAuthSessionMissing.Error(), "A signed or native session identifier is required")
+		case errors.Is(err, service.ErrClaudeOAuthSessionConflict):
+			h.errorResponse(c, http.StatusConflict, service.ErrClaudeOAuthSessionConflict.Error(), "Conflicting session identifiers")
+		default:
+			h.errorResponse(c, http.StatusUnauthorized, "invalid_session_id", "Invalid signed session token")
+		}
+		return
+	}
+	if claudeOAuthSession != nil {
+		c.Request = c.Request.WithContext(service.WithClaudeOAuthResolvedSession(c.Request.Context(), claudeOAuthSession))
+		c.Request = c.Request.WithContext(service.WithClaudeOAuthShadowProbe(c.Request.Context(), &service.ClaudeOAuthShadowProbe{}))
+	}
 
 	// 解析渠道级模型映射
 	channelMapping, _ := h.gatewayService.ResolveChannelMappingAndRestrict(c.Request.Context(), apiKey.GroupID, reqModel)
@@ -248,6 +349,9 @@ func (h *GatewayHandler) Messages(c *gin.Context) {
 		APIKeyID:  apiKey.ID,
 	}
 	sessionHash := h.gatewayService.GenerateSessionHash(parsedReq)
+	if claudeOAuthSession != nil {
+		sessionHash = claudeOAuthSession.BindingHash
+	}
 
 	// [DEBUG-STICKY] 打印会话 hash 生成结果
 	reqLog.Info("sticky.session_hash_generated",
@@ -621,6 +725,12 @@ func (h *GatewayHandler) Messages(c *gin.Context) {
 					return
 				}
 			}
+			if probe, ok := service.ClaudeOAuthShadowProbeFromContext(c.Request.Context()); ok {
+				h.gatewayService.RecordClaudeOAuthShadowSelection(c.Request.Context(), probe, selection.Account.ID)
+			}
+			if selection.ClaudeOAuth != nil {
+				c.Request = c.Request.WithContext(service.WithClaudeOAuthSelection(c.Request.Context(), selection.ClaudeOAuth))
+			}
 			account := selection.Account
 			setOpsSelectedAccount(c, account.ID, account.Platform)
 
@@ -865,6 +975,17 @@ func (h *GatewayHandler) Messages(c *gin.Context) {
 					if c.Writer.Size() != writerSizeBeforeForward {
 						h.handleFailoverExhausted(c, failoverErr, account.Platform, true)
 						return
+					}
+					if selection.ClaudeOAuth != nil {
+						migration, migrationErr := h.gatewayService.MigrateClaudeOAuthBindingOnFailure(c.Request.Context(), selection.ClaudeOAuth, failoverErr)
+						if errors.Is(migrationErr, service.ErrClaudeOAuthBindingCASConflict) {
+							continue
+						}
+						if migrationErr != nil || migration == nil || !migration.Migrated {
+							h.handleFailoverExhausted(c, failoverErr, account.Platform, streamStarted)
+							return
+						}
+						continue
 					}
 					action := fs.HandleFailoverError(c.Request.Context(), h.gatewayService, account.ID, account.Platform, failoverErr)
 					switch action {

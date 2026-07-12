@@ -673,12 +673,21 @@ var (
 		{Name: "messages_dispatch_model_config", Type: field.TypeJSON, SchemaType: map[string]string{"postgres": "jsonb"}},
 		{Name: "models_list_config", Type: field.TypeJSON, SchemaType: map[string]string{"postgres": "jsonb"}},
 		{Name: "rpm_limit", Type: field.TypeInt, Default: 0},
+		{Name: "oauth_pool_id", Type: field.TypeInt64, Nullable: true},
 	}
 	// GroupsTable holds the schema information for the "groups" table.
 	GroupsTable = &schema.Table{
 		Name:       "groups",
 		Columns:    GroupsColumns,
 		PrimaryKey: []*schema.Column{GroupsColumns[0]},
+		ForeignKeys: []*schema.ForeignKey{
+			{
+				Symbol:     "groups_oauth_pools_groups",
+				Columns:    []*schema.Column{GroupsColumns[36]},
+				RefColumns: []*schema.Column{OauthPoolsColumns[0]},
+				OnDelete:   schema.SetNull,
+			},
+		},
 		Indexes: []*schema.Index{
 			{
 				Name:    "group_status",
@@ -709,6 +718,11 @@ var (
 				Name:    "group_sort_order",
 				Unique:  false,
 				Columns: []*schema.Column{GroupsColumns[28]},
+			},
+			{
+				Name:    "group_oauth_pool_id",
+				Unique:  false,
+				Columns: []*schema.Column{GroupsColumns[36]},
 			},
 		},
 	}
@@ -790,6 +804,145 @@ var (
 				Name:    "identityadoptiondecision_identity_id",
 				Unique:  false,
 				Columns: []*schema.Column{IdentityAdoptionDecisionsColumns[6]},
+			},
+		},
+	}
+	// OauthCapsuleSetsColumns holds the columns for the "oauth_capsule_sets" table.
+	OauthCapsuleSetsColumns = []*schema.Column{
+		{Name: "id", Type: field.TypeInt64, Increment: true},
+		{Name: "created_at", Type: field.TypeTime, SchemaType: map[string]string{"postgres": "timestamptz"}},
+		{Name: "updated_at", Type: field.TypeTime, SchemaType: map[string]string{"postgres": "timestamptz"}},
+		{Name: "version", Type: field.TypeInt64},
+		{Name: "compatibility_digest", Type: field.TypeString, Size: 128},
+		{Name: "payload", Type: field.TypeJSON, SchemaType: map[string]string{"postgres": "jsonb"}},
+		{Name: "pool_id", Type: field.TypeInt64},
+	}
+	// OauthCapsuleSetsTable holds the schema information for the "oauth_capsule_sets" table.
+	OauthCapsuleSetsTable = &schema.Table{
+		Name:       "oauth_capsule_sets",
+		Columns:    OauthCapsuleSetsColumns,
+		PrimaryKey: []*schema.Column{OauthCapsuleSetsColumns[0]},
+		ForeignKeys: []*schema.ForeignKey{
+			{
+				Symbol:     "oauth_capsule_sets_oauth_pools_capsule_sets",
+				Columns:    []*schema.Column{OauthCapsuleSetsColumns[6]},
+				RefColumns: []*schema.Column{OauthPoolsColumns[0]},
+				OnDelete:   schema.NoAction,
+			},
+		},
+		Indexes: []*schema.Index{
+			{
+				Name:    "oauthcapsuleset_pool_id_version",
+				Unique:  true,
+				Columns: []*schema.Column{OauthCapsuleSetsColumns[6], OauthCapsuleSetsColumns[3]},
+			},
+			{
+				Name:    "oauthcapsuleset_compatibility_digest",
+				Unique:  false,
+				Columns: []*schema.Column{OauthCapsuleSetsColumns[4]},
+			},
+		},
+	}
+	// OauthPoolsColumns holds the columns for the "oauth_pools" table.
+	OauthPoolsColumns = []*schema.Column{
+		{Name: "id", Type: field.TypeInt64, Increment: true},
+		{Name: "created_at", Type: field.TypeTime, SchemaType: map[string]string{"postgres": "timestamptz"}},
+		{Name: "updated_at", Type: field.TypeTime, SchemaType: map[string]string{"postgres": "timestamptz"}},
+		{Name: "deleted_at", Type: field.TypeTime, Nullable: true, SchemaType: map[string]string{"postgres": "timestamptz"}},
+		{Name: "name", Type: field.TypeString, Size: 100},
+		{Name: "provider", Type: field.TypeString, Size: 32, Default: "claude_oauth"},
+		{Name: "status", Type: field.TypeString, Size: 20, Default: "active"},
+		{Name: "mode", Type: field.TypeString, Size: 20, Default: "shadow"},
+		{Name: "allowed_origins", Type: field.TypeJSON, SchemaType: map[string]string{"postgres": "jsonb"}},
+		{Name: "allowed_models", Type: field.TypeJSON, SchemaType: map[string]string{"postgres": "jsonb"}},
+		{Name: "active_capsule_set_version", Type: field.TypeInt64, Default: 0},
+		{Name: "previous_capsule_set_version", Type: field.TypeInt64, Nullable: true},
+		{Name: "compatibility_digest", Type: field.TypeString, Size: 128, Default: ""},
+		{Name: "session_ttl_seconds", Type: field.TypeInt, Default: 3600},
+		{Name: "shadow_started_at", Type: field.TypeTime, Nullable: true},
+		{Name: "shadow_qualified_at", Type: field.TypeTime, Nullable: true},
+		{Name: "egress_route_id", Type: field.TypeInt64},
+	}
+	// OauthPoolsTable holds the schema information for the "oauth_pools" table.
+	OauthPoolsTable = &schema.Table{
+		Name:       "oauth_pools",
+		Columns:    OauthPoolsColumns,
+		PrimaryKey: []*schema.Column{OauthPoolsColumns[0]},
+		ForeignKeys: []*schema.ForeignKey{
+			{
+				Symbol:     "oauth_pools_proxies_oauth_pools",
+				Columns:    []*schema.Column{OauthPoolsColumns[16]},
+				RefColumns: []*schema.Column{ProxiesColumns[0]},
+				OnDelete:   schema.NoAction,
+			},
+		},
+		Indexes: []*schema.Index{
+			{
+				Name:    "oauthpool_status",
+				Unique:  false,
+				Columns: []*schema.Column{OauthPoolsColumns[6]},
+			},
+			{
+				Name:    "oauthpool_mode",
+				Unique:  false,
+				Columns: []*schema.Column{OauthPoolsColumns[7]},
+			},
+			{
+				Name:    "oauthpool_egress_route_id",
+				Unique:  false,
+				Columns: []*schema.Column{OauthPoolsColumns[16]},
+			},
+			{
+				Name:    "oauthpool_deleted_at",
+				Unique:  false,
+				Columns: []*schema.Column{OauthPoolsColumns[3]},
+			},
+		},
+	}
+	// OauthPoolCredentialsColumns holds the columns for the "oauth_pool_credentials" table.
+	OauthPoolCredentialsColumns = []*schema.Column{
+		{Name: "id", Type: field.TypeInt64, Increment: true},
+		{Name: "created_at", Type: field.TypeTime, SchemaType: map[string]string{"postgres": "timestamptz"}},
+		{Name: "updated_at", Type: field.TypeTime, SchemaType: map[string]string{"postgres": "timestamptz"}},
+		{Name: "state", Type: field.TypeString, Size: 20, Default: "available"},
+		{Name: "cooldown_until", Type: field.TypeTime, Nullable: true},
+		{Name: "account_id", Type: field.TypeInt64, Unique: true},
+		{Name: "pool_id", Type: field.TypeInt64},
+	}
+	// OauthPoolCredentialsTable holds the schema information for the "oauth_pool_credentials" table.
+	OauthPoolCredentialsTable = &schema.Table{
+		Name:       "oauth_pool_credentials",
+		Columns:    OauthPoolCredentialsColumns,
+		PrimaryKey: []*schema.Column{OauthPoolCredentialsColumns[0]},
+		ForeignKeys: []*schema.ForeignKey{
+			{
+				Symbol:     "oauth_pool_credentials_accounts_oauth_pool_credential",
+				Columns:    []*schema.Column{OauthPoolCredentialsColumns[5]},
+				RefColumns: []*schema.Column{AccountsColumns[0]},
+				OnDelete:   schema.NoAction,
+			},
+			{
+				Symbol:     "oauth_pool_credentials_oauth_pools_credentials",
+				Columns:    []*schema.Column{OauthPoolCredentialsColumns[6]},
+				RefColumns: []*schema.Column{OauthPoolsColumns[0]},
+				OnDelete:   schema.NoAction,
+			},
+		},
+		Indexes: []*schema.Index{
+			{
+				Name:    "oauthpoolcredential_pool_id",
+				Unique:  false,
+				Columns: []*schema.Column{OauthPoolCredentialsColumns[6]},
+			},
+			{
+				Name:    "oauthpoolcredential_state",
+				Unique:  false,
+				Columns: []*schema.Column{OauthPoolCredentialsColumns[3]},
+			},
+			{
+				Name:    "oauthpoolcredential_pool_id_state",
+				Unique:  false,
+				Columns: []*schema.Column{OauthPoolCredentialsColumns[6], OauthPoolCredentialsColumns[3]},
 			},
 		},
 	}
@@ -1797,6 +1950,9 @@ var (
 		GroupsTable,
 		IdempotencyRecordsTable,
 		IdentityAdoptionDecisionsTable,
+		OauthCapsuleSetsTable,
+		OauthPoolsTable,
+		OauthPoolCredentialsTable,
 		PaymentAuditLogsTable,
 		PaymentOrdersTable,
 		PaymentProviderInstancesTable,
@@ -1869,6 +2025,7 @@ func init() {
 	ErrorPassthroughRulesTable.Annotation = &entsql.Annotation{
 		Table: "error_passthrough_rules",
 	}
+	GroupsTable.ForeignKeys[0].RefTable = OauthPoolsTable
 	GroupsTable.Annotation = &entsql.Annotation{
 		Table: "groups",
 	}
@@ -1879,6 +2036,19 @@ func init() {
 	IdentityAdoptionDecisionsTable.ForeignKeys[1].RefTable = PendingAuthSessionsTable
 	IdentityAdoptionDecisionsTable.Annotation = &entsql.Annotation{
 		Table: "identity_adoption_decisions",
+	}
+	OauthCapsuleSetsTable.ForeignKeys[0].RefTable = OauthPoolsTable
+	OauthCapsuleSetsTable.Annotation = &entsql.Annotation{
+		Table: "oauth_capsule_sets",
+	}
+	OauthPoolsTable.ForeignKeys[0].RefTable = ProxiesTable
+	OauthPoolsTable.Annotation = &entsql.Annotation{
+		Table: "oauth_pools",
+	}
+	OauthPoolCredentialsTable.ForeignKeys[0].RefTable = AccountsTable
+	OauthPoolCredentialsTable.ForeignKeys[1].RefTable = OauthPoolsTable
+	OauthPoolCredentialsTable.Annotation = &entsql.Annotation{
+		Table: "oauth_pool_credentials",
 	}
 	PaymentAuditLogsTable.Annotation = &entsql.Annotation{
 		Table: "payment_audit_logs",

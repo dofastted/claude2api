@@ -13,6 +13,7 @@ import (
 	"entgo.io/ent/schema/field"
 	"github.com/dofastted/claude2api/ent/account"
 	"github.com/dofastted/claude2api/ent/group"
+	"github.com/dofastted/claude2api/ent/oauthpoolcredential"
 	"github.com/dofastted/claude2api/ent/predicate"
 	"github.com/dofastted/claude2api/ent/proxy"
 	"github.com/dofastted/claude2api/ent/usagelog"
@@ -550,6 +551,25 @@ func (_u *AccountUpdate) SetProxy(v *Proxy) *AccountUpdate {
 	return _u.SetProxyID(v.ID)
 }
 
+// SetOauthPoolCredentialID sets the "oauth_pool_credential" edge to the OAuthPoolCredential entity by ID.
+func (_u *AccountUpdate) SetOauthPoolCredentialID(id int64) *AccountUpdate {
+	_u.mutation.SetOauthPoolCredentialID(id)
+	return _u
+}
+
+// SetNillableOauthPoolCredentialID sets the "oauth_pool_credential" edge to the OAuthPoolCredential entity by ID if the given value is not nil.
+func (_u *AccountUpdate) SetNillableOauthPoolCredentialID(id *int64) *AccountUpdate {
+	if id != nil {
+		_u = _u.SetOauthPoolCredentialID(*id)
+	}
+	return _u
+}
+
+// SetOauthPoolCredential sets the "oauth_pool_credential" edge to the OAuthPoolCredential entity.
+func (_u *AccountUpdate) SetOauthPoolCredential(v *OAuthPoolCredential) *AccountUpdate {
+	return _u.SetOauthPoolCredentialID(v.ID)
+}
+
 // AddUsageLogIDs adds the "usage_logs" edge to the UsageLog entity by IDs.
 func (_u *AccountUpdate) AddUsageLogIDs(ids ...int64) *AccountUpdate {
 	_u.mutation.AddUsageLogIDs(ids...)
@@ -594,6 +614,12 @@ func (_u *AccountUpdate) RemoveGroups(v ...*Group) *AccountUpdate {
 // ClearProxy clears the "proxy" edge to the Proxy entity.
 func (_u *AccountUpdate) ClearProxy() *AccountUpdate {
 	_u.mutation.ClearProxy()
+	return _u
+}
+
+// ClearOauthPoolCredential clears the "oauth_pool_credential" edge to the OAuthPoolCredential entity.
+func (_u *AccountUpdate) ClearOauthPoolCredential() *AccountUpdate {
+	_u.mutation.ClearOauthPoolCredential()
 	return _u
 }
 
@@ -922,6 +948,35 @@ func (_u *AccountUpdate) sqlSave(ctx context.Context) (_node int, err error) {
 			Bidi:    false,
 			Target: &sqlgraph.EdgeTarget{
 				IDSpec: sqlgraph.NewFieldSpec(proxy.FieldID, field.TypeInt64),
+			},
+		}
+		for _, k := range nodes {
+			edge.Target.Nodes = append(edge.Target.Nodes, k)
+		}
+		_spec.Edges.Add = append(_spec.Edges.Add, edge)
+	}
+	if _u.mutation.OauthPoolCredentialCleared() {
+		edge := &sqlgraph.EdgeSpec{
+			Rel:     sqlgraph.O2O,
+			Inverse: false,
+			Table:   account.OauthPoolCredentialTable,
+			Columns: []string{account.OauthPoolCredentialColumn},
+			Bidi:    false,
+			Target: &sqlgraph.EdgeTarget{
+				IDSpec: sqlgraph.NewFieldSpec(oauthpoolcredential.FieldID, field.TypeInt64),
+			},
+		}
+		_spec.Edges.Clear = append(_spec.Edges.Clear, edge)
+	}
+	if nodes := _u.mutation.OauthPoolCredentialIDs(); len(nodes) > 0 {
+		edge := &sqlgraph.EdgeSpec{
+			Rel:     sqlgraph.O2O,
+			Inverse: false,
+			Table:   account.OauthPoolCredentialTable,
+			Columns: []string{account.OauthPoolCredentialColumn},
+			Bidi:    false,
+			Target: &sqlgraph.EdgeTarget{
+				IDSpec: sqlgraph.NewFieldSpec(oauthpoolcredential.FieldID, field.TypeInt64),
 			},
 		}
 		for _, k := range nodes {
@@ -1513,6 +1568,25 @@ func (_u *AccountUpdateOne) SetProxy(v *Proxy) *AccountUpdateOne {
 	return _u.SetProxyID(v.ID)
 }
 
+// SetOauthPoolCredentialID sets the "oauth_pool_credential" edge to the OAuthPoolCredential entity by ID.
+func (_u *AccountUpdateOne) SetOauthPoolCredentialID(id int64) *AccountUpdateOne {
+	_u.mutation.SetOauthPoolCredentialID(id)
+	return _u
+}
+
+// SetNillableOauthPoolCredentialID sets the "oauth_pool_credential" edge to the OAuthPoolCredential entity by ID if the given value is not nil.
+func (_u *AccountUpdateOne) SetNillableOauthPoolCredentialID(id *int64) *AccountUpdateOne {
+	if id != nil {
+		_u = _u.SetOauthPoolCredentialID(*id)
+	}
+	return _u
+}
+
+// SetOauthPoolCredential sets the "oauth_pool_credential" edge to the OAuthPoolCredential entity.
+func (_u *AccountUpdateOne) SetOauthPoolCredential(v *OAuthPoolCredential) *AccountUpdateOne {
+	return _u.SetOauthPoolCredentialID(v.ID)
+}
+
 // AddUsageLogIDs adds the "usage_logs" edge to the UsageLog entity by IDs.
 func (_u *AccountUpdateOne) AddUsageLogIDs(ids ...int64) *AccountUpdateOne {
 	_u.mutation.AddUsageLogIDs(ids...)
@@ -1557,6 +1631,12 @@ func (_u *AccountUpdateOne) RemoveGroups(v ...*Group) *AccountUpdateOne {
 // ClearProxy clears the "proxy" edge to the Proxy entity.
 func (_u *AccountUpdateOne) ClearProxy() *AccountUpdateOne {
 	_u.mutation.ClearProxy()
+	return _u
+}
+
+// ClearOauthPoolCredential clears the "oauth_pool_credential" edge to the OAuthPoolCredential entity.
+func (_u *AccountUpdateOne) ClearOauthPoolCredential() *AccountUpdateOne {
+	_u.mutation.ClearOauthPoolCredential()
 	return _u
 }
 
@@ -1915,6 +1995,35 @@ func (_u *AccountUpdateOne) sqlSave(ctx context.Context) (_node *Account, err er
 			Bidi:    false,
 			Target: &sqlgraph.EdgeTarget{
 				IDSpec: sqlgraph.NewFieldSpec(proxy.FieldID, field.TypeInt64),
+			},
+		}
+		for _, k := range nodes {
+			edge.Target.Nodes = append(edge.Target.Nodes, k)
+		}
+		_spec.Edges.Add = append(_spec.Edges.Add, edge)
+	}
+	if _u.mutation.OauthPoolCredentialCleared() {
+		edge := &sqlgraph.EdgeSpec{
+			Rel:     sqlgraph.O2O,
+			Inverse: false,
+			Table:   account.OauthPoolCredentialTable,
+			Columns: []string{account.OauthPoolCredentialColumn},
+			Bidi:    false,
+			Target: &sqlgraph.EdgeTarget{
+				IDSpec: sqlgraph.NewFieldSpec(oauthpoolcredential.FieldID, field.TypeInt64),
+			},
+		}
+		_spec.Edges.Clear = append(_spec.Edges.Clear, edge)
+	}
+	if nodes := _u.mutation.OauthPoolCredentialIDs(); len(nodes) > 0 {
+		edge := &sqlgraph.EdgeSpec{
+			Rel:     sqlgraph.O2O,
+			Inverse: false,
+			Table:   account.OauthPoolCredentialTable,
+			Columns: []string{account.OauthPoolCredentialColumn},
+			Bidi:    false,
+			Target: &sqlgraph.EdgeTarget{
+				IDSpec: sqlgraph.NewFieldSpec(oauthpoolcredential.FieldID, field.TypeInt64),
 			},
 		}
 		for _, k := range nodes {

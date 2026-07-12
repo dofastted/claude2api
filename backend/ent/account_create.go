@@ -13,6 +13,7 @@ import (
 	"entgo.io/ent/schema/field"
 	"github.com/dofastted/claude2api/ent/account"
 	"github.com/dofastted/claude2api/ent/group"
+	"github.com/dofastted/claude2api/ent/oauthpoolcredential"
 	"github.com/dofastted/claude2api/ent/proxy"
 	"github.com/dofastted/claude2api/ent/usagelog"
 )
@@ -411,6 +412,25 @@ func (_c *AccountCreate) SetProxy(v *Proxy) *AccountCreate {
 	return _c.SetProxyID(v.ID)
 }
 
+// SetOauthPoolCredentialID sets the "oauth_pool_credential" edge to the OAuthPoolCredential entity by ID.
+func (_c *AccountCreate) SetOauthPoolCredentialID(id int64) *AccountCreate {
+	_c.mutation.SetOauthPoolCredentialID(id)
+	return _c
+}
+
+// SetNillableOauthPoolCredentialID sets the "oauth_pool_credential" edge to the OAuthPoolCredential entity by ID if the given value is not nil.
+func (_c *AccountCreate) SetNillableOauthPoolCredentialID(id *int64) *AccountCreate {
+	if id != nil {
+		_c = _c.SetOauthPoolCredentialID(*id)
+	}
+	return _c
+}
+
+// SetOauthPoolCredential sets the "oauth_pool_credential" edge to the OAuthPoolCredential entity.
+func (_c *AccountCreate) SetOauthPoolCredential(v *OAuthPoolCredential) *AccountCreate {
+	return _c.SetOauthPoolCredentialID(v.ID)
+}
+
 // AddUsageLogIDs adds the "usage_logs" edge to the UsageLog entity by IDs.
 func (_c *AccountCreate) AddUsageLogIDs(ids ...int64) *AccountCreate {
 	_c.mutation.AddUsageLogIDs(ids...)
@@ -758,6 +778,22 @@ func (_c *AccountCreate) createSpec() (*Account, *sqlgraph.CreateSpec) {
 			edge.Target.Nodes = append(edge.Target.Nodes, k)
 		}
 		_node.ProxyID = &nodes[0]
+		_spec.Edges = append(_spec.Edges, edge)
+	}
+	if nodes := _c.mutation.OauthPoolCredentialIDs(); len(nodes) > 0 {
+		edge := &sqlgraph.EdgeSpec{
+			Rel:     sqlgraph.O2O,
+			Inverse: false,
+			Table:   account.OauthPoolCredentialTable,
+			Columns: []string{account.OauthPoolCredentialColumn},
+			Bidi:    false,
+			Target: &sqlgraph.EdgeTarget{
+				IDSpec: sqlgraph.NewFieldSpec(oauthpoolcredential.FieldID, field.TypeInt64),
+			},
+		}
+		for _, k := range nodes {
+			edge.Target.Nodes = append(edge.Target.Nodes, k)
+		}
 		_spec.Edges = append(_spec.Edges, edge)
 	}
 	if nodes := _c.mutation.UsageLogsIDs(); len(nodes) > 0 {

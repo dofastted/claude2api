@@ -96,6 +96,13 @@ type Config struct {
 	Update                  UpdateConfig                  `mapstructure:"update"`
 	Idempotency             IdempotencyConfig             `mapstructure:"idempotency"`
 	ClaudeCLIRuntimeProbe   ClaudeCLIRuntimeProbeConfig   `mapstructure:"claude_cli_runtime_probe"`
+	ClaudeOAuthCapsule      ClaudeOAuthCapsuleConfig      `mapstructure:"-"`
+}
+
+type ClaudeOAuthCapsuleConfig struct {
+	SessionSigningKeyID string
+	SessionSigningKey   string
+	SessionBindingKey   string
 }
 
 type LogConfig struct {

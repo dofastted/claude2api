@@ -416,6 +416,7 @@ export default {
     channelMonitor: '渠道监控',
     channelStatus: '渠道状态',
     riskControl: '风控中心',
+    claudeOAuthPools: 'Claude OAuth 池',
   },
 
   // Auth
@@ -1429,6 +1430,39 @@ export default {
 
   // Admin
   admin: {
+    claudeOAuthPools: {
+      title: 'Claude OAuth 池',
+      description: '管理环境胶囊、绑定凭据、shadow 指标和分池强制切换。',
+      createPool: '新建池',
+      empty: '尚未配置 Claude OAuth 池。',
+      status: '状态',
+      capsule: '胶囊',
+      models: '允许模型',
+      origins: '允许地址',
+      credentials: 'OAuth 凭据',
+      accountId: '账号 ID',
+      noCredentials: '尚未加入凭据。',
+      capsuleManagement: '胶囊管理',
+      version: '版本',
+      createActivate: '创建并激活',
+      qualified: '已达标',
+      collecting: '采集中',
+      requests: 'Shadow 请求',
+      days: '连续天数',
+      routingDiffs: '路由差异',
+      hardFailures: '硬失败',
+      enforce: '启用强制模式',
+      backToShadow: '退回 Shadow',
+      name: '池名称',
+      egressRoute: '代理 / 出口 ID',
+      modelsHint: '每行一个允许模型或通配符',
+      originsHint: '每行一个已批准的 Anthropic 接口地址',
+      deleteConfirm: '删除这个 OAuth 池？池不能仍被分组引用。',
+      remove: '移除',
+      bindingCount: '活跃绑定',
+      resetBindings: '重置绑定',
+      resetBindingsConfirm: '重置这个凭据的全部活跃会话绑定？'
+    },
     // Dashboard
     dashboard: {
       title: '管理控制台',

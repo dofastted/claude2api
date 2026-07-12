@@ -160,6 +160,11 @@ func (Group) Fields() []ent.Field {
 			SchemaType(map[string]string{dialect.Postgres: "jsonb"}).
 			Comment("自定义 /v1/models 展示列表配置；仅影响模型列表响应，不影响调度"),
 
+		field.Int64("oauth_pool_id").
+			Optional().
+			Nillable().
+			Comment("Strict Anthropic OAuth pool used by this group"),
+
 		// 分组级每分钟请求数上限（0 = 不限制）。设置后优先于用户级兜底生效。
 		field.Int("rpm_limit").
 			Default(0).
@@ -179,6 +184,10 @@ func (Group) Edges() []ent.Edge {
 		edge.From("allowed_users", User.Type).
 			Ref("allowed_groups").
 			Through("user_allowed_groups", UserAllowedGroup.Type),
+		edge.From("oauth_pool", OAuthPool.Type).
+			Ref("groups").
+			Field("oauth_pool_id").
+			Unique(),
 		// 注意：fallback_group_id 直接作为字段使用，不定义 edge
 		// 这样允许多个分组指向同一个降级分组（M2O 关系）
 	}
@@ -193,5 +202,6 @@ func (Group) Indexes() []ent.Index {
 		index.Fields("is_exclusive"),
 		index.Fields("deleted_at"),
 		index.Fields("sort_order"),
+		index.Fields("oauth_pool_id"),
 	}
 }

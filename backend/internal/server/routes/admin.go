@@ -49,6 +49,9 @@ func RegisterAdminRoutes(
 		// Antigravity OAuth
 		registerAntigravityOAuthRoutes(admin, h)
 
+		// Claude OAuth 环境胶囊池
+		registerClaudeOAuthPoolRoutes(admin, h)
+
 		// 代理管理
 		registerProxyRoutes(admin, h)
 
@@ -395,6 +398,24 @@ func registerAntigravityOAuthRoutes(admin *gin.RouterGroup, h *handler.Handlers)
 		antigravity.POST("/oauth/auth-url", h.Admin.AntigravityOAuth.GenerateAuthURL)
 		antigravity.POST("/oauth/exchange-code", h.Admin.AntigravityOAuth.ExchangeCode)
 		antigravity.POST("/oauth/refresh-token", h.Admin.AntigravityOAuth.RefreshToken)
+	}
+}
+
+func registerClaudeOAuthPoolRoutes(admin *gin.RouterGroup, h *handler.Handlers) {
+	pools := admin.Group("/claude-oauth-pools")
+	{
+		pools.GET("", h.Admin.ClaudeOAuthPool.List)
+		pools.POST("", h.Admin.ClaudeOAuthPool.Create)
+		pools.GET("/:id", h.Admin.ClaudeOAuthPool.Get)
+		pools.PUT("/:id", h.Admin.ClaudeOAuthPool.Update)
+		pools.DELETE("/:id", h.Admin.ClaudeOAuthPool.Delete)
+		pools.POST("/:id/credentials", h.Admin.ClaudeOAuthPool.AddCredential)
+		pools.DELETE("/:id/credentials/:account_id/bindings", h.Admin.ClaudeOAuthPool.ResetCredentialBindings)
+		pools.DELETE("/:id/credentials/:account_id", h.Admin.ClaudeOAuthPool.RemoveCredential)
+		pools.POST("/:id/capsules", h.Admin.ClaudeOAuthPool.CreateCapsule)
+		pools.POST("/:id/capsules/:version/activate", h.Admin.ClaudeOAuthPool.ActivateCapsule)
+		pools.GET("/:id/shadow-metrics", h.Admin.ClaudeOAuthPool.ShadowMetrics)
+		pools.POST("/:id/mode", h.Admin.ClaudeOAuthPool.SetMode)
 	}
 }
 

@@ -416,6 +416,7 @@ export default {
     channelMonitor: 'Channel Monitor',
     channelStatus: 'Channel Status',
     riskControl: 'Risk Control',
+    claudeOAuthPools: 'Claude OAuth Pools',
   },
 
   // Auth
@@ -1425,6 +1426,39 @@ export default {
 
   // Admin
   admin: {
+    claudeOAuthPools: {
+      title: 'Claude OAuth Pools',
+      description: 'Manage environment capsules, bound OAuth credentials, shadow metrics, and per-pool enforcement.',
+      createPool: 'Create Pool',
+      empty: 'No Claude OAuth pools configured.',
+      status: 'Status',
+      capsule: 'Capsule',
+      models: 'Allowed Models',
+      origins: 'Allowed Origins',
+      credentials: 'OAuth Credentials',
+      accountId: 'Account ID',
+      noCredentials: 'No credentials enrolled.',
+      capsuleManagement: 'Capsule Management',
+      version: 'Version',
+      createActivate: 'Create and Activate',
+      qualified: 'Qualified',
+      collecting: 'Collecting',
+      requests: 'Shadow Requests',
+      days: 'Consecutive Days',
+      routingDiffs: 'Routing Diffs',
+      hardFailures: 'Hard Failures',
+      enforce: 'Enable Enforcement',
+      backToShadow: 'Return to Shadow',
+      name: 'Pool Name',
+      egressRoute: 'Proxy / Egress ID',
+      modelsHint: 'One allowed model or wildcard per line',
+      originsHint: 'One approved Anthropic endpoint per line',
+      deleteConfirm: 'Delete this OAuth pool? It must not be referenced by a group.',
+      remove: 'Remove',
+      bindingCount: 'Active bindings',
+      resetBindings: 'Reset bindings',
+      resetBindingsConfirm: 'Reset all active session bindings for this credential?'
+    },
     // Dashboard
     dashboard: {
       title: 'Admin Dashboard',

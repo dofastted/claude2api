@@ -12,6 +12,7 @@ import (
 	"entgo.io/ent/dialect/sql/sqlgraph"
 	"entgo.io/ent/schema/field"
 	"github.com/dofastted/claude2api/ent/account"
+	"github.com/dofastted/claude2api/ent/oauthpool"
 	"github.com/dofastted/claude2api/ent/predicate"
 	"github.com/dofastted/claude2api/ent/proxy"
 )
@@ -262,6 +263,21 @@ func (_u *ProxyUpdate) AddAccounts(v ...*Account) *ProxyUpdate {
 	return _u.AddAccountIDs(ids...)
 }
 
+// AddOauthPoolIDs adds the "oauth_pools" edge to the OAuthPool entity by IDs.
+func (_u *ProxyUpdate) AddOauthPoolIDs(ids ...int64) *ProxyUpdate {
+	_u.mutation.AddOauthPoolIDs(ids...)
+	return _u
+}
+
+// AddOauthPools adds the "oauth_pools" edges to the OAuthPool entity.
+func (_u *ProxyUpdate) AddOauthPools(v ...*OAuthPool) *ProxyUpdate {
+	ids := make([]int64, len(v))
+	for i := range v {
+		ids[i] = v[i].ID
+	}
+	return _u.AddOauthPoolIDs(ids...)
+}
+
 // SetBackupProxy sets the "backup_proxy" edge to the Proxy entity.
 func (_u *ProxyUpdate) SetBackupProxy(v *Proxy) *ProxyUpdate {
 	return _u.SetBackupProxyID(v.ID)
@@ -291,6 +307,27 @@ func (_u *ProxyUpdate) RemoveAccounts(v ...*Account) *ProxyUpdate {
 		ids[i] = v[i].ID
 	}
 	return _u.RemoveAccountIDs(ids...)
+}
+
+// ClearOauthPools clears all "oauth_pools" edges to the OAuthPool entity.
+func (_u *ProxyUpdate) ClearOauthPools() *ProxyUpdate {
+	_u.mutation.ClearOauthPools()
+	return _u
+}
+
+// RemoveOauthPoolIDs removes the "oauth_pools" edge to OAuthPool entities by IDs.
+func (_u *ProxyUpdate) RemoveOauthPoolIDs(ids ...int64) *ProxyUpdate {
+	_u.mutation.RemoveOauthPoolIDs(ids...)
+	return _u
+}
+
+// RemoveOauthPools removes "oauth_pools" edges to OAuthPool entities.
+func (_u *ProxyUpdate) RemoveOauthPools(v ...*OAuthPool) *ProxyUpdate {
+	ids := make([]int64, len(v))
+	for i := range v {
+		ids[i] = v[i].ID
+	}
+	return _u.RemoveOauthPoolIDs(ids...)
 }
 
 // ClearBackupProxy clears the "backup_proxy" edge to the Proxy entity.
@@ -485,6 +522,51 @@ func (_u *ProxyUpdate) sqlSave(ctx context.Context) (_node int, err error) {
 			Bidi:    false,
 			Target: &sqlgraph.EdgeTarget{
 				IDSpec: sqlgraph.NewFieldSpec(account.FieldID, field.TypeInt64),
+			},
+		}
+		for _, k := range nodes {
+			edge.Target.Nodes = append(edge.Target.Nodes, k)
+		}
+		_spec.Edges.Add = append(_spec.Edges.Add, edge)
+	}
+	if _u.mutation.OauthPoolsCleared() {
+		edge := &sqlgraph.EdgeSpec{
+			Rel:     sqlgraph.O2M,
+			Inverse: false,
+			Table:   proxy.OauthPoolsTable,
+			Columns: []string{proxy.OauthPoolsColumn},
+			Bidi:    false,
+			Target: &sqlgraph.EdgeTarget{
+				IDSpec: sqlgraph.NewFieldSpec(oauthpool.FieldID, field.TypeInt64),
+			},
+		}
+		_spec.Edges.Clear = append(_spec.Edges.Clear, edge)
+	}
+	if nodes := _u.mutation.RemovedOauthPoolsIDs(); len(nodes) > 0 && !_u.mutation.OauthPoolsCleared() {
+		edge := &sqlgraph.EdgeSpec{
+			Rel:     sqlgraph.O2M,
+			Inverse: false,
+			Table:   proxy.OauthPoolsTable,
+			Columns: []string{proxy.OauthPoolsColumn},
+			Bidi:    false,
+			Target: &sqlgraph.EdgeTarget{
+				IDSpec: sqlgraph.NewFieldSpec(oauthpool.FieldID, field.TypeInt64),
+			},
+		}
+		for _, k := range nodes {
+			edge.Target.Nodes = append(edge.Target.Nodes, k)
+		}
+		_spec.Edges.Clear = append(_spec.Edges.Clear, edge)
+	}
+	if nodes := _u.mutation.OauthPoolsIDs(); len(nodes) > 0 {
+		edge := &sqlgraph.EdgeSpec{
+			Rel:     sqlgraph.O2M,
+			Inverse: false,
+			Table:   proxy.OauthPoolsTable,
+			Columns: []string{proxy.OauthPoolsColumn},
+			Bidi:    false,
+			Target: &sqlgraph.EdgeTarget{
+				IDSpec: sqlgraph.NewFieldSpec(oauthpool.FieldID, field.TypeInt64),
 			},
 		}
 		for _, k := range nodes {
@@ -774,6 +856,21 @@ func (_u *ProxyUpdateOne) AddAccounts(v ...*Account) *ProxyUpdateOne {
 	return _u.AddAccountIDs(ids...)
 }
 
+// AddOauthPoolIDs adds the "oauth_pools" edge to the OAuthPool entity by IDs.
+func (_u *ProxyUpdateOne) AddOauthPoolIDs(ids ...int64) *ProxyUpdateOne {
+	_u.mutation.AddOauthPoolIDs(ids...)
+	return _u
+}
+
+// AddOauthPools adds the "oauth_pools" edges to the OAuthPool entity.
+func (_u *ProxyUpdateOne) AddOauthPools(v ...*OAuthPool) *ProxyUpdateOne {
+	ids := make([]int64, len(v))
+	for i := range v {
+		ids[i] = v[i].ID
+	}
+	return _u.AddOauthPoolIDs(ids...)
+}
+
 // SetBackupProxy sets the "backup_proxy" edge to the Proxy entity.
 func (_u *ProxyUpdateOne) SetBackupProxy(v *Proxy) *ProxyUpdateOne {
 	return _u.SetBackupProxyID(v.ID)
@@ -803,6 +900,27 @@ func (_u *ProxyUpdateOne) RemoveAccounts(v ...*Account) *ProxyUpdateOne {
 		ids[i] = v[i].ID
 	}
 	return _u.RemoveAccountIDs(ids...)
+}
+
+// ClearOauthPools clears all "oauth_pools" edges to the OAuthPool entity.
+func (_u *ProxyUpdateOne) ClearOauthPools() *ProxyUpdateOne {
+	_u.mutation.ClearOauthPools()
+	return _u
+}
+
+// RemoveOauthPoolIDs removes the "oauth_pools" edge to OAuthPool entities by IDs.
+func (_u *ProxyUpdateOne) RemoveOauthPoolIDs(ids ...int64) *ProxyUpdateOne {
+	_u.mutation.RemoveOauthPoolIDs(ids...)
+	return _u
+}
+
+// RemoveOauthPools removes "oauth_pools" edges to OAuthPool entities.
+func (_u *ProxyUpdateOne) RemoveOauthPools(v ...*OAuthPool) *ProxyUpdateOne {
+	ids := make([]int64, len(v))
+	for i := range v {
+		ids[i] = v[i].ID
+	}
+	return _u.RemoveOauthPoolIDs(ids...)
 }
 
 // ClearBackupProxy clears the "backup_proxy" edge to the Proxy entity.
@@ -1027,6 +1145,51 @@ func (_u *ProxyUpdateOne) sqlSave(ctx context.Context) (_node *Proxy, err error)
 			Bidi:    false,
 			Target: &sqlgraph.EdgeTarget{
 				IDSpec: sqlgraph.NewFieldSpec(account.FieldID, field.TypeInt64),
+			},
+		}
+		for _, k := range nodes {
+			edge.Target.Nodes = append(edge.Target.Nodes, k)
+		}
+		_spec.Edges.Add = append(_spec.Edges.Add, edge)
+	}
+	if _u.mutation.OauthPoolsCleared() {
+		edge := &sqlgraph.EdgeSpec{
+			Rel:     sqlgraph.O2M,
+			Inverse: false,
+			Table:   proxy.OauthPoolsTable,
+			Columns: []string{proxy.OauthPoolsColumn},
+			Bidi:    false,
+			Target: &sqlgraph.EdgeTarget{
+				IDSpec: sqlgraph.NewFieldSpec(oauthpool.FieldID, field.TypeInt64),
+			},
+		}
+		_spec.Edges.Clear = append(_spec.Edges.Clear, edge)
+	}
+	if nodes := _u.mutation.RemovedOauthPoolsIDs(); len(nodes) > 0 && !_u.mutation.OauthPoolsCleared() {
+		edge := &sqlgraph.EdgeSpec{
+			Rel:     sqlgraph.O2M,
+			Inverse: false,
+			Table:   proxy.OauthPoolsTable,
+			Columns: []string{proxy.OauthPoolsColumn},
+			Bidi:    false,
+			Target: &sqlgraph.EdgeTarget{
+				IDSpec: sqlgraph.NewFieldSpec(oauthpool.FieldID, field.TypeInt64),
+			},
+		}
+		for _, k := range nodes {
+			edge.Target.Nodes = append(edge.Target.Nodes, k)
+		}
+		_spec.Edges.Clear = append(_spec.Edges.Clear, edge)
+	}
+	if nodes := _u.mutation.OauthPoolsIDs(); len(nodes) > 0 {
+		edge := &sqlgraph.EdgeSpec{
+			Rel:     sqlgraph.O2M,
+			Inverse: false,
+			Table:   proxy.OauthPoolsTable,
+			Columns: []string{proxy.OauthPoolsColumn},
+			Bidi:    false,
+			Target: &sqlgraph.EdgeTarget{
+				IDSpec: sqlgraph.NewFieldSpec(oauthpool.FieldID, field.TypeInt64),
 			},
 		}
 		for _, k := range nodes {

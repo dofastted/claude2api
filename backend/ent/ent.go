@@ -27,6 +27,9 @@ import (
 	"github.com/dofastted/claude2api/ent/group"
 	"github.com/dofastted/claude2api/ent/idempotencyrecord"
 	"github.com/dofastted/claude2api/ent/identityadoptiondecision"
+	"github.com/dofastted/claude2api/ent/oauthcapsuleset"
+	"github.com/dofastted/claude2api/ent/oauthpool"
+	"github.com/dofastted/claude2api/ent/oauthpoolcredential"
 	"github.com/dofastted/claude2api/ent/paymentauditlog"
 	"github.com/dofastted/claude2api/ent/paymentorder"
 	"github.com/dofastted/claude2api/ent/paymentproviderinstance"
@@ -122,6 +125,9 @@ func checkColumn(t, c string) error {
 			group.Table:                         group.ValidColumn,
 			idempotencyrecord.Table:             idempotencyrecord.ValidColumn,
 			identityadoptiondecision.Table:      identityadoptiondecision.ValidColumn,
+			oauthcapsuleset.Table:               oauthcapsuleset.ValidColumn,
+			oauthpool.Table:                     oauthpool.ValidColumn,
+			oauthpoolcredential.Table:           oauthpoolcredential.ValidColumn,
 			paymentauditlog.Table:               paymentauditlog.ValidColumn,
 			paymentorder.Table:                  paymentorder.ValidColumn,
 			paymentproviderinstance.Table:       paymentproviderinstance.ValidColumn,

@@ -189,6 +189,42 @@ func (f IdentityAdoptionDecisionFunc) Mutate(ctx context.Context, m ent.Mutation
 	return nil, fmt.Errorf("unexpected mutation type %T. expect *ent.IdentityAdoptionDecisionMutation", m)
 }
 
+// The OAuthCapsuleSetFunc type is an adapter to allow the use of ordinary
+// function as OAuthCapsuleSet mutator.
+type OAuthCapsuleSetFunc func(context.Context, *ent.OAuthCapsuleSetMutation) (ent.Value, error)
+
+// Mutate calls f(ctx, m).
+func (f OAuthCapsuleSetFunc) Mutate(ctx context.Context, m ent.Mutation) (ent.Value, error) {
+	if mv, ok := m.(*ent.OAuthCapsuleSetMutation); ok {
+		return f(ctx, mv)
+	}
+	return nil, fmt.Errorf("unexpected mutation type %T. expect *ent.OAuthCapsuleSetMutation", m)
+}
+
+// The OAuthPoolFunc type is an adapter to allow the use of ordinary
+// function as OAuthPool mutator.
+type OAuthPoolFunc func(context.Context, *ent.OAuthPoolMutation) (ent.Value, error)
+
+// Mutate calls f(ctx, m).
+func (f OAuthPoolFunc) Mutate(ctx context.Context, m ent.Mutation) (ent.Value, error) {
+	if mv, ok := m.(*ent.OAuthPoolMutation); ok {
+		return f(ctx, mv)
+	}
+	return nil, fmt.Errorf("unexpected mutation type %T. expect *ent.OAuthPoolMutation", m)
+}
+
+// The OAuthPoolCredentialFunc type is an adapter to allow the use of ordinary
+// function as OAuthPoolCredential mutator.
+type OAuthPoolCredentialFunc func(context.Context, *ent.OAuthPoolCredentialMutation) (ent.Value, error)
+
+// Mutate calls f(ctx, m).
+func (f OAuthPoolCredentialFunc) Mutate(ctx context.Context, m ent.Mutation) (ent.Value, error) {
+	if mv, ok := m.(*ent.OAuthPoolCredentialMutation); ok {
+		return f(ctx, mv)
+	}
+	return nil, fmt.Errorf("unexpected mutation type %T. expect *ent.OAuthPoolCredentialMutation", m)
+}
+
 // The PaymentAuditLogFunc type is an adapter to allow the use of ordinary
 // function as PaymentAuditLog mutator.
 type PaymentAuditLogFunc func(context.Context, *ent.PaymentAuditLogMutation) (ent.Value, error)

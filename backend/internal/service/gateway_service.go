@@ -541,6 +541,7 @@ type AccountSelectionResult struct {
 	Acquired    bool
 	ReleaseFunc func()
 	WaitPlan    *AccountWaitPlan // nil means no wait allowed
+	ClaudeOAuth *ClaudeOAuthSelection
 }
 
 // ClaudeUsage 表示Claude API返回的usage信息
@@ -659,6 +660,9 @@ type GatewayService struct {
 	userPlatformQuotaRepo              UserPlatformQuotaRepository
 	identityRegistry                   *clientidentity.Registry
 	profileTimezoneResolver            *EnvironmentProfileTimezoneResolver
+	claudeOAuthSelector                *ClaudeOAuthPoolSelector
+	claudeOAuthMigrationManager        *ClaudeOAuthMigrationManager
+	claudeOAuthShadowMetrics           ClaudeOAuthShadowMetricsStore
 }
 
 // NewGatewayService creates a new GatewayService
@@ -752,6 +756,45 @@ func NewGatewayService(
 		svc.initDebugGatewayBodyFile(path)
 	}
 	return svc
+}
+
+func (s *GatewayService) SetClaudeOAuthPoolSelector(selector *ClaudeOAuthPoolSelector) {
+	s.claudeOAuthSelector = selector
+}
+
+func (s *GatewayService) SetClaudeOAuthMigrationManager(manager *ClaudeOAuthMigrationManager) {
+	s.claudeOAuthMigrationManager = manager
+}
+
+func (s *GatewayService) MigrateClaudeOAuthBindingOnFailure(ctx context.Context, selection *ClaudeOAuthSelection, failure *UpstreamFailoverError) (*ClaudeOAuthMigrationResult, error) {
+	if s == nil || s.claudeOAuthMigrationManager == nil {
+		return &ClaudeOAuthMigrationResult{}, nil
+	}
+	return s.claudeOAuthMigrationManager.MigrateOnFailure(ctx, selection, failure)
+}
+
+func (s *GatewayService) SetClaudeOAuthShadowMetricsStore(store ClaudeOAuthShadowMetricsStore) {
+	s.claudeOAuthShadowMetrics = store
+}
+
+func (s *GatewayService) RecordClaudeOAuthShadowSelection(ctx context.Context, probe *ClaudeOAuthShadowProbe, actualAccountID int64) {
+	if s == nil || s.claudeOAuthShadowMetrics == nil || probe == nil || probe.Recorded || probe.PoolID <= 0 {
+		return
+	}
+	probe.Recorded = true
+	observation := ClaudeOAuthShadowObservation{PoolID: probe.PoolID, BindingError: probe.BindingErr != nil}
+	if probe.Prediction != nil {
+		observation.RoutingDiff = probe.Prediction.Account == nil || probe.Prediction.Account.ID != actualAccountID
+		observation.CapsuleInvariantFailure = probe.Prediction.Profile == nil || probe.Prediction.Binding == nil
+	}
+	_ = s.claudeOAuthShadowMetrics.Record(ctx, observation)
+}
+
+func (s *GatewayService) RecordClaudeOAuthShadowSessionConflict(ctx context.Context, poolID int64) {
+	if s == nil || s.claudeOAuthShadowMetrics == nil || poolID <= 0 {
+		return
+	}
+	_ = s.claudeOAuthShadowMetrics.Record(ctx, ClaudeOAuthShadowObservation{PoolID: poolID, SessionConflict: true})
 }
 
 func (s *GatewayService) resolveProfileTimezone(ctx context.Context, account *Account) string {
@@ -1662,6 +1705,51 @@ func (s *GatewayService) SelectAccountForModelWithExclusions(ctx context.Context
 	return s.hydrateSelectedAccount(ctx, account)
 }
 
+func (s *GatewayService) selectClaudeOAuthBoundAccount(ctx context.Context, group *Group, requestedModel string, excludedIDs map[int64]struct{}) (*AccountSelectionResult, error) {
+	if group == nil || group.OAuthPoolID == nil || s.claudeOAuthSelector == nil {
+		return nil, ErrNoAvailableAccounts
+	}
+	resolvedSession, ok := ClaudeOAuthResolvedSessionFromContext(ctx)
+	if !ok {
+		return nil, ErrClaudeOAuthSessionMissing
+	}
+	selected, err := s.claudeOAuthSelector.Select(ctx, *group.OAuthPoolID, resolvedSession.BindingHash, requestedModel)
+	if err != nil {
+		return nil, err
+	}
+	if _, excluded := excludedIDs[selected.Account.ID]; excluded {
+		return nil, ErrNoAvailableAccounts
+	}
+	account, err := s.hydrateSelectedAccount(ctx, selected.Account)
+	if err != nil {
+		return nil, err
+	}
+	selected.Account = account
+
+	acquired, acquireErr := s.tryAcquireAccountSlot(ctx, account.ID, account.Concurrency)
+	if acquireErr == nil && acquired.Acquired {
+		if !s.checkAndRegisterSession(ctx, account, resolvedSession.BindingHash) {
+			acquired.ReleaseFunc()
+			return nil, ErrNoAvailableAccounts
+		}
+		return &AccountSelectionResult{
+			Account: account, Acquired: true, ReleaseFunc: acquired.ReleaseFunc, ClaudeOAuth: selected,
+		}, nil
+	}
+	if !s.checkAndRegisterSession(ctx, account, resolvedSession.BindingHash) {
+		return nil, ErrNoAvailableAccounts
+	}
+	cfg := s.schedulingConfig()
+	return &AccountSelectionResult{
+		Account: account,
+		WaitPlan: &AccountWaitPlan{
+			AccountID: account.ID, MaxConcurrency: account.Concurrency,
+			Timeout: cfg.StickySessionWaitTimeout, MaxWaiting: cfg.StickySessionMaxWaiting,
+		},
+		ClaudeOAuth: selected,
+	}, nil
+}
+
 // SelectAccountWithLoadAwareness selects account with load-awareness and wait plan.
 // metadataUserID: 用于客户端亲和调度，从中提取客户端 ID
 // claude2apiUserID: 系统用户 ID，用于二维亲和调度
@@ -1693,6 +1781,26 @@ func (s *GatewayService) SelectAccountWithLoadAwareness(ctx context.Context, gro
 			"group_id", derefGroupID(groupID),
 			"model", requestedModel)
 		return nil, fmt.Errorf("%w supporting model: %s (channel pricing restriction)", ErrNoAvailableAccounts, requestedModel)
+	}
+
+	if group != nil && group.OAuthPoolID != nil {
+		pool, poolErr := s.claudeOAuthSelector.poolRepo.GetByID(ctx, *group.OAuthPoolID)
+		if poolErr != nil {
+			return nil, poolErr
+		}
+		if pool.Mode != OAuthPoolModeShadow {
+			return s.selectClaudeOAuthBoundAccount(ctx, group, requestedModel, excludedIDs)
+		}
+		probe, _ := ClaudeOAuthShadowProbeFromContext(ctx)
+		if probe != nil {
+			probe.PoolID = pool.ID
+			resolvedSession, ok := ClaudeOAuthResolvedSessionFromContext(ctx)
+			if !ok {
+				probe.BindingErr = fmt.Errorf("claude oauth shadow selection requires resolved session")
+			} else {
+				probe.Prediction, probe.BindingErr = s.claudeOAuthSelector.Select(ctx, pool.ID, resolvedSession.BindingHash, requestedModel)
+			}
+		}
 	}
 
 	var stickyAccountID int64
@@ -6773,20 +6881,44 @@ func (s *GatewayService) buildUpstreamRequest(ctx context.Context, c *gin.Contex
 	if c != nil && c.Request != nil {
 		clientHeaders = c.Request.Header
 	}
+	claudeOAuthSelection, hasClaudeOAuthSelection := ClaudeOAuthSelectionFromContext(ctx)
+	claudeOAuthEnforce := hasClaudeOAuthSelection && claudeOAuthSelection.Pool != nil && claudeOAuthSelection.Pool.Mode == OAuthPoolModeEnforce
+	if claudeOAuthEnforce {
+		normalizedBody, _, err := NormalizeClaudeOAuthRequestBody(body)
+		if err != nil {
+			return nil, nil, err
+		}
+		body = normalizedBody
+	}
+	if claudeOAuthEnforce {
+		if account.ProxyID == nil || account.Proxy == nil || *account.ProxyID != claudeOAuthSelection.Pool.EgressRouteID {
+			return nil, nil, fmt.Errorf("%w: account proxy does not match pool egress", ErrClaudeOAuthBoundTransport)
+		}
+		boundPolicy, err := NewClaudeOAuthBoundTransportPolicy(claudeOAuthSelection.Pool, account.Proxy.URL())
+		if err != nil {
+			return nil, nil, err
+		}
+		ctx = WithClaudeOAuthBoundTransport(ctx, boundPolicy)
+	}
 
 	// OAuth账号：应用统一指纹和metadata重写（受设置开关控制）
 	var fingerprint *Fingerprint
 	var claudeEnvironmentProfile *ClaudeEnvironmentProfile
+	if claudeOAuthEnforce {
+		claudeEnvironmentProfile = claudeOAuthSelection.Profile
+	}
 	var claudeEnvironmentProfileLease *EnvironmentProfileSlotLease
 	enableFP, enableMPT, enableCCH := true, false, false
 	if s.settingService != nil {
 		enableFP, enableMPT, enableCCH = s.settingService.GetGatewayForwardingSettings(ctx)
 	}
 	if account.IsOAuth() && s.identityService != nil {
-		var profileErr error
-		claudeEnvironmentProfileLease, claudeEnvironmentProfile, profileErr = s.acquireClaudeEnvironmentProfileForRequest(ctx, account, clientHeaders, body)
-		if profileErr != nil {
-			return nil, nil, profileErr
+		if claudeEnvironmentProfile == nil {
+			var profileErr error
+			claudeEnvironmentProfileLease, claudeEnvironmentProfile, profileErr = s.acquireClaudeEnvironmentProfileForRequest(ctx, account, clientHeaders, body)
+			if profileErr != nil {
+				return nil, nil, profileErr
+			}
 		}
 		claudeEnvironmentProfileSlot := -1
 		if claudeEnvironmentProfileLease != nil {
@@ -6933,6 +7065,11 @@ func (s *GatewayService) buildUpstreamRequest(ctx context.Context, c *gin.Contex
 			if parsed := ParseMetadataUserID(uid); parsed != nil {
 				setHeaderRaw(req.Header, "X-Claude-Code-Session-Id", parsed.SessionID)
 			}
+		}
+	}
+	if claudeOAuthEnforce {
+		if err := s.finalizeClaudeOAuthCapsuleRequest(req, account, claudeEnvironmentProfile, reqStream, finalBetaHeader, finalBetaShouldSet); err != nil {
+			return nil, nil, err
 		}
 	}
 

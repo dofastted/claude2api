@@ -20,6 +20,9 @@ import (
 	"github.com/dofastted/claude2api/ent/group"
 	"github.com/dofastted/claude2api/ent/idempotencyrecord"
 	"github.com/dofastted/claude2api/ent/identityadoptiondecision"
+	"github.com/dofastted/claude2api/ent/oauthcapsuleset"
+	"github.com/dofastted/claude2api/ent/oauthpool"
+	"github.com/dofastted/claude2api/ent/oauthpoolcredential"
 	"github.com/dofastted/claude2api/ent/paymentauditlog"
 	"github.com/dofastted/claude2api/ent/paymentorder"
 	"github.com/dofastted/claude2api/ent/paymentproviderinstance"
@@ -881,7 +884,7 @@ func init() {
 	// group.DefaultModelsListConfig holds the default value on creation for the models_list_config field.
 	group.DefaultModelsListConfig = groupDescModelsListConfig.Default.(domain.GroupModelsListConfig)
 	// groupDescRpmLimit is the schema descriptor for rpm_limit field.
-	groupDescRpmLimit := groupFields[31].Descriptor()
+	groupDescRpmLimit := groupFields[32].Descriptor()
 	// group.DefaultRpmLimit holds the default value on creation for the rpm_limit field.
 	group.DefaultRpmLimit = groupDescRpmLimit.Default.(int)
 	idempotencyrecordMixin := schema.IdempotencyRecord{}.Mixin()
@@ -946,6 +949,141 @@ func init() {
 	identityadoptiondecisionDescDecidedAt := identityadoptiondecisionFields[4].Descriptor()
 	// identityadoptiondecision.DefaultDecidedAt holds the default value on creation for the decided_at field.
 	identityadoptiondecision.DefaultDecidedAt = identityadoptiondecisionDescDecidedAt.Default.(func() time.Time)
+	oauthcapsulesetMixin := schema.OAuthCapsuleSet{}.Mixin()
+	oauthcapsulesetMixinFields0 := oauthcapsulesetMixin[0].Fields()
+	_ = oauthcapsulesetMixinFields0
+	oauthcapsulesetFields := schema.OAuthCapsuleSet{}.Fields()
+	_ = oauthcapsulesetFields
+	// oauthcapsulesetDescCreatedAt is the schema descriptor for created_at field.
+	oauthcapsulesetDescCreatedAt := oauthcapsulesetMixinFields0[0].Descriptor()
+	// oauthcapsuleset.DefaultCreatedAt holds the default value on creation for the created_at field.
+	oauthcapsuleset.DefaultCreatedAt = oauthcapsulesetDescCreatedAt.Default.(func() time.Time)
+	// oauthcapsulesetDescUpdatedAt is the schema descriptor for updated_at field.
+	oauthcapsulesetDescUpdatedAt := oauthcapsulesetMixinFields0[1].Descriptor()
+	// oauthcapsuleset.DefaultUpdatedAt holds the default value on creation for the updated_at field.
+	oauthcapsuleset.DefaultUpdatedAt = oauthcapsulesetDescUpdatedAt.Default.(func() time.Time)
+	// oauthcapsuleset.UpdateDefaultUpdatedAt holds the default value on update for the updated_at field.
+	oauthcapsuleset.UpdateDefaultUpdatedAt = oauthcapsulesetDescUpdatedAt.UpdateDefault.(func() time.Time)
+	// oauthcapsulesetDescCompatibilityDigest is the schema descriptor for compatibility_digest field.
+	oauthcapsulesetDescCompatibilityDigest := oauthcapsulesetFields[2].Descriptor()
+	// oauthcapsuleset.CompatibilityDigestValidator is a validator for the "compatibility_digest" field. It is called by the builders before save.
+	oauthcapsuleset.CompatibilityDigestValidator = func() func(string) error {
+		validators := oauthcapsulesetDescCompatibilityDigest.Validators
+		fns := [...]func(string) error{
+			validators[0].(func(string) error),
+			validators[1].(func(string) error),
+		}
+		return func(compatibility_digest string) error {
+			for _, fn := range fns {
+				if err := fn(compatibility_digest); err != nil {
+					return err
+				}
+			}
+			return nil
+		}
+	}()
+	// oauthcapsulesetDescPayload is the schema descriptor for payload field.
+	oauthcapsulesetDescPayload := oauthcapsulesetFields[3].Descriptor()
+	// oauthcapsuleset.DefaultPayload holds the default value on creation for the payload field.
+	oauthcapsuleset.DefaultPayload = oauthcapsulesetDescPayload.Default.(func() map[string]interface{})
+	oauthpoolMixin := schema.OAuthPool{}.Mixin()
+	oauthpoolMixinHooks1 := oauthpoolMixin[1].Hooks()
+	oauthpool.Hooks[0] = oauthpoolMixinHooks1[0]
+	oauthpoolMixinInters1 := oauthpoolMixin[1].Interceptors()
+	oauthpool.Interceptors[0] = oauthpoolMixinInters1[0]
+	oauthpoolMixinFields0 := oauthpoolMixin[0].Fields()
+	_ = oauthpoolMixinFields0
+	oauthpoolFields := schema.OAuthPool{}.Fields()
+	_ = oauthpoolFields
+	// oauthpoolDescCreatedAt is the schema descriptor for created_at field.
+	oauthpoolDescCreatedAt := oauthpoolMixinFields0[0].Descriptor()
+	// oauthpool.DefaultCreatedAt holds the default value on creation for the created_at field.
+	oauthpool.DefaultCreatedAt = oauthpoolDescCreatedAt.Default.(func() time.Time)
+	// oauthpoolDescUpdatedAt is the schema descriptor for updated_at field.
+	oauthpoolDescUpdatedAt := oauthpoolMixinFields0[1].Descriptor()
+	// oauthpool.DefaultUpdatedAt holds the default value on creation for the updated_at field.
+	oauthpool.DefaultUpdatedAt = oauthpoolDescUpdatedAt.Default.(func() time.Time)
+	// oauthpool.UpdateDefaultUpdatedAt holds the default value on update for the updated_at field.
+	oauthpool.UpdateDefaultUpdatedAt = oauthpoolDescUpdatedAt.UpdateDefault.(func() time.Time)
+	// oauthpoolDescName is the schema descriptor for name field.
+	oauthpoolDescName := oauthpoolFields[0].Descriptor()
+	// oauthpool.NameValidator is a validator for the "name" field. It is called by the builders before save.
+	oauthpool.NameValidator = func() func(string) error {
+		validators := oauthpoolDescName.Validators
+		fns := [...]func(string) error{
+			validators[0].(func(string) error),
+			validators[1].(func(string) error),
+		}
+		return func(name string) error {
+			for _, fn := range fns {
+				if err := fn(name); err != nil {
+					return err
+				}
+			}
+			return nil
+		}
+	}()
+	// oauthpoolDescProvider is the schema descriptor for provider field.
+	oauthpoolDescProvider := oauthpoolFields[1].Descriptor()
+	// oauthpool.DefaultProvider holds the default value on creation for the provider field.
+	oauthpool.DefaultProvider = oauthpoolDescProvider.Default.(string)
+	// oauthpool.ProviderValidator is a validator for the "provider" field. It is called by the builders before save.
+	oauthpool.ProviderValidator = oauthpoolDescProvider.Validators[0].(func(string) error)
+	// oauthpoolDescStatus is the schema descriptor for status field.
+	oauthpoolDescStatus := oauthpoolFields[2].Descriptor()
+	// oauthpool.DefaultStatus holds the default value on creation for the status field.
+	oauthpool.DefaultStatus = oauthpoolDescStatus.Default.(string)
+	// oauthpool.StatusValidator is a validator for the "status" field. It is called by the builders before save.
+	oauthpool.StatusValidator = oauthpoolDescStatus.Validators[0].(func(string) error)
+	// oauthpoolDescMode is the schema descriptor for mode field.
+	oauthpoolDescMode := oauthpoolFields[3].Descriptor()
+	// oauthpool.DefaultMode holds the default value on creation for the mode field.
+	oauthpool.DefaultMode = oauthpoolDescMode.Default.(string)
+	// oauthpool.ModeValidator is a validator for the "mode" field. It is called by the builders before save.
+	oauthpool.ModeValidator = oauthpoolDescMode.Validators[0].(func(string) error)
+	// oauthpoolDescAllowedOrigins is the schema descriptor for allowed_origins field.
+	oauthpoolDescAllowedOrigins := oauthpoolFields[5].Descriptor()
+	// oauthpool.DefaultAllowedOrigins holds the default value on creation for the allowed_origins field.
+	oauthpool.DefaultAllowedOrigins = oauthpoolDescAllowedOrigins.Default.([]string)
+	// oauthpoolDescAllowedModels is the schema descriptor for allowed_models field.
+	oauthpoolDescAllowedModels := oauthpoolFields[6].Descriptor()
+	// oauthpool.DefaultAllowedModels holds the default value on creation for the allowed_models field.
+	oauthpool.DefaultAllowedModels = oauthpoolDescAllowedModels.Default.([]string)
+	// oauthpoolDescActiveCapsuleSetVersion is the schema descriptor for active_capsule_set_version field.
+	oauthpoolDescActiveCapsuleSetVersion := oauthpoolFields[7].Descriptor()
+	// oauthpool.DefaultActiveCapsuleSetVersion holds the default value on creation for the active_capsule_set_version field.
+	oauthpool.DefaultActiveCapsuleSetVersion = oauthpoolDescActiveCapsuleSetVersion.Default.(int64)
+	// oauthpoolDescCompatibilityDigest is the schema descriptor for compatibility_digest field.
+	oauthpoolDescCompatibilityDigest := oauthpoolFields[9].Descriptor()
+	// oauthpool.DefaultCompatibilityDigest holds the default value on creation for the compatibility_digest field.
+	oauthpool.DefaultCompatibilityDigest = oauthpoolDescCompatibilityDigest.Default.(string)
+	// oauthpool.CompatibilityDigestValidator is a validator for the "compatibility_digest" field. It is called by the builders before save.
+	oauthpool.CompatibilityDigestValidator = oauthpoolDescCompatibilityDigest.Validators[0].(func(string) error)
+	// oauthpoolDescSessionTTLSeconds is the schema descriptor for session_ttl_seconds field.
+	oauthpoolDescSessionTTLSeconds := oauthpoolFields[10].Descriptor()
+	// oauthpool.DefaultSessionTTLSeconds holds the default value on creation for the session_ttl_seconds field.
+	oauthpool.DefaultSessionTTLSeconds = oauthpoolDescSessionTTLSeconds.Default.(int)
+	oauthpoolcredentialMixin := schema.OAuthPoolCredential{}.Mixin()
+	oauthpoolcredentialMixinFields0 := oauthpoolcredentialMixin[0].Fields()
+	_ = oauthpoolcredentialMixinFields0
+	oauthpoolcredentialFields := schema.OAuthPoolCredential{}.Fields()
+	_ = oauthpoolcredentialFields
+	// oauthpoolcredentialDescCreatedAt is the schema descriptor for created_at field.
+	oauthpoolcredentialDescCreatedAt := oauthpoolcredentialMixinFields0[0].Descriptor()
+	// oauthpoolcredential.DefaultCreatedAt holds the default value on creation for the created_at field.
+	oauthpoolcredential.DefaultCreatedAt = oauthpoolcredentialDescCreatedAt.Default.(func() time.Time)
+	// oauthpoolcredentialDescUpdatedAt is the schema descriptor for updated_at field.
+	oauthpoolcredentialDescUpdatedAt := oauthpoolcredentialMixinFields0[1].Descriptor()
+	// oauthpoolcredential.DefaultUpdatedAt holds the default value on creation for the updated_at field.
+	oauthpoolcredential.DefaultUpdatedAt = oauthpoolcredentialDescUpdatedAt.Default.(func() time.Time)
+	// oauthpoolcredential.UpdateDefaultUpdatedAt holds the default value on update for the updated_at field.
+	oauthpoolcredential.UpdateDefaultUpdatedAt = oauthpoolcredentialDescUpdatedAt.UpdateDefault.(func() time.Time)
+	// oauthpoolcredentialDescState is the schema descriptor for state field.
+	oauthpoolcredentialDescState := oauthpoolcredentialFields[2].Descriptor()
+	// oauthpoolcredential.DefaultState holds the default value on creation for the state field.
+	oauthpoolcredential.DefaultState = oauthpoolcredentialDescState.Default.(string)
+	// oauthpoolcredential.StateValidator is a validator for the "state" field. It is called by the builders before save.
+	oauthpoolcredential.StateValidator = oauthpoolcredentialDescState.Validators[0].(func(string) error)
 	paymentauditlogFields := schema.PaymentAuditLog{}.Fields()
 	_ = paymentauditlogFields
 	// paymentauditlogDescOrderID is the schema descriptor for order_id field.
