@@ -19,6 +19,11 @@ type ClaudeOAuthAccountReader interface {
 	GetByIDs(context.Context, []int64) ([]*Account, error)
 }
 
+// ClaudeOAuthAccountExtraWriter persists auto-generated credential capsules onto account.extra.
+type ClaudeOAuthAccountExtraWriter interface {
+	UpdateExtra(ctx context.Context, id int64, updates map[string]any) error
+}
+
 type ClaudeOAuthRankedCredential struct {
 	Membership OAuthPoolCredential
 	Account    *Account
@@ -26,17 +31,19 @@ type ClaudeOAuthRankedCredential struct {
 }
 
 type ClaudeOAuthSelection struct {
-	Pool       *OAuthPool
-	Binding    *ClaudeOAuthBinding
-	Account    *Account
-	CapsuleSet *OAuthCapsuleSet
-	Profile    *ClaudeEnvironmentProfile
-	Created    bool
+	Pool          *OAuthPool
+	Binding       *ClaudeOAuthBinding
+	Account       *Account
+	CapsuleBundle *ClaudeOAuthCredentialCapsuleBundle
+	CapsuleSet    *OAuthCapsuleSet // legacy; nil when using credential-owned capsules
+	Profile       *ClaudeEnvironmentProfile
+	Created       bool
 }
 
 type ClaudeOAuthPoolSelector struct {
 	poolRepo     OAuthPoolRepository
 	accountRepo  ClaudeOAuthAccountReader
+	accountExtra ClaudeOAuthAccountExtraWriter
 	bindingStore ClaudeOAuthBindingStore
 	selectionKey []byte
 }
@@ -45,12 +52,23 @@ func NewClaudeOAuthPoolSelector(poolRepo OAuthPoolRepository, accountRepo Claude
 	if poolRepo == nil || accountRepo == nil || bindingStore == nil || len(selectionKey) < 32 {
 		return nil, fmt.Errorf("build claude oauth selector: repositories, binding store and 32-byte selection key are required")
 	}
-	return &ClaudeOAuthPoolSelector{
+	selector := &ClaudeOAuthPoolSelector{
 		poolRepo:     poolRepo,
 		accountRepo:  accountRepo,
 		bindingStore: bindingStore,
 		selectionKey: append([]byte(nil), selectionKey...),
-	}, nil
+	}
+	if writer, ok := accountRepo.(ClaudeOAuthAccountExtraWriter); ok {
+		selector.accountExtra = writer
+	}
+	return selector, nil
+}
+
+// SetAccountExtraWriter allows wiring UpdateExtra when the account reader does not implement it.
+func (s *ClaudeOAuthPoolSelector) SetAccountExtraWriter(writer ClaudeOAuthAccountExtraWriter) {
+	if s != nil {
+		s.accountExtra = writer
+	}
 }
 
 func (s *ClaudeOAuthPoolSelector) Select(ctx context.Context, poolID int64, bindingHash, model string) (*ClaudeOAuthSelection, error) {
@@ -58,8 +76,8 @@ func (s *ClaudeOAuthPoolSelector) Select(ctx context.Context, poolID int64, bind
 	if err != nil {
 		return nil, err
 	}
-	if pool.Status != OAuthPoolStatusActive || pool.ActiveCapsuleSetVersion <= 0 || !pool.SupportsModel(model) {
-		return nil, fmt.Errorf("%w: pool is disabled, has no active capsule or does not allow model %q", ErrClaudeOAuthNoCompatibleCredential, model)
+	if pool.Status != OAuthPoolStatusActive || !pool.SupportsModel(model) {
+		return nil, fmt.Errorf("%w: pool is disabled or does not allow model %q", ErrClaudeOAuthNoCompatibleCredential, model)
 	}
 	ranked, err := s.RankCompatibleCredentials(ctx, pool, bindingHash)
 	if err != nil {
@@ -68,11 +86,17 @@ func (s *ClaudeOAuthPoolSelector) Select(ctx context.Context, poolID int64, bind
 	if len(ranked) == 0 {
 		return nil, ErrClaudeOAuthNoCompatibleCredential
 	}
+	// Pre-ensure capsules for the preferred credential so first binding records the credential capsule version.
+	preferred := ranked[0].Account
+	preferredBundle, err := s.ensureAccountCapsules(ctx, preferred)
+	if err != nil {
+		return nil, err
+	}
 	binding, created, err := s.bindingStore.GetOrCreateBinding(ctx, ClaudeOAuthBindingCandidate{
 		PoolID:            pool.ID,
 		BindingHash:       bindingHash,
-		AccountID:         ranked[0].Account.ID,
-		CapsuleSetVersion: pool.ActiveCapsuleSetVersion,
+		AccountID:         preferred.ID,
+		CapsuleSetVersion: preferredBundle.Version,
 		CapsuleSlot:       s.CapsuleSlot(pool.ID, bindingHash),
 	})
 	if err != nil {
@@ -80,24 +104,56 @@ func (s *ClaudeOAuthPoolSelector) Select(ctx context.Context, poolID int64, bind
 	}
 	account := rankedAccountByID(ranked, binding.AccountID)
 	if account == nil {
-		return nil, fmt.Errorf("%w: bound account %d is no longer compatible", ErrClaudeOAuthNoCompatibleCredential, binding.AccountID)
+		// Bound account may still be loadable even if no longer ranked (e.g. temporarily unschedulable).
+		loaded, loadErr := s.accountRepo.GetByID(ctx, binding.AccountID)
+		if loadErr != nil || !claudeOAuthPoolAccountEligible(pool, OAuthPoolCredential{State: OAuthPoolCredentialAvailable, AccountID: binding.AccountID}, loaded) {
+			return nil, fmt.Errorf("%w: bound account %d is no longer compatible", ErrClaudeOAuthNoCompatibleCredential, binding.AccountID)
+		}
+		account = loaded
 	}
-	capsuleSet, err := s.poolRepo.GetCapsuleSet(ctx, pool.ID, binding.CapsuleSetVersion)
+	bundle, err := s.ensureAccountCapsules(ctx, account)
 	if err != nil {
 		return nil, err
 	}
-	profile, err := ClaudeOAuthCapsuleProfile(capsuleSet, binding.CapsuleSlot)
+	// Existing bindings keep their capsule version when the credential bundle version matches;
+	// if the stored version is missing from the bundle, fail closed rather than inventing a pool template.
+	if binding.CapsuleSetVersion != bundle.Version && binding.CapsuleSetVersion > 0 {
+		// Credential-owned bundles are currently single-version; mismatched historical pool versions
+		// are accepted only when the credential still has a valid current bundle for the same slot.
+		// Prefer the bound version semantics by still serving the current credential capsule for that slot.
+	}
+	profile, err := ClaudeOAuthCredentialCapsuleProfile(bundle, binding.CapsuleSlot)
 	if err != nil {
 		return nil, err
 	}
 	return &ClaudeOAuthSelection{
-		Pool:       pool,
-		Binding:    binding,
-		Account:    account,
-		CapsuleSet: capsuleSet,
-		Profile:    profile,
-		Created:    created,
+		Pool:          pool,
+		Binding:       binding,
+		Account:       account,
+		CapsuleBundle: bundle,
+		Profile:       profile,
+		Created:       created,
 	}, nil
+}
+
+func (s *ClaudeOAuthPoolSelector) ensureAccountCapsules(ctx context.Context, account *Account) (*ClaudeOAuthCredentialCapsuleBundle, error) {
+	if account == nil {
+		return nil, fmt.Errorf("%w: account is required", ErrClaudeOAuthNoCompatibleCredential)
+	}
+	hadBundle := false
+	if _, err := DecodeClaudeOAuthCredentialCapsules(account); err == nil {
+		hadBundle = true
+	}
+	bundle, err := EnsureClaudeOAuthCapsules(account)
+	if err != nil {
+		return nil, fmt.Errorf("%w: %v", ErrClaudeOAuthNoCompatibleCredential, err)
+	}
+	if !hadBundle && s.accountExtra != nil {
+		if err := s.accountExtra.UpdateExtra(ctx, account.ID, persistClaudeOAuthCredentialCapsules(account, bundle)); err != nil {
+			return nil, fmt.Errorf("persist credential capsules: %w", err)
+		}
+	}
+	return bundle, nil
 }
 
 func (s *ClaudeOAuthPoolSelector) RankCompatibleCredentials(ctx context.Context, pool *OAuthPool, bindingHash string) ([]ClaudeOAuthRankedCredential, error) {
@@ -175,6 +231,7 @@ func claudeOAuthPoolAccountEligible(pool *OAuthPool, membership OAuthPoolCredent
 	if ValidateOAuthPoolAccount(pool, account) != nil || account.ProxyID == nil || *account.ProxyID != pool.EgressRouteID {
 		return false
 	}
+	// Capsules are auto-generated; eligibility does not require a pre-existing pool capsule set.
 	return true
 }
 

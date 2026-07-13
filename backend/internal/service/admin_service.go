@@ -2797,6 +2797,17 @@ func (s *adminServiceImpl) CreateAccount(ctx context.Context, input *CreateAccou
 			}
 		}
 	}
+	// Anthropic OAuth: automatically bind three system environment capsules to the credential.
+	// Capsules are the environment fact source; no separate admin pool capsule configuration is required.
+	if account.Platform == PlatformAnthropic && account.Type == AccountTypeOAuth && s.accountRepo != nil {
+		bundle, ensureErr := EnsureClaudeOAuthCapsulesWithOptions(account, claude.CLICurrentVersion, profileTimezone)
+		if ensureErr != nil {
+			return nil, fmt.Errorf("ensure claude oauth capsules: %w", ensureErr)
+		}
+		if err := s.accountRepo.UpdateExtra(ctx, account.ID, persistClaudeOAuthCredentialCapsules(account, bundle)); err != nil {
+			return nil, fmt.Errorf("persist claude oauth capsules: %w", err)
+		}
+	}
 
 	// 绑定分组
 	if len(groupIDs) > 0 {

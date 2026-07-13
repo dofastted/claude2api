@@ -86,19 +86,58 @@ func (s *claudeOAuthBindingAdminStub) DeleteCredentialBindings(_ context.Context
 	return s.deleted[accountID], nil
 }
 
+type claudeOAuthPoolAdminAccountStub struct {
+	accounts map[int64]*Account
+	extras   map[int64]map[string]any
+}
+
+func (s *claudeOAuthPoolAdminAccountStub) GetByID(_ context.Context, id int64) (*Account, error) {
+	account := s.accounts[id]
+	if account == nil {
+		return nil, ErrOAuthPoolCredentialInvalid
+	}
+	copy := *account
+	if account.Extra != nil {
+		copy.Extra = make(map[string]any, len(account.Extra))
+		for key, value := range account.Extra {
+			copy.Extra[key] = value
+		}
+	}
+	return &copy, nil
+}
+func (s *claudeOAuthPoolAdminAccountStub) UpdateExtra(_ context.Context, id int64, updates map[string]any) error {
+	if s.extras == nil {
+		s.extras = map[int64]map[string]any{}
+	}
+	s.extras[id] = updates
+	if account := s.accounts[id]; account != nil {
+		if account.Extra == nil {
+			account.Extra = map[string]any{}
+		}
+		for key, value := range updates {
+			account.Extra[key] = value
+		}
+	}
+	return nil
+}
+
+// Satisfy AccountRepository methods used only as ClaudeOAuthAccountExtraWriter / GetByID via interface{} in admin.
+// The admin service types accounts as AccountRepository — use a thin embed for unused methods via compile-time cast in test construction.
+
 func TestClaudeOAuthPoolAdminServiceEnforceGate(t *testing.T) {
 	pool := &OAuthPool{
 		ID: 7, Name: "primary", Provider: OAuthPoolProviderClaude, Status: OAuthPoolStatusActive,
 		Mode: OAuthPoolModeShadow, EgressRouteID: 11,
-		AllowedOrigins: []string{"https://api.anthropic.com/v1/messages"},
-		AllowedModels:  []string{"claude-*"}, ActiveCapsuleSetVersion: 3,
-		CompatibilityDigest: "digest", SessionTTLSeconds: ClaudeOAuthSessionTTLSeconds,
+		AllowedOrigins:    []string{"https://api.anthropic.com/v1/messages"},
+		AllowedModels:     []string{"claude-*"},
+		SessionTTLSeconds: ClaudeOAuthSessionTTLSeconds,
 	}
 	repo := &claudeOAuthPoolAdminRepoStub{pool: pool, credentials: []OAuthPoolCredential{{AccountID: 22}}}
 	metrics := &claudeOAuthShadowMetricsStub{metrics: &ClaudeOAuthShadowMetrics{
 		PoolID: 7, Requests: ClaudeOAuthShadowRequiredRequests, ConsecutiveDays: ClaudeOAuthShadowRequiredDays,
 		BindingErrors: 1,
 	}}
+	// accounts nil: enforce still allowed after metrics qualify (no per-credential ensure when accounts missing)
 	admin := NewClaudeOAuthPoolAdminService(repo, nil, nil, nil, metrics)
 
 	_, err := admin.SetMode(context.Background(), 7, OAuthPoolModeEnforce)
@@ -111,6 +150,13 @@ func TestClaudeOAuthPoolAdminServiceEnforceGate(t *testing.T) {
 	require.Equal(t, OAuthPoolModeEnforce, updated.Mode)
 	require.NotNil(t, updated.ShadowQualifiedAt)
 	require.Equal(t, OAuthPoolModeEnforce, repo.updated.Mode)
+}
+
+func TestClaudeOAuthPoolAdminServiceCreateCapsuleSetDisabled(t *testing.T) {
+	admin := NewClaudeOAuthPoolAdminService(&claudeOAuthPoolAdminRepoStub{pool: &OAuthPool{ID: 1}}, nil, nil, nil, nil)
+	_, err := admin.CreateCapsuleSet(context.Background(), 1, 1, "2.1.5", "UTC")
+	require.ErrorIs(t, err, ErrOAuthPoolInvalid)
+	require.Contains(t, err.Error(), "automatically")
 }
 
 func TestClaudeOAuthPoolAdminServiceReturningToShadowResetsMetrics(t *testing.T) {

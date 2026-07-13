@@ -10,7 +10,7 @@ vi.mock('@/api/client', () => ({
   apiClient: { get, post, delete: del },
 }))
 
-import { createCapsule, get as getPool, resetCredentialBindings, setMode } from '@/api/admin/claudeOAuthPools'
+import { get as getPool, resetCredentialBindings, setMode } from '@/api/admin/claudeOAuthPools'
 import type { ClaudeOAuthPoolDetail } from '@/api/admin/claudeOAuthPools'
 
 describe('claude oauth pool admin api', () => {
@@ -35,17 +35,11 @@ describe('claude oauth pool admin api', () => {
     expect(del).toHaveBeenCalledWith('/admin/claude-oauth-pools/7/credentials/12/bindings')
   })
 
-  it('creates immutable capsule versions and switches mode through explicit endpoints', async () => {
+  it('switches mode through the explicit mode endpoint without capsule configuration', async () => {
     post.mockResolvedValue({ data: { id: 7, mode: 'enforce' } })
 
-    await createCapsule(7, { version: 3, cli_version: '1.0.42', profile_timezone: 'UTC' })
     await setMode(7, 'enforce')
 
-    expect(post).toHaveBeenNthCalledWith(1, '/admin/claude-oauth-pools/7/capsules', {
-      version: 3,
-      cli_version: '1.0.42',
-      profile_timezone: 'UTC',
-    })
-    expect(post).toHaveBeenNthCalledWith(2, '/admin/claude-oauth-pools/7/mode', { mode: 'enforce' })
+    expect(post).toHaveBeenCalledWith('/admin/claude-oauth-pools/7/mode', { mode: 'enforce' })
   })
 })

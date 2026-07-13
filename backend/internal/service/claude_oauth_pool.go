@@ -139,9 +139,8 @@ func ValidateOAuthPool(pool *OAuthPool) error {
 		return fmt.Errorf("%w: at least one allowed model is required", ErrOAuthPoolInvalid)
 	}
 	pool.CompatibilityDigest = strings.TrimSpace(pool.CompatibilityDigest)
-	if pool.Mode == OAuthPoolModeEnforce && (pool.ActiveCapsuleSetVersion <= 0 || pool.CompatibilityDigest == "") {
-		return fmt.Errorf("%w: enforce mode requires an active capsule set and compatibility digest", ErrOAuthPoolInvalid)
-	}
+	// Enforce no longer requires a manually activated pool-level capsule set.
+	// Credential-owned capsules are the environment fact source; pool only gates membership/egress/model policy.
 	return nil
 }
 

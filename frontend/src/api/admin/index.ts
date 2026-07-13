@@ -121,6 +121,5 @@ export type {
   ClaudeOAuthPoolDetail,
   ClaudeOAuthPoolCredential,
   ClaudeOAuthShadowMetrics,
-  ClaudeOAuthPoolInput,
-  ClaudeOAuthCapsuleInput
+  ClaudeOAuthPoolInput
 } from './claudeOAuthPools'

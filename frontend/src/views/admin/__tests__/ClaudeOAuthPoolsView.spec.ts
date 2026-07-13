@@ -24,8 +24,6 @@ vi.mock('@/api/admin', () => ({
       addCredential: vi.fn(),
       removeCredential: vi.fn(),
       resetCredentialBindings: vi.fn(),
-      createCapsule: vi.fn(),
-      activateCapsule: vi.fn(),
     },
   },
 }))

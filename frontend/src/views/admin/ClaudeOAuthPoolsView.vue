@@ -36,7 +36,7 @@
           </div>
           <div class="mt-4 grid grid-cols-3 gap-3 text-xs">
             <div><div class="text-gray-500">{{ t('admin.claudeOAuthPools.status') }}</div><div class="mt-1 font-medium">{{ pool.status }}</div></div>
-            <div><div class="text-gray-500">{{ t('admin.claudeOAuthPools.capsule') }}</div><div class="mt-1 font-medium">v{{ pool.active_capsule_set_version || '-' }}</div></div>
+            <div><div class="text-gray-500">{{ t('admin.claudeOAuthPools.capsule') }}</div><div class="mt-1 font-medium">{{ t('admin.claudeOAuthPools.capsuleAuto') }}</div></div>
             <div><div class="text-gray-500">TTL</div><div class="mt-1 font-medium">{{ pool.session_ttl_seconds }}s</div></div>
           </div>
         </button>
@@ -63,6 +63,10 @@
             </div>
           </div>
 
+          <div class="rounded-lg border border-dashed border-gray-200 p-3 text-sm text-gray-600 dark:border-dark-700 dark:text-dark-300">
+            {{ t('admin.claudeOAuthPools.capsuleAutoNote') }}
+          </div>
+
           <div>
             <div class="mb-2 flex items-center justify-between">
               <h3 class="font-medium text-gray-900 dark:text-white">{{ t('admin.claudeOAuthPools.credentials') }}</h3>
@@ -86,16 +90,6 @@
                 </div>
               </div>
             </div>
-          </div>
-
-          <div class="border-t border-gray-200 pt-4 dark:border-dark-700">
-            <h3 class="mb-3 font-medium text-gray-900 dark:text-white">{{ t('admin.claudeOAuthPools.capsuleManagement') }}</h3>
-            <form class="grid gap-3 sm:grid-cols-4" @submit.prevent="createAndActivateCapsule">
-              <input v-model.number="capsule.version" class="input" type="number" min="1" :placeholder="t('admin.claudeOAuthPools.version')" required />
-              <input v-model="capsule.cli_version" class="input" type="text" placeholder="Claude CLI version" required />
-              <input v-model="capsule.profile_timezone" class="input" type="text" placeholder="UTC" />
-              <button class="btn btn-primary" :disabled="saving">{{ t('admin.claudeOAuthPools.createActivate') }}</button>
-            </form>
           </div>
         </section>
 
@@ -158,7 +152,7 @@ import { computed, defineComponent, h, onMounted, reactive, ref } from 'vue'
 import { useI18n } from 'vue-i18n'
 import AppLayout from '@/components/layout/AppLayout.vue'
 import { adminAPI } from '@/api/admin'
-import type { ClaudeOAuthCapsuleInput, ClaudeOAuthPool, ClaudeOAuthPoolDetail, ClaudeOAuthPoolInput, ClaudeOAuthPoolMode } from '@/api/admin'
+import type { ClaudeOAuthPool, ClaudeOAuthPoolDetail, ClaudeOAuthPoolInput, ClaudeOAuthPoolMode } from '@/api/admin'
 import { useAppStore } from '@/stores/app'
 
 const MetricCard = defineComponent({
@@ -184,7 +178,6 @@ const credentialAccountId = ref<number | null>(null)
 const modelsText = ref('claude-*')
 const originsText = ref('https://api.anthropic.com/v1/messages\nhttps://api.anthropic.com/v1/messages/count_tokens')
 const form = reactive<ClaudeOAuthPoolInput>({ name: '', status: 'active', egress_route_id: 0, allowed_origins: [], allowed_models: [] })
-const capsule = reactive<ClaudeOAuthCapsuleInput>({ version: 1, cli_version: '', profile_timezone: 'UTC' })
 const hardFailures = computed(() => {
   const metrics = detail.value?.shadow_metrics
   return metrics ? metrics.binding_errors + metrics.capsule_invariant_failures + metrics.direct_egress_attempts + metrics.session_conflicts + metrics.unapproved_business_diffs : 0
@@ -210,7 +203,6 @@ async function selectPool(id: number) {
   selectedId.value = id
   try {
     detail.value = await adminAPI.claudeOAuthPools.get(id)
-    capsule.version = Math.max(1, detail.value.pool.active_capsule_set_version + 1)
   } catch (error: any) {
     appStore.showError(error?.message || t('common.unknownError'))
   }
@@ -290,16 +282,6 @@ async function resetBindings(accountId: number) {
     const poolId = detail.value!.pool.id
     await adminAPI.claudeOAuthPools.resetCredentialBindings(poolId, accountId)
     await selectPool(poolId)
-  })
-}
-
-async function createAndActivateCapsule() {
-  if (!detail.value) return
-  await runAction(async () => {
-    const poolId = detail.value!.pool.id
-    await adminAPI.claudeOAuthPools.createCapsule(poolId, { ...capsule })
-    await adminAPI.claudeOAuthPools.activateCapsule(poolId, capsule.version)
-    await loadPools()
   })
 }
 

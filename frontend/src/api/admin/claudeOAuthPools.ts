@@ -60,12 +60,6 @@ export interface ClaudeOAuthPoolInput {
   allowed_models: string[]
 }
 
-export interface ClaudeOAuthCapsuleInput {
-  version: number
-  cli_version: string
-  profile_timezone: string
-}
-
 export async function list(): Promise<ClaudeOAuthPool[]> {
   const { data } = await apiClient.get<ClaudeOAuthPool[]>('/admin/claude-oauth-pools')
   return data
@@ -108,15 +102,6 @@ export async function resetCredentialBindings(id: number, accountId: number): Pr
 	return data.deleted_bindings
 }
 
-export async function createCapsule(id: number, input: ClaudeOAuthCapsuleInput): Promise<void> {
-  await apiClient.post(`/admin/claude-oauth-pools/${id}/capsules`, input)
-}
-
-export async function activateCapsule(id: number, version: number): Promise<ClaudeOAuthPool> {
-  const { data } = await apiClient.post<ClaudeOAuthPool>(`/admin/claude-oauth-pools/${id}/capsules/${version}/activate`)
-  return data
-}
-
 export async function setMode(id: number, mode: ClaudeOAuthPoolMode): Promise<ClaudeOAuthPool> {
   const { data } = await apiClient.post<ClaudeOAuthPool>(`/admin/claude-oauth-pools/${id}/mode`, { mode })
   return data
@@ -131,7 +116,5 @@ export default {
   addCredential,
   removeCredential,
   resetCredentialBindings,
-  createCapsule,
-  activateCapsule,
   setMode
 }

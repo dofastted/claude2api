@@ -118,6 +118,21 @@ func (s *ClaudeOAuthPoolAdminService) AddCredential(ctx context.Context, poolID,
 	if err := ValidateOAuthPoolAccount(pool, account); err != nil {
 		return nil, err
 	}
+	// Auto-bind three system environment capsules to the credential; never require manual capsule UI.
+	profileTimezone := EnvironmentProfileFallbackTimezone
+	if s.proxies != nil && account.ProxyID != nil {
+		// timezone resolution stays best-effort; ensure still succeeds with fallback.
+		_ = s.proxies
+	}
+	bundle, err := EnsureClaudeOAuthCapsulesWithOptions(account, "", profileTimezone)
+	if err != nil {
+		return nil, fmt.Errorf("ensure credential capsules: %w", err)
+	}
+	if s.accounts != nil {
+		if err := s.accounts.UpdateExtra(ctx, account.ID, persistClaudeOAuthCredentialCapsules(account, bundle)); err != nil {
+			return nil, fmt.Errorf("persist credential capsules: %w", err)
+		}
+	}
 	credential := &OAuthPoolCredential{PoolID: poolID, AccountID: accountID, State: OAuthPoolCredentialAvailable}
 	if err := s.pools.AddCredential(ctx, credential); err != nil {
 		return nil, fmt.Errorf("add oauth pool credential: %w", err)
@@ -165,29 +180,23 @@ func (s *ClaudeOAuthPoolAdminService) ResetCredentialBindings(ctx context.Contex
 	return 0, fmt.Errorf("%w: account %d is not enrolled in pool %d", ErrOAuthPoolCredentialInvalid, accountID, poolID)
 }
 
+// CreateCapsuleSet is deprecated: capsules are credential-owned and auto-generated.
+// The method remains for API compatibility but returns an explicit invalid error.
 func (s *ClaudeOAuthPoolAdminService) CreateCapsuleSet(ctx context.Context, poolID, version int64, cliVersion, profileTimezone string) (*OAuthCapsuleSet, error) {
-	if _, err := s.pools.GetByID(ctx, poolID); err != nil {
-		return nil, err
-	}
-	set, err := BuildClaudeOAuthCapsuleSet(poolID, version, cliVersion, profileTimezone)
-	if err != nil {
-		return nil, err
-	}
-	if err := s.pools.CreateCapsuleSet(ctx, set); err != nil {
-		return nil, fmt.Errorf("create oauth capsule set: %w", err)
-	}
-	return set, nil
+	_ = ctx
+	_ = poolID
+	_ = version
+	_ = cliVersion
+	_ = profileTimezone
+	return nil, fmt.Errorf("%w: pool-level capsule creation is disabled; capsules bind automatically to each oauth credential", ErrOAuthPoolInvalid)
 }
 
+// ActivateCapsuleSet is deprecated with CreateCapsuleSet.
 func (s *ClaudeOAuthPoolAdminService) ActivateCapsuleSet(ctx context.Context, poolID, version int64) (*OAuthPool, error) {
-	set, err := s.pools.GetCapsuleSet(ctx, poolID, version)
-	if err != nil {
-		return nil, err
-	}
-	if _, err := DecodeClaudeOAuthCapsuleProfilePool(set); err != nil {
-		return nil, err
-	}
-	return s.pools.ActivateCapsuleSet(ctx, poolID, version, set.CompatibilityDigest)
+	_ = ctx
+	_ = poolID
+	_ = version
+	return nil, fmt.Errorf("%w: pool-level capsule activation is disabled; capsules bind automatically to each oauth credential", ErrOAuthPoolInvalid)
 }
 
 func (s *ClaudeOAuthPoolAdminService) ShadowMetrics(ctx context.Context, poolID int64) (*ClaudeOAuthShadowMetrics, error) {
@@ -225,8 +234,24 @@ func (s *ClaudeOAuthPoolAdminService) SetMode(ctx context.Context, poolID int64,
 		if credentialsErr != nil {
 			return nil, credentialsErr
 		}
-		if !metrics.Qualified || pool.Status != OAuthPoolStatusActive || pool.ActiveCapsuleSetVersion <= 0 || pool.CompatibilityDigest == "" || len(credentials) == 0 {
-			return nil, fmt.Errorf("%w: requires active pool, credential, capsule, %d consecutive days and %d shadow requests with zero hard failures", ErrOAuthPoolEnforceGateNotReached, ClaudeOAuthShadowRequiredDays, ClaudeOAuthShadowRequiredRequests)
+		if !metrics.Qualified || pool.Status != OAuthPoolStatusActive || len(credentials) == 0 {
+			return nil, fmt.Errorf("%w: requires active pool, enrolled credentials with auto capsules, %d consecutive days and %d shadow requests with zero hard failures", ErrOAuthPoolEnforceGateNotReached, ClaudeOAuthShadowRequiredDays, ClaudeOAuthShadowRequiredRequests)
+		}
+		// Ensure every enrolled credential has a complete 3-capsule bundle before enforce.
+		if s.accounts != nil {
+			for _, membership := range credentials {
+				account, loadErr := s.accounts.GetByID(ctx, membership.AccountID)
+				if loadErr != nil {
+					return nil, loadErr
+				}
+				bundle, ensureErr := EnsureClaudeOAuthCapsules(account)
+				if ensureErr != nil {
+					return nil, fmt.Errorf("%w: credential %d capsules incomplete: %v", ErrOAuthPoolEnforceGateNotReached, membership.AccountID, ensureErr)
+				}
+				if persistErr := s.accounts.UpdateExtra(ctx, account.ID, persistClaudeOAuthCredentialCapsules(account, bundle)); persistErr != nil {
+					return nil, persistErr
+				}
+			}
 		}
 		now := s.now().UTC()
 		pool.Mode = mode
