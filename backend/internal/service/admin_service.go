@@ -2797,15 +2797,18 @@ func (s *adminServiceImpl) CreateAccount(ctx context.Context, input *CreateAccou
 			}
 		}
 	}
-	// Anthropic OAuth: automatically bind three system environment capsules to the credential.
+	// Claude / Codex / Grok CLI OAuth: automatically bind three system environment capsules.
 	// Capsules are the environment fact source; no separate admin pool capsule configuration is required.
-	if account.Platform == PlatformAnthropic && account.Type == AccountTypeOAuth && s.accountRepo != nil {
-		bundle, ensureErr := EnsureClaudeOAuthCapsulesWithOptions(account, claude.CLICurrentVersion, profileTimezone)
-		if ensureErr != nil {
-			return nil, fmt.Errorf("ensure claude oauth capsules: %w", ensureErr)
+	if IsEnvironmentCapsuleOAuthAccount(account) && s.accountRepo != nil {
+		if _, ensureErr := EnsureEnvironmentCapsulesWithOptions(account, EnsureDefaultCLIVersion(account), profileTimezone); ensureErr != nil {
+			return nil, fmt.Errorf("ensure oauth environment capsules: %w", ensureErr)
 		}
-		if err := s.accountRepo.UpdateExtra(ctx, account.ID, persistClaudeOAuthCredentialCapsules(account, bundle)); err != nil {
-			return nil, fmt.Errorf("persist claude oauth capsules: %w", err)
+		updates, persistErr := PersistEnvironmentCapsules(account)
+		if persistErr != nil {
+			return nil, fmt.Errorf("persist oauth environment capsules: %w", persistErr)
+		}
+		if err := s.accountRepo.UpdateExtra(ctx, account.ID, updates); err != nil {
+			return nil, fmt.Errorf("persist oauth environment capsules: %w", err)
 		}
 	}
 
@@ -3020,6 +3023,9 @@ func (s *adminServiceImpl) UpdateClaudeEnvironmentProfile(ctx context.Context, i
 	if err != nil {
 		return nil, err
 	}
+	if err := RejectEnvironmentCapsuleIdentityEdit(account); err != nil {
+		return nil, err
+	}
 	if account == nil || !account.IsAnthropicOAuthOrSetupToken() {
 		return nil, errors.New("claude environment profile is only supported for Anthropic OAuth/SetupToken accounts")
 	}
@@ -3059,6 +3065,9 @@ func (s *adminServiceImpl) UpdateClaudeEnvironmentProfile(ctx context.Context, i
 func (s *adminServiceImpl) UpdateClaudeEnvironmentProfileSlot(ctx context.Context, id int64, slot EnvironmentClass, overrides *ClaudeEnvironmentProfile) (*Account, error) {
 	account, err := s.accountRepo.GetByID(ctx, id)
 	if err != nil {
+		return nil, err
+	}
+	if err := RejectEnvironmentCapsuleIdentityEdit(account); err != nil {
 		return nil, err
 	}
 	if account == nil || !account.IsAnthropicOAuthOrSetupToken() {
@@ -3270,6 +3279,9 @@ func (s *adminServiceImpl) UpdateCodexEnvironmentProfile(ctx context.Context, id
 func (s *adminServiceImpl) UpdateCodexEnvironmentProfileSlot(ctx context.Context, id int64, slot EnvironmentClass, overrides *CodexEnvironmentProfile) (*Account, error) {
 	account, err := s.accountRepo.GetByID(ctx, id)
 	if err != nil {
+		return nil, err
+	}
+	if err := RejectEnvironmentCapsuleIdentityEdit(account); err != nil {
 		return nil, err
 	}
 	if account == nil || !account.IsOpenAIOAuth() {

@@ -415,9 +415,7 @@ func registerClaudeOAuthPoolRoutes(admin *gin.RouterGroup, h *handler.Handlers) 
 		pools.POST("/:id/credentials", h.Admin.ClaudeOAuthPool.AddCredential)
 		pools.DELETE("/:id/credentials/:account_id/bindings", h.Admin.ClaudeOAuthPool.ResetCredentialBindings)
 		pools.DELETE("/:id/credentials/:account_id", h.Admin.ClaudeOAuthPool.RemoveCredential)
-		pools.POST("/:id/capsules", h.Admin.ClaudeOAuthPool.CreateCapsule)
-		pools.POST("/:id/capsules/:version/activate", h.Admin.ClaudeOAuthPool.ActivateCapsule)
-		pools.GET("/:id/shadow-metrics", h.Admin.ClaudeOAuthPool.ShadowMetrics)
+						pools.GET("/:id/shadow-metrics", h.Admin.ClaudeOAuthPool.ShadowMetrics)
 		pools.POST("/:id/mode", h.Admin.ClaudeOAuthPool.SetMode)
 	}
 }

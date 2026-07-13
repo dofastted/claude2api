@@ -408,3 +408,39 @@ func persistClaudeOAuthCredentialCapsules(account *Account, bundle *ClaudeOAuthC
 	}
 	return updates
 }
+
+// PublishClaudeOAuthCapsules creates a new credential-local capsule version (copy-on-write).
+// Existing session bindings keep their recorded version semantics; new sessions use the new version.
+func PublishClaudeOAuthCapsules(account *Account, cliVersion, profileTimezone string) (*ClaudeOAuthCredentialCapsuleBundle, error) {
+	if account == nil || account.Platform != PlatformAnthropic || account.Type != AccountTypeOAuth {
+		return nil, fmt.Errorf("%w: publish requires anthropic oauth credential", ErrOAuthPoolCredentialInvalid)
+	}
+	if account.ID <= 0 {
+		return nil, fmt.Errorf("%w: account id is required", ErrOAuthPoolCredentialInvalid)
+	}
+	nextVersion := int64(1)
+	if current, err := DecodeClaudeOAuthCredentialCapsules(account); err == nil && current != nil {
+		nextVersion = current.Version + 1
+	}
+	cliVersion = strings.TrimSpace(cliVersion)
+	if cliVersion == "" {
+		cliVersion = claude.CLICurrentVersion
+	}
+	profileTimezone = NormalizeEnvironmentProfileTimezone(profileTimezone)
+	profilePool, err := materializeClaudeOAuthCapsuleProfilePool(account, cliVersion, profileTimezone)
+	if err != nil {
+		return nil, err
+	}
+	// Force fresh frozen identities for a true COW publish (do not reuse in-memory pool pointer mutation).
+	profilePool = newFrozenClaudeEnvironmentProfilePoolWithTimezone(cliVersion, profileTimezone)
+	bundle, err := buildClaudeOAuthCredentialCapsuleBundle(account.ID, nextVersion, cliVersion, profileTimezone, profilePool)
+	if err != nil {
+		return nil, err
+	}
+	if account.Extra == nil {
+		account.Extra = make(map[string]any, 2)
+	}
+	account.Extra[claudeEnvironmentProfilePoolKey] = profilePool
+	account.Extra[claudeOAuthCredentialCapsulesKey] = bundle
+	return bundle, nil
+}
