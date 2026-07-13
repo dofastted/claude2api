@@ -10,11 +10,24 @@ import (
 	"strings"
 	"time"
 
+	"github.com/dofastted/claude2api/internal/pkg/logger"
 	"github.com/dofastted/claude2api/internal/pkg/xai"
 	"github.com/gin-gonic/gin"
 	"github.com/tidwall/gjson"
 	"github.com/tidwall/sjson"
+	"go.uber.org/zap"
 )
+
+func grokAccessTokenFailoverError(account *Account, err error) *UpstreamFailoverError {
+	logger.L().Warn("grok access token acquisition failed",
+		zap.Int64("account_id", account.ID),
+		zap.Error(err),
+	)
+	return &UpstreamFailoverError{
+		StatusCode:   http.StatusBadGateway,
+		ResponseBody: []byte(`{"error":{"type":"authentication_error","message":"Failed to get upstream access token"}}`),
+	}
+}
 
 func (s *OpenAIGatewayService) forwardGrokResponses(
 	ctx context.Context,
@@ -40,7 +53,7 @@ func (s *OpenAIGatewayService) forwardGrokResponses(
 
 	token, _, err := s.GetAccessToken(ctx, account)
 	if err != nil {
-		return nil, err
+		return nil, grokAccessTokenFailoverError(account, err)
 	}
 
 	upstreamCtx, releaseUpstreamCtx := detachUpstreamContext(ctx)

@@ -138,3 +138,59 @@ func TestForwardAsChatCompletionsForGrokUsesXAIChatCompletionsAndSnapshots(t *te
 	require.NotNil(t, repo.updates[51][grokQuotaSnapshotExtraKey])
 	require.Equal(t, http.StatusOK, recorder.Code)
 }
+
+func TestGrokForwardingTokenFailureTriggersAccountFailover(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+
+	account := &Account{
+		ID:       52,
+		Platform: PlatformGrok,
+		Type:     AccountTypeOAuth,
+		Credentials: map[string]any{
+			"access_token": "expired-access-token",
+			"expires_at":   time.Now().Add(-time.Hour).UTC().Format(time.RFC3339),
+			"base_url":     xai.DefaultCLIBaseURL,
+		},
+	}
+	svc := &OpenAIGatewayService{
+		grokTokenProvider: NewGrokTokenProvider(nil, nil),
+	}
+
+	tests := []struct {
+		name string
+		path string
+		body []byte
+		call func(*gin.Context, []byte) (*OpenAIForwardResult, error)
+	}{
+		{
+			name: "chat completions",
+			path: "/v1/chat/completions",
+			body: []byte(`{"model":"grok-4.5","messages":[{"role":"user","content":"hi"}],"stream":false}`),
+			call: func(c *gin.Context, body []byte) (*OpenAIForwardResult, error) {
+				return svc.forwardAsRawChatCompletions(context.Background(), c, account, body, "")
+			},
+		},
+		{
+			name: "responses",
+			path: "/v1/responses",
+			body: []byte(`{"model":"grok-4.5","input":"hi","stream":false}`),
+			call: func(c *gin.Context, body []byte) (*OpenAIForwardResult, error) {
+				return svc.forwardGrokResponses(context.Background(), c, account, body, "grok-4.5", false, time.Now())
+			},
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			recorder := httptest.NewRecorder()
+			c, _ := gin.CreateTestContext(recorder)
+			c.Request = httptest.NewRequest(http.MethodPost, tt.path, bytes.NewReader(tt.body))
+
+			_, err := tt.call(c, tt.body)
+			var failoverErr *UpstreamFailoverError
+			require.ErrorAs(t, err, &failoverErr)
+			require.Equal(t, http.StatusBadGateway, failoverErr.StatusCode)
+			require.JSONEq(t, `{"error":{"type":"authentication_error","message":"Failed to get upstream access token"}}`, string(failoverErr.ResponseBody))
+		})
+	}
+}

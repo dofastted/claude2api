@@ -121,7 +121,7 @@ func (s *OpenAIGatewayService) forwardAsRawChatCompletions(
 	// 5. Build upstream request
 	token, tokenKind, err := s.GetAccessToken(ctx, account)
 	if err != nil {
-		return nil, err
+		return nil, grokAccessTokenFailoverError(account, err)
 	}
 	if strings.TrimSpace(token) == "" {
 		return nil, fmt.Errorf("account %d missing %s credential", account.ID, tokenKind)
