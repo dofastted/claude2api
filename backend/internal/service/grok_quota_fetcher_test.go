@@ -100,6 +100,34 @@ func TestGrokQuotaFetcherBuildUsageInfoFromNoHeadersProbe(t *testing.T) {
 	require.NotNil(t, usage.GrokTokenQuota)
 	require.Equal(t, xai.FreeContextLimitTokens, *usage.GrokTokenQuota.Limit)
 }
+func TestGrokQuotaFetcherClassifiesQuotaExhausted(t *testing.T) {
+	t.Parallel()
+
+	for _, statusCode := range []int{http.StatusPaymentRequired, http.StatusForbidden} {
+		statusCode := statusCode
+		t.Run(http.StatusText(statusCode), func(t *testing.T) {
+			t.Parallel()
+			usage := NewGrokQuotaFetcher().BuildUsageInfo(&Account{
+				Platform: PlatformGrok,
+				Type:     AccountTypeOAuth,
+				Extra: map[string]any{
+					grokQuotaSnapshotExtraKey: xai.QuotaSnapshot{
+						StatusCode:        statusCode,
+						EntitlementStatus: grokQuotaEntitlementExhausted,
+						UpdatedAt:         time.Now().UTC().Format(time.RFC3339),
+					},
+				},
+			})
+
+			require.Equal(t, grokQuotaEntitlementExhausted, usage.ErrorCode)
+			require.Equal(t, grokQuotaEntitlementExhausted, usage.GrokEntitlementStatus)
+			require.Equal(t, "observed", usage.GrokQuotaSnapshotState)
+			require.False(t, usage.IsForbidden)
+			require.False(t, usage.NeedsReauth)
+		})
+	}
+}
+
 func TestGrokQuotaFetcherClassifiesForbiddenAndReauth(t *testing.T) {
 	t.Parallel()
 

@@ -71,6 +71,11 @@ func (f *GrokQuotaFetcher) BuildUsageInfo(account *Account) *UsageInfo {
 		usage.Error = "No xAI quota headers observed on the latest Grok probe"
 	}
 
+	if snapshot.EntitlementStatus == grokQuotaEntitlementExhausted {
+		usage.ErrorCode = grokQuotaEntitlementExhausted
+		return usage
+	}
+
 	switch snapshot.StatusCode {
 	case 401:
 		usage.NeedsReauth = true

@@ -106,6 +106,39 @@ func TestGrokOAuthHandlerQueryQuotaProbesUpstream(t *testing.T) {
 	require.NotNil(t, repo.updates[42])
 }
 
+func TestGrokOAuthHandlerQueryQuotaReturnsExhaustedSnapshot(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+
+	repo := &grokQuotaHandlerAccountRepo{account: &service.Account{
+		ID:          44,
+		Platform:    service.PlatformGrok,
+		Type:        service.AccountTypeOAuth,
+		Concurrency: 1,
+		Credentials: map[string]any{
+			"access_token": "access-token",
+			"expires_at":   time.Now().Add(time.Hour).UTC().Format(time.RFC3339),
+		},
+	}}
+	upstream := &grokQuotaHandlerUpstream{resp: &http.Response{
+		StatusCode: http.StatusPaymentRequired,
+		Header:     http.Header{},
+		Body:       io.NopCloser(strings.NewReader(`{"error":"Grok Build usage balance exhausted"}`)),
+	}}
+	quotaService := service.NewGrokQuotaService(repo, nil, service.NewGrokTokenProvider(repo, nil), upstream)
+	handler := NewGrokOAuthHandler(nil, nil, quotaService)
+
+	router := gin.New()
+	router.GET("/api/v1/admin/grok/accounts/:id/quota", handler.QueryQuota)
+	rec := httptest.NewRecorder()
+	req := httptest.NewRequest(http.MethodGet, "/api/v1/admin/grok/accounts/44/quota", nil)
+	router.ServeHTTP(rec, req)
+
+	require.Equal(t, http.StatusOK, rec.Code)
+	require.Contains(t, rec.Body.String(), `"status_code":402`)
+	require.Contains(t, rec.Body.String(), `"entitlement_status":"quota_exhausted"`)
+	require.NotContains(t, rec.Body.String(), "access-token")
+}
+
 func TestGrokOAuthHandlerResetQuotaReturnsUnsupported(t *testing.T) {
 	gin.SetMode(gin.TestMode)
 

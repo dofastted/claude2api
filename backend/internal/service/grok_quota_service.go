@@ -15,9 +15,10 @@ import (
 )
 
 const (
-	grokQuotaUpstreamTimeout = 20 * time.Second
-	grokQuotaProbeInput      = "."
-	grokQuotaDefaultModel    = "grok-4.3"
+	grokQuotaUpstreamTimeout      = 20 * time.Second
+	grokQuotaProbeInput           = "."
+	grokQuotaDefaultModel         = "grok-4.3"
+	grokQuotaEntitlementExhausted = "quota_exhausted"
 )
 
 type GrokQuotaProbeResult struct {
@@ -91,7 +92,16 @@ func (s *GrokQuotaService) ProbeUsage(ctx context.Context, accountID int64) (*Gr
 	}
 	defer func() { _ = resp.Body.Close() }()
 
+	var errorBody []byte
+	if resp.StatusCode >= http.StatusBadRequest {
+		errorBody, _ = io.ReadAll(io.LimitReader(resp.Body, 4096))
+	}
+
 	snapshot := xai.ObserveQuotaHeaders(resp.Header, resp.StatusCode, "active_probe")
+	quotaExhausted := isGrokQuotaExhaustedResponse(resp.StatusCode, errorBody)
+	if quotaExhausted {
+		snapshot.EntitlementStatus = grokQuotaEntitlementExhausted
+	}
 	_ = s.accountRepo.UpdateExtra(ctx, account.ID, map[string]any{
 		grokQuotaSnapshotExtraKey: snapshot,
 	})
@@ -105,16 +115,28 @@ func (s *GrokQuotaService) ProbeUsage(ctx context.Context, accountID int64) (*Gr
 		ResetSupported:  false,
 		FetchedAt:       time.Now().Unix(),
 	}
-	if resp.StatusCode == http.StatusTooManyRequests {
+	if resp.StatusCode == http.StatusTooManyRequests || quotaExhausted {
 		return result, nil
 	}
-	if resp.StatusCode >= 400 {
-		bodyBytes, _ := io.ReadAll(io.LimitReader(resp.Body, 240))
-		bodyText := truncate(strings.TrimSpace(string(bodyBytes)), 240)
+	if resp.StatusCode >= http.StatusBadRequest {
+		bodyText := truncate(strings.TrimSpace(string(errorBody)), 240)
 		slog.Warn("grok_quota_probe_failed", "account_id", account.ID, "model", probeModel, "status", resp.StatusCode, "body", bodyText)
 		return nil, infraerrors.Newf(mapUpstreamStatus(resp.StatusCode), "GROK_QUOTA_PROBE_UPSTREAM_ERROR", "upstream returned %d for probe model %q: %s", resp.StatusCode, probeModel, bodyText)
 	}
 	return result, nil
+}
+
+func isGrokQuotaExhaustedResponse(statusCode int, body []byte) bool {
+	if statusCode != http.StatusPaymentRequired &&
+		statusCode != http.StatusForbidden &&
+		statusCode != http.StatusTooManyRequests {
+		return false
+	}
+	lowerBody := strings.ToLower(strings.TrimSpace(string(body)))
+	return strings.Contains(lowerBody, "grok build usage balance exhausted") ||
+		strings.Contains(lowerBody, "personal-team-blocked:spending-limit") ||
+		strings.Contains(lowerBody, "subscription:free-usage-exhausted") ||
+		strings.Contains(lowerBody, "included free usage")
 }
 
 func (s *GrokQuotaService) ResetQuota(ctx context.Context, accountID int64) (*GrokQuotaResetResult, error) {

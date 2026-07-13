@@ -154,6 +154,95 @@ func TestGrokQuotaServiceProbeUsageReturnsRateLimitedSnapshot(t *testing.T) {
 	require.Equal(t, 45, *result.Snapshot.RetryAfterSeconds)
 }
 
+func TestGrokQuotaServiceProbeUsageReturnsQuotaExhaustedSnapshot(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name       string
+		statusCode int
+		body       string
+	}{
+		{
+			name:       "build balance exhausted",
+			statusCode: http.StatusPaymentRequired,
+			body:       `{"error":"Grok Build usage balance exhausted"}`,
+		},
+		{
+			name:       "subscription spending limit",
+			statusCode: http.StatusForbidden,
+			body:       `{"code":"personal-team-blocked:spending-limit","error":"You have run out of credits"}`,
+		},
+	}
+
+	for i, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			accountID := int64(46 + i)
+			account := &Account{
+				ID:       accountID,
+				Platform: PlatformGrok,
+				Type:     AccountTypeOAuth,
+				Credentials: map[string]any{
+					"access_token": "access-token",
+					"expires_at":   time.Now().Add(time.Hour).UTC().Format(time.RFC3339),
+				},
+			}
+			repo := &grokQuotaAccountRepo{
+				mockAccountRepoForPlatform: &mockAccountRepoForPlatform{
+					accountsByID: map[int64]*Account{accountID: account},
+				},
+			}
+			upstream := &httpUpstreamRecorder{resp: &http.Response{
+				StatusCode: tt.statusCode,
+				Header:     http.Header{},
+				Body:       io.NopCloser(strings.NewReader(tt.body)),
+			}}
+			svc := NewGrokQuotaService(repo, nil, NewGrokTokenProvider(repo, nil), upstream)
+
+			result, err := svc.ProbeUsage(context.Background(), accountID)
+			require.NoError(t, err)
+			require.Equal(t, tt.statusCode, result.StatusCode)
+			require.Equal(t, grokQuotaEntitlementExhausted, result.Snapshot.EntitlementStatus)
+			require.True(t, result.Snapshot.HasObservedHeaders())
+
+			stored, ok := repo.updates[accountID][grokQuotaSnapshotExtraKey].(*xai.QuotaSnapshot)
+			require.True(t, ok)
+			require.Equal(t, grokQuotaEntitlementExhausted, stored.EntitlementStatus)
+		})
+	}
+}
+
+func TestGrokQuotaServiceProbeUsageRejectsUnrelatedForbidden(t *testing.T) {
+	t.Parallel()
+
+	account := &Account{
+		ID:       48,
+		Platform: PlatformGrok,
+		Type:     AccountTypeOAuth,
+		Credentials: map[string]any{
+			"access_token": "access-token",
+			"expires_at":   time.Now().Add(time.Hour).UTC().Format(time.RFC3339),
+		},
+	}
+	repo := &grokQuotaAccountRepo{
+		mockAccountRepoForPlatform: &mockAccountRepoForPlatform{
+			accountsByID: map[int64]*Account{48: account},
+		},
+	}
+	upstream := &httpUpstreamRecorder{resp: &http.Response{
+		StatusCode: http.StatusForbidden,
+		Header:     http.Header{},
+		Body:       io.NopCloser(strings.NewReader(`{"error":"policy denied"}`)),
+	}}
+	svc := NewGrokQuotaService(repo, nil, NewGrokTokenProvider(repo, nil), upstream)
+
+	result, err := svc.ProbeUsage(context.Background(), 48)
+	require.Error(t, err)
+	require.Nil(t, result)
+	require.Equal(t, "GROK_QUOTA_PROBE_UPSTREAM_ERROR", infraerrors.Reason(err))
+}
+
 func TestGrokQuotaServiceResetQuotaUnsupported(t *testing.T) {
 	t.Parallel()
 
