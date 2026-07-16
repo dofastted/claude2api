@@ -2106,6 +2106,37 @@ func TestBuildOpenAIWeightedSelectionOrder_DeterministicBySessionSeed(t *testing
 	}
 }
 
+func TestDefaultOpenAIAccountScheduler_ExhaustsOAuthPriorityBeforeAPIKeyFallback(t *testing.T) {
+	oauthPrimary := &Account{ID: 2824, Type: AccountTypeOAuth, Priority: 1}
+	oauthSecondary := &Account{ID: 2825, Type: AccountTypeOAuth, Priority: 1}
+	apiKeyAccount := &Account{ID: 2803, Type: AccountTypeAPIKey, Priority: 2}
+	cfg := &config.Config{}
+	cfg.Gateway.OpenAIWS.LBTopK = 1
+	scheduler := &defaultOpenAIAccountScheduler{
+		service: &OpenAIGatewayService{cfg: cfg},
+		stats:   newOpenAIAccountRuntimeStats(),
+	}
+	loadMap := map[int64]*AccountLoadInfo{
+		oauthPrimary.ID:   {AccountID: oauthPrimary.ID, LoadRate: 99, WaitingCount: 9},
+		oauthSecondary.ID: {AccountID: oauthSecondary.ID, LoadRate: 98, WaitingCount: 8},
+		apiKeyAccount.ID:  {AccountID: apiKeyAccount.ID, LoadRate: 0, WaitingCount: 0},
+	}
+
+	for i := range 32 {
+		req := OpenAIAccountScheduleRequest{
+			SessionHash:    fmt.Sprintf("codex-priority-%d", i),
+			RequestedModel: "gpt-5.4",
+		}
+		plan := scheduler.buildOpenAIAccountLoadPlan(req, []*Account{oauthPrimary, apiKeyAccount, oauthSecondary}, loadMap)
+		require.Len(t, plan.selectionOrder, 3)
+		require.ElementsMatch(t, []int64{oauthPrimary.ID, oauthSecondary.ID}, []int64{
+			plan.selectionOrder[0].account.ID,
+			plan.selectionOrder[1].account.ID,
+		})
+		require.Equal(t, apiKeyAccount.ID, plan.selectionOrder[2].account.ID)
+	}
+}
+
 func TestOpenAIGatewayService_SelectAccountWithScheduler_LoadBalanceDistributesAcrossSessions(t *testing.T) {
 	ctx := context.Background()
 	groupID := int64(15)

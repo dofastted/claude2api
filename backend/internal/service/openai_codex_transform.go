@@ -101,7 +101,27 @@ var openAICodexOAuthUnsupportedFields = append([]string{
 	"top_p",
 	"frequency_penalty",
 	"presence_penalty",
+	"truncation",
+	"context_management",
+	"namespace",
 }, openAIChatGPTInternalUnsupportedFields...)
+
+func normalizeCodexOAuthServiceTier(reqBody map[string]any) bool {
+	value, exists := reqBody["service_tier"]
+	if !exists {
+		return false
+	}
+	tier, ok := value.(string)
+	if ok && normalizedOpenAIServiceTierValue(tier) == "priority" {
+		if tier == "priority" {
+			return false
+		}
+		reqBody["service_tier"] = "priority"
+		return true
+	}
+	delete(reqBody, "service_tier")
+	return true
+}
 
 func applyCodexOAuthTransform(reqBody map[string]any, isCodexCLI bool, isCompact bool) codexTransformResult {
 	return applyCodexOAuthTransformWithOptions(reqBody, codexOAuthTransformOptions{
@@ -159,6 +179,9 @@ func applyCodexOAuthTransformWithOptions(reqBody map[string]any, opts codexOAuth
 			delete(reqBody, key)
 			result.Modified = true
 		}
+	}
+	if normalizeCodexOAuthServiceTier(reqBody) {
+		result.Modified = true
 	}
 
 	// 请求带 reasoning 时补齐 include:["reasoning.encrypted_content"]，与真实 Codex 对齐

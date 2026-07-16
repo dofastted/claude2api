@@ -20,7 +20,6 @@ import (
 	"sync/atomic"
 	"time"
 
-	"github.com/dofastted/claude2api/internal/pkg/xai"
 	"github.com/cespare/xxhash/v2"
 	"github.com/dofastted/claude2api/internal/config"
 	"github.com/dofastted/claude2api/internal/pkg/apicompat"
@@ -29,6 +28,7 @@ import (
 	"github.com/dofastted/claude2api/internal/pkg/logger"
 	"github.com/dofastted/claude2api/internal/pkg/openai"
 	"github.com/dofastted/claude2api/internal/pkg/openai_compat"
+	"github.com/dofastted/claude2api/internal/pkg/xai"
 	"github.com/dofastted/claude2api/internal/util/responseheaders"
 	"github.com/dofastted/claude2api/internal/util/urlvalidator"
 	"github.com/gin-gonic/gin"
@@ -2501,7 +2501,27 @@ func (s *OpenAIGatewayService) shouldFailoverOpenAIUpstreamResponse(statusCode i
 	if s.shouldFailoverUpstreamError(statusCode) {
 		return true
 	}
-	return isOpenAITransientProcessingError(statusCode, upstreamMsg, upstreamBody)
+	return isOpenAITransientProcessingError(statusCode, upstreamMsg, upstreamBody) ||
+		isOpenAIInputNamespaceCompatibilityError(statusCode, upstreamBody)
+}
+
+func isOpenAIInputNamespaceCompatibilityError(statusCode int, upstreamBody []byte) bool {
+	if statusCode != http.StatusBadRequest || !strings.EqualFold(strings.TrimSpace(extractUpstreamErrorCode(upstreamBody)), "unknown_parameter") {
+		return false
+	}
+
+	const prefix = "input["
+	const suffix = "].namespace"
+	param := strings.TrimSpace(gjson.GetBytes(upstreamBody, "error.param").String())
+	if !strings.HasPrefix(param, prefix) || !strings.HasSuffix(param, suffix) || len(param) <= len(prefix)+len(suffix) {
+		return false
+	}
+	for _, ch := range param[len(prefix) : len(param)-len(suffix)] {
+		if ch < '0' || ch > '9' {
+			return false
+		}
+	}
+	return true
 }
 
 func marshalOpenAIUpstreamJSON(v any) ([]byte, error) {
@@ -2562,6 +2582,11 @@ func (s *OpenAIGatewayService) Forward(ctx context.Context, c *gin.Context, acco
 			},
 		})
 		return nil, errors.New("codex_cli_only restriction: only codex official clients are allowed")
+	}
+
+	body, _, err := sanitizeOpenAIResponsesCompatibilityFields(body)
+	if err != nil {
+		return nil, err
 	}
 
 	originalBody := body
@@ -3482,9 +3507,12 @@ func (s *OpenAIGatewayService) forwardOpenAIPassthrough(
 	defer func() { _ = resp.Body.Close() }()
 
 	if resp.StatusCode >= 400 {
-		// 透传模式默认保持原样代理；但 429/529 属于网关必须兜底的
-		// 上游容量类错误，应先触发多账号 failover 以维持基础 SLA。
-		if shouldFailoverOpenAIPassthroughResponse(resp.StatusCode) {
+		// 透传模式默认保持原样代理；容量错误与账号相关的请求兼容错误应在写回客户端前
+		// 触发同分组账号 failover，使不同类型渠道有机会按各自协议规范化请求。
+		respBody := s.readUpstreamErrorBody(resp)
+		_ = resp.Body.Close()
+		resp.Body = io.NopCloser(bytes.NewReader(respBody))
+		if shouldFailoverOpenAIPassthroughResponse(resp.StatusCode, respBody) {
 			return nil, s.handleFailoverErrorResponsePassthrough(ctx, resp, c, account, body)
 		}
 		return nil, s.handleErrorResponsePassthrough(ctx, resp, c, account, body)
@@ -3707,7 +3735,7 @@ func (s *OpenAIGatewayService) buildUpstreamRequestOpenAIPassthrough(
 			APIKeyID:       getAPIKeyIDFromContext(c),
 			PromptCacheKey: strings.TrimSpace(gjson.GetBytes(body, "prompt_cache_key").String()),
 			Compact:        isOpenAIResponsesCompactPath(c),
-		})
+		}, s.identityRegistry)
 		if !isOpenAIResponsesCompactPath(c) {
 			decoded := make(map[string]any)
 			meta := codexProfileRequestMetadataFor(account, codexProfile, CodexProfileApplyOptions{APIKeyID: getAPIKeyIDFromContext(c), PromptCacheKey: strings.TrimSpace(gjson.GetBytes(body, "prompt_cache_key").String()), Compact: false})
@@ -3734,12 +3762,12 @@ func (s *OpenAIGatewayService) buildUpstreamRequestOpenAIPassthrough(
 	return attachEnvironmentProfileLeaseToRequest(req, codexProfileLease), nil
 }
 
-func shouldFailoverOpenAIPassthroughResponse(statusCode int) bool {
+func shouldFailoverOpenAIPassthroughResponse(statusCode int, upstreamBody []byte) bool {
 	switch statusCode {
 	case http.StatusTooManyRequests, 529:
 		return true
 	default:
-		return false
+		return isOpenAIInputNamespaceCompatibilityError(statusCode, upstreamBody)
 	}
 }
 
@@ -4520,7 +4548,7 @@ func (s *OpenAIGatewayService) buildUpstreamRequest(ctx context.Context, c *gin.
 			PromptCacheKey:       promptCacheKey,
 			CompatMessagesBridge: compatMessagesBridge,
 			Compact:              isOpenAIResponsesCompactPath(c),
-		})
+		}, s.identityRegistry)
 		if !isOpenAIResponsesCompactPath(c) {
 			meta := codexProfileRequestMetadataFor(account, codexProfile, CodexProfileApplyOptions{APIKeyID: getAPIKeyIDFromContext(c), PromptCacheKey: promptCacheKey, Compact: false})
 			if meta.InstallationID != "" {
@@ -4570,6 +4598,11 @@ func (s *OpenAIGatewayService) overrideBrowserUserAgent(ctx context.Context, acc
 		return
 	}
 	codexUA := DefaultOpenAICodexUserAgent
+	if s != nil {
+		if v := strings.TrimSpace(s.codexCLIUserAgent()); v != "" {
+			codexUA = v
+		}
+	}
 	if s != nil && s.settingService != nil {
 		if v := strings.TrimSpace(s.settingService.GetOpenAICodexUserAgent(ctx)); v != "" {
 			codexUA = v
@@ -6938,6 +6971,48 @@ func extractOpenAIRequestMetaFromBody(body []byte) (model string, stream bool, p
 	return view.Model, view.Stream, view.PromptCacheKey
 }
 
+// OpenAI Responses does not define these client-extension fields at the request or input-item level.
+var openAIResponsesUnsupportedExtensionFields = []string{"namespace"}
+
+func sanitizeOpenAIResponsesCompatibilityFields(body []byte) ([]byte, bool, error) {
+	normalized := body
+	changed := false
+	for _, field := range openAIResponsesUnsupportedExtensionFields {
+		if !gjson.GetBytes(normalized, field).Exists() {
+			continue
+		}
+		next, err := sjson.DeleteBytes(normalized, field)
+		if err != nil {
+			return body, false, fmt.Errorf("normalize OpenAI request delete %s: %w", field, err)
+		}
+		normalized = next
+		changed = true
+	}
+
+	input := gjson.GetBytes(normalized, "input")
+	if !input.IsArray() {
+		return normalized, changed, nil
+	}
+	for index, item := range input.Array() {
+		if !item.IsObject() {
+			continue
+		}
+		for _, field := range openAIResponsesUnsupportedExtensionFields {
+			if !item.Get(field).Exists() {
+				continue
+			}
+			path := fmt.Sprintf("input.%d.%s", index, field)
+			next, err := sjson.DeleteBytes(normalized, path)
+			if err != nil {
+				return body, false, fmt.Errorf("normalize OpenAI input item delete %s: %w", path, err)
+			}
+			normalized = next
+			changed = true
+		}
+	}
+	return normalized, changed, nil
+}
+
 // normalizeOpenAIPassthroughOAuthBody 将透传 OAuth 请求体收敛为旧链路关键行为：
 // 1) 删除 ChatGPT internal API 不支持的顶层 Responses 参数
 // 2) store=false 3) 非 compact 保持 stream=true；compact 强制 stream=false
@@ -6949,7 +7024,7 @@ func normalizeOpenAIPassthroughOAuthBody(body []byte, compact bool) ([]byte, boo
 	normalized := body
 	changed := false
 
-	for _, field := range openAIChatGPTInternalUnsupportedFields {
+	for _, field := range openAICodexOAuthUnsupportedFields {
 		if value := gjson.GetBytes(normalized, field); !value.Exists() {
 			continue
 		}
@@ -6959,6 +7034,26 @@ func normalizeOpenAIPassthroughOAuthBody(body []byte, compact bool) ([]byte, boo
 		}
 		normalized = next
 		changed = true
+	}
+
+	if tier := gjson.GetBytes(normalized, "service_tier"); tier.Exists() {
+		if tier.Type == gjson.String && normalizedOpenAIServiceTierValue(tier.String()) == "priority" {
+			if tier.String() != "priority" {
+				next, err := sjson.SetBytes(normalized, "service_tier", "priority")
+				if err != nil {
+					return body, false, fmt.Errorf("normalize passthrough body service_tier: %w", err)
+				}
+				normalized = next
+				changed = true
+			}
+		} else {
+			next, err := sjson.DeleteBytes(normalized, "service_tier")
+			if err != nil {
+				return body, false, fmt.Errorf("normalize passthrough body delete service_tier: %w", err)
+			}
+			normalized = next
+			changed = true
+		}
 	}
 
 	if compact {

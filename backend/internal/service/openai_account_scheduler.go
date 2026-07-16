@@ -304,7 +304,7 @@ func (s *defaultOpenAIAccountScheduler) Select(
 		}
 	}
 
-	selection, escapedSticky, err := s.selectBySessionHash(ctx, req)
+	selection, escapedStickyAccountID, err := s.selectBySessionHash(ctx, req)
 	if err != nil {
 		return nil, decision, err
 	}
@@ -315,8 +315,14 @@ func (s *defaultOpenAIAccountScheduler) Select(
 		decision.SelectedAccountType = selection.Account.Type
 		return selection, decision, nil
 	}
-	if escapedSticky {
+	if escapedStickyAccountID > 0 {
 		req.PreserveStickyBinding = true
+		excludedIDs := make(map[int64]struct{}, len(req.ExcludedIDs)+1)
+		for accountID := range req.ExcludedIDs {
+			excludedIDs[accountID] = struct{}{}
+		}
+		excludedIDs[escapedStickyAccountID] = struct{}{}
+		req.ExcludedIDs = excludedIDs
 	}
 
 	selection, candidateCount, topK, loadSkew, err := s.selectByLoadBalance(ctx, req)
@@ -337,10 +343,10 @@ func (s *defaultOpenAIAccountScheduler) Select(
 func (s *defaultOpenAIAccountScheduler) selectBySessionHash(
 	ctx context.Context,
 	req OpenAIAccountScheduleRequest,
-) (*AccountSelectionResult, bool, error) {
+) (*AccountSelectionResult, int64, error) {
 	sessionHash := strings.TrimSpace(req.SessionHash)
 	if sessionHash == "" || s == nil || s.service == nil || s.service.cache == nil {
-		return nil, false, nil
+		return nil, 0, nil
 	}
 
 	accountID := req.StickyAccountID
@@ -348,38 +354,38 @@ func (s *defaultOpenAIAccountScheduler) selectBySessionHash(
 		var err error
 		accountID, err = s.service.getStickySessionAccountID(ctx, req.GroupID, sessionHash)
 		if err != nil || accountID <= 0 {
-			return nil, false, nil
+			return nil, 0, nil
 		}
 	}
 	if accountID <= 0 {
-		return nil, false, nil
+		return nil, 0, nil
 	}
 	if req.ExcludedIDs != nil {
 		if _, excluded := req.ExcludedIDs[accountID]; excluded {
-			return nil, false, nil
+			return nil, 0, nil
 		}
 	}
 
 	account, err := s.service.getSchedulableAccount(ctx, accountID)
 	if err != nil || account == nil {
 		_ = s.service.deleteStickySessionAccountID(ctx, req.GroupID, sessionHash)
-		return nil, false, nil
+		return nil, 0, nil
 	}
 	if shouldClearStickySession(account, req.RequestedModel) || account.Platform != normalizeOpenAICompatiblePlatform(req.Platform) || !account.IsOpenAICompatible() || !account.IsSchedulable() {
 		_ = s.service.deleteStickySessionAccountID(ctx, req.GroupID, sessionHash)
-		return nil, false, nil
+		return nil, 0, nil
 	}
 	if !s.isAccountRequestCompatible(ctx, account, req) {
-		return nil, false, nil
+		return nil, 0, nil
 	}
 	if !s.isAccountTransportCompatible(account, req.RequiredTransport) {
 		_ = s.service.deleteStickySessionAccountID(ctx, req.GroupID, sessionHash)
-		return nil, false, nil
+		return nil, 0, nil
 	}
 	account = s.service.recheckSelectedOpenAIAccountFromDB(ctx, account, req.Platform, req.RequestedModel, req.RequireCompact, req.RequiredCapability)
 	if account == nil || !openAIStickyAccountMatchesGroup(account, req.GroupID) || !s.isAccountTransportCompatible(account, req.RequiredTransport) {
 		_ = s.service.deleteStickySessionAccountID(ctx, req.GroupID, sessionHash)
-		return nil, false, nil
+		return nil, 0, nil
 	}
 	escapeCfg := s.service.openAIStickyEscapeConfig()
 	if reason, errorRate, ttft, shouldEscape := s.shouldEscapeStickyAccount(accountID, escapeCfg); shouldEscape {
@@ -389,7 +395,7 @@ func (s *defaultOpenAIAccountScheduler) selectBySessionHash(
 			"error_rate", errorRate,
 			"ttft", ttft,
 		)
-		return nil, true, nil
+		return nil, accountID, nil
 	}
 	result, acquireErr := s.service.tryAcquireAccountSlot(ctx, accountID, account.Concurrency)
 	if acquireErr == nil && result != nil && result.Acquired {
@@ -398,7 +404,7 @@ func (s *defaultOpenAIAccountScheduler) selectBySessionHash(
 			Account:     account,
 			Acquired:    true,
 			ReleaseFunc: result.ReleaseFunc,
-		}, false, nil
+		}, 0, nil
 	}
 
 	cfg := s.service.schedulingConfig()
@@ -412,7 +418,7 @@ func (s *defaultOpenAIAccountScheduler) selectBySessionHash(
 				"error_rate", errorRate,
 				"ttft", ttft,
 			)
-			return nil, true, nil
+			return nil, accountID, nil
 		}
 		return &AccountSelectionResult{
 			Account: account,
@@ -422,9 +428,9 @@ func (s *defaultOpenAIAccountScheduler) selectBySessionHash(
 				Timeout:        cfg.StickySessionWaitTimeout,
 				MaxWaiting:     cfg.StickySessionMaxWaiting,
 			},
-		}, false, nil
+		}, 0, nil
 	}
-	return nil, false, nil
+	return nil, 0, nil
 }
 
 func openAIStickyAccountMatchesGroup(account *Account, groupID *int64) bool {
@@ -788,12 +794,49 @@ func (s *defaultOpenAIAccountScheduler) buildOpenAISelectionOrder(
 		if len(pool) == 0 || plan.topK <= 0 {
 			return nil
 		}
-		groupTopK := plan.topK
-		if groupTopK > len(pool) {
-			groupTopK = len(pool)
+
+		// Priority is an operator-defined hard tier: lower numeric values must be
+		// exhausted before any lower-priority account is considered. Load, queue,
+		// error rate and TTFT only balance candidates within the same priority tier.
+		priorityOrdered := append([]openAIAccountCandidateScore(nil), pool...)
+		sort.SliceStable(priorityOrdered, func(i, j int) bool {
+			return priorityOrdered[i].account.Priority < priorityOrdered[j].account.Priority
+		})
+
+		selectionOrder := make([]openAIAccountCandidateScore, 0, len(priorityOrdered))
+		for start := 0; start < len(priorityOrdered); {
+			end := start + 1
+			priority := priorityOrdered[start].account.Priority
+			for end < len(priorityOrdered) && priorityOrdered[end].account.Priority == priority {
+				end++
+			}
+
+			tier := priorityOrdered[start:end]
+			tierTopK := plan.topK
+			if tierTopK > len(tier) {
+				tierTopK = len(tier)
+			}
+			ranked := selectTopKOpenAICandidates(tier, tierTopK)
+			selectionOrder = append(selectionOrder, buildOpenAIWeightedSelectionOrder(ranked, req)...)
+			if tierTopK < len(tier) {
+				fallback := make([]openAIAccountCandidateScore, 0, len(tier)-tierTopK)
+				for _, candidate := range tier {
+					selected := false
+					for _, primary := range ranked {
+						if candidate.account.ID == primary.account.ID {
+							selected = true
+							break
+						}
+					}
+					if !selected {
+						fallback = append(fallback, candidate)
+					}
+				}
+				selectionOrder = append(selectionOrder, buildOpenAIWeightedSelectionOrder(fallback, req)...)
+			}
+			start = end
 		}
-		ranked := selectTopKOpenAICandidates(pool, groupTopK)
-		return buildOpenAIWeightedSelectionOrder(ranked, req)
+		return selectionOrder
 	}
 
 	if req.RequireCompact {

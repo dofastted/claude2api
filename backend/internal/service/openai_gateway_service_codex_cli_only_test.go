@@ -241,6 +241,17 @@ func TestIsOpenAITransientProcessingError(t *testing.T) {
 	))
 }
 
+func TestOpenAIGatewayService_ShouldFailoverInputNamespaceCompatibilityError(t *testing.T) {
+	svc := &OpenAIGatewayService{}
+
+	rejectedNamespace := []byte(`{"error":{"message":"Unknown parameter: 'input[209].namespace'.","type":"invalid_request_error","param":"input[209].namespace","code":"unknown_parameter"}}`)
+	require.True(t, svc.shouldFailoverOpenAIUpstreamResponse(http.StatusBadRequest, "Unknown parameter", rejectedNamespace))
+
+	genericBadRequest := []byte(`{"error":{"message":"Missing required parameter: 'instructions'","type":"invalid_request_error","param":"instructions","code":"missing_required_parameter"}}`)
+	require.False(t, svc.shouldFailoverOpenAIUpstreamResponse(http.StatusBadRequest, "Missing required parameter", genericBadRequest))
+	require.False(t, svc.shouldFailoverOpenAIUpstreamResponse(http.StatusUnprocessableEntity, "Unknown parameter", rejectedNamespace))
+}
+
 func TestOpenAIGatewayService_Forward_LogsInstructionsRequiredDetails(t *testing.T) {
 	gin.SetMode(gin.TestMode)
 	logSink, restore := captureStructuredLog(t)

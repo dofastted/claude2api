@@ -1126,7 +1126,7 @@ func TestApplyCodexOAuthTransform_StripsPromptCacheRetention(t *testing.T) {
 		"prompt_cache_retention must be stripped before forwarding to Codex upstream")
 }
 
-func TestApplyCodexOAuthTransform_StripsChatGPTInternalUnsupportedFields(t *testing.T) {
+func TestApplyCodexOAuthTransform_StripsKnownUnsupportedFields(t *testing.T) {
 	reqBody := map[string]any{
 		"model":                  "gpt-5.4",
 		"user":                   "user_123",
@@ -1134,6 +1134,16 @@ func TestApplyCodexOAuthTransform_StripsChatGPTInternalUnsupportedFields(t *test
 		"prompt_cache_retention": "24h",
 		"safety_identifier":      "sid",
 		"stream_options":         map[string]any{"include_usage": true},
+		"max_output_tokens":      100,
+		"max_completion_tokens":  100,
+		"temperature":            0.5,
+		"top_p":                  0.9,
+		"frequency_penalty":      0.2,
+		"presence_penalty":       0.3,
+		"truncation":             "auto",
+		"context_management":     []any{map[string]any{"type": "compaction"}},
+		"namespace":              "tools",
+		"service_tier":           "flex",
 		"input": []any{
 			map[string]any{"role": "user", "content": "hi"},
 		},
@@ -1142,9 +1152,32 @@ func TestApplyCodexOAuthTransform_StripsChatGPTInternalUnsupportedFields(t *test
 	result := applyCodexOAuthTransform(reqBody, true, false)
 
 	require.True(t, result.Modified)
-	for _, field := range openAIChatGPTInternalUnsupportedFields {
+	for _, field := range openAICodexOAuthUnsupportedFields {
 		require.NotContains(t, reqBody, field)
 	}
+	require.NotContains(t, reqBody, "service_tier")
+}
+
+func TestApplyCodexOAuthTransform_PreservesPriorityServiceTier(t *testing.T) {
+	reqBody := map[string]any{
+		"model":        "gpt-5.4",
+		"service_tier": " PRIORITY ",
+		"input":        []any{map[string]any{"role": "user", "content": "hi"}},
+	}
+
+	result := applyCodexOAuthTransform(reqBody, true, false)
+
+	require.True(t, result.Modified)
+	require.Equal(t, "priority", reqBody["service_tier"])
+
+	fastReqBody := map[string]any{
+		"model":        "gpt-5.4",
+		"service_tier": " fast ",
+		"input":        []any{map[string]any{"role": "user", "content": "hi"}},
+	}
+	result = applyCodexOAuthTransform(fastReqBody, true, false)
+	require.True(t, result.Modified)
+	require.Equal(t, "priority", fastReqBody["service_tier"])
 }
 
 func TestApplyCodexOAuthTransform_ConvertsSystemInputToDeveloper(t *testing.T) {
