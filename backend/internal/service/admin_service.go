@@ -2885,14 +2885,25 @@ func (s *adminServiceImpl) UpdateAccount(ctx context.Context, id int64, input *U
 		NormalizeFixedQuotaWindows(account.Extra)
 	}
 	if input.ProxyID != nil {
+		// 前端编辑环境胶囊设置时会携带当前 proxy_id。只有有效出口路由改变时，才刷新 profile 时区；
+		// 同一代理的普通账号编辑不能同步触发外部探测，否则探测失败会拖满请求超时并表现为网络错误。
+		currentProxyID := int64(0)
+		if account.ProxyID != nil {
+			currentProxyID = *account.ProxyID
+		}
+		requestedProxyID := *input.ProxyID
+		proxyChanged := currentProxyID != requestedProxyID
+
 		// 0 表示清除代理（前端发送 0 而不是 null 来表达清除意图）
-		if *input.ProxyID == 0 {
+		if requestedProxyID == 0 {
 			account.ProxyID = nil
 		} else {
 			account.ProxyID = input.ProxyID
 		}
 		account.Proxy = nil // 清除关联对象，防止 GORM Save 时根据 Proxy.ID 覆盖 ProxyID
-		applyAccountEnvironmentProfileTimezone(account.Extra, s.resolveProfileTimezoneForAccount(ctx, account))
+		if proxyChanged {
+			applyAccountEnvironmentProfileTimezone(account.Extra, s.resolveProfileTimezoneForAccount(ctx, account))
+		}
 	}
 	// 只在指针非 nil 时更新 Concurrency（支持设置为 0）
 	if input.Concurrency != nil {
