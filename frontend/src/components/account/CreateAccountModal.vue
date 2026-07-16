@@ -4815,8 +4815,17 @@ const createAccountAndFinish = async (
     }
   }
   if (platform === 'grok') {
+    // OAuth/subscription tokens must use CLI proxy; only API Key may use api.x.ai.
     if (!credentials.base_url) {
-      credentials.base_url = apiKeyBaseUrl.value.trim() || 'https://api.x.ai/v1'
+      credentials.base_url =
+        type === 'oauth'
+          ? 'https://cli-chat-proxy.grok.com/v1'
+          : (apiKeyBaseUrl.value.trim() || 'https://api.x.ai/v1')
+    } else if (
+      type === 'oauth' &&
+      String(credentials.base_url).replace(/\/+$/, '') === 'https://api.x.ai/v1'
+    ) {
+      credentials.base_url = 'https://cli-chat-proxy.grok.com/v1'
     }
     const modelMapping = buildModelMappingObject(modelRestrictionMode.value, allowedModels.value, modelMappings.value)
     if (modelMapping) {

@@ -9,6 +9,9 @@ type Model struct {
 	DisplayName string `json:"display_name,omitempty"`
 }
 
+// defaultModels is the public /v1/models list for Grok chat groups.
+// Keep this list small: chat/build/composer only. Image/video models are not
+// exposed here because the OpenAI chat/completions gateway cannot serve them.
 var defaultModels = []Model{
 	{ID: "grok-4.5", Object: "model", OwnedBy: "xai", DisplayName: "Grok 4.5"},
 	{ID: "grok-4.3", Object: "model", OwnedBy: "xai", DisplayName: "Grok 4.3"},
@@ -17,12 +20,6 @@ var defaultModels = []Model{
 	{ID: "grok-4.20-0309-reasoning", Object: "model", OwnedBy: "xai", DisplayName: "Grok 4.20 Reasoning"},
 	{ID: "grok-4.20-0309-non-reasoning", Object: "model", OwnedBy: "xai", DisplayName: "Grok 4.20 Non Reasoning"},
 	{ID: "grok-4.20-multi-agent-0309", Object: "model", OwnedBy: "xai", DisplayName: "Grok 4.20 Multi Agent"},
-	{ID: "grok-imagine", Object: "model", OwnedBy: "xai", DisplayName: "Grok Imagine"},
-	{ID: "grok-imagine-image", Object: "model", OwnedBy: "xai", DisplayName: "Grok Imagine Image"},
-	{ID: "grok-imagine-image-quality", Object: "model", OwnedBy: "xai", DisplayName: "Grok Imagine Image Quality"},
-	{ID: "grok-imagine-edit", Object: "model", OwnedBy: "xai", DisplayName: "Grok Imagine Edit"},
-	{ID: "grok-imagine-video", Object: "model", OwnedBy: "xai", DisplayName: "Grok Imagine Video"},
-	{ID: "grok-imagine-video-1.5", Object: "model", OwnedBy: "xai", DisplayName: "Grok Imagine Video 1.5"},
 }
 
 func DefaultModels() []Model {
@@ -40,8 +37,11 @@ func DefaultModelIDs() []string {
 	return ids
 }
 
+// DefaultModelMapping is used for request routing / IsModelSupported.
+// Keep aliases here so clients can still send "grok" / "grok-latest", but
+// /v1/models listing should prefer DefaultModelIDs() rather than mapping keys.
 func DefaultModelMapping() map[string]string {
-	mapping := make(map[string]string, len(defaultModels)+5)
+	mapping := make(map[string]string, len(defaultModels)+8)
 	for _, model := range defaultModels {
 		mapping[model.ID] = model.ID
 	}

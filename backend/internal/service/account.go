@@ -250,6 +250,7 @@ func (a *Account) GetCredential(key string) string {
 // GetCredentialAsTime 解析凭证中的时间戳字段，支持多种格式
 // 兼容以下格式：
 //   - RFC3339 字符串: "2025-01-01T00:00:00Z"
+//   - RFC3339Nano 字符串: "2025-01-01T00:00:00.000Z"（前端 JS Date 常见）
 //   - Unix 时间戳字符串: "1735689600"
 //   - Unix 时间戳数字: 1735689600 (float64/int64/json.Number)
 func (a *Account) GetCredentialAsTime(key string) *time.Time {
@@ -257,7 +258,12 @@ func (a *Account) GetCredentialAsTime(key string) *time.Time {
 	if s == "" {
 		return nil
 	}
-	// 尝试 RFC3339 格式
+	// 优先 RFC3339Nano：前端 OAuth 常写入带毫秒的 ISO 字符串。
+	// 仅用 RFC3339 时 "....08.000Z" 会解析失败，被当成 expires_at 缺失，
+	// 从而在热路径反复 refresh，最终打出 Invalid bearer token。
+	if t, err := time.Parse(time.RFC3339Nano, s); err == nil {
+		return &t
+	}
 	if t, err := time.Parse(time.RFC3339, s); err == nil {
 		return &t
 	}
@@ -1285,6 +1291,16 @@ func (a *Account) openAIEndpointCapabilitySet() (map[string]bool, bool) {
 }
 
 func (a *Account) SupportsOpenAIImageCapability(capability OpenAIImagesCapability) bool {
+	if a == nil {
+		return false
+	}
+	// Empty capability means the request does not require image generation.
+	// Grok (and other non-OpenAI OpenAI-compatible platforms) must pass this
+	// gate for ordinary chat/completions selection; only real image capability
+	// requirements should reject them.
+	if capability == "" {
+		return true
+	}
 	if !a.IsOpenAI() {
 		return false
 	}

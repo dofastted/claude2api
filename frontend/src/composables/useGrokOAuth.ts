@@ -5,6 +5,39 @@ import { adminAPI } from '@/api/admin'
 import type { GrokTokenInfo } from '@/api/admin/grok'
 import { extractApiErrorMessage, extractI18nErrorMessage } from '@/utils/apiError'
 
+/** Must match backend xai.DefaultCLIBaseURL / DefaultCLICredentialHeaders. */
+export const GROK_CLI_BASE_URL = 'https://cli-chat-proxy.grok.com/v1'
+export const GROK_OAUTH_TOKEN_ENDPOINT = 'https://auth.x.ai/oauth2/token'
+export const GROK_CLI_HEADERS = {
+  'User-Agent': 'grok-pager/0.2.93 grok-shell/0.2.93 (linux; x86_64)',
+  'X-XAI-Token-Auth': 'xai-grok-cli',
+  'x-grok-client-identifier': 'grok-pager',
+  'x-grok-client-version': '0.2.93'
+} as const
+
+function toRFC3339ExpiresAt(value: GrokTokenInfo['expires_at'], expiresIn?: number): string | undefined {
+  const toRFC3339 = (date: Date): string => date.toISOString().replace(/\.\d{3}Z$/, 'Z')
+
+  if (typeof value === 'string' && value.trim()) {
+    const asNumber = Number(value)
+    if (Number.isFinite(asNumber) && asNumber > 1_000_000_000) {
+      return toRFC3339(new Date(asNumber * 1000))
+    }
+    const parsed = Date.parse(value)
+    if (!Number.isNaN(parsed)) {
+      return toRFC3339(new Date(parsed))
+    }
+  }
+  if (typeof value === 'number' && Number.isFinite(value) && value > 0) {
+    // token exchange returns unix seconds
+    const ms = value > 1_000_000_000_000 ? value : value * 1000
+    return toRFC3339(new Date(ms))
+  }
+  if (typeof expiresIn === 'number' && expiresIn > 0) {
+    return toRFC3339(new Date(Date.now() + expiresIn * 1000))
+  }
+  return undefined
+}
 export function useGrokOAuth() {
   const appStore = useAppStore()
   const { t } = useI18n()
@@ -114,15 +147,25 @@ export function useGrokOAuth() {
   }
 
   const buildCredentials = (tokenInfo: GrokTokenInfo): Record<string, unknown> => {
+    // Mirror backend GrokOAuthService.BuildAccountCredentials so UI-created OAuth
+    // accounts hit cli-chat-proxy with CLI identity headers (not api.x.ai).
     const credentials: Record<string, unknown> = {
       access_token: tokenInfo.access_token,
-      token_type: tokenInfo.token_type,
-      expires_at: tokenInfo.expires_at,
+      token_type: tokenInfo.token_type || 'Bearer',
       client_id: tokenInfo.client_id,
       scope: tokenInfo.scope,
       email: tokenInfo.email,
       subscription_tier: tokenInfo.subscription_tier,
-      entitlement_status: tokenInfo.entitlement_status
+      entitlement_status: tokenInfo.entitlement_status,
+      base_url: GROK_CLI_BASE_URL,
+      token_endpoint: GROK_OAUTH_TOKEN_ENDPOINT,
+      auth_kind: 'oauth',
+      headers: { ...GROK_CLI_HEADERS }
+    }
+    const expiresAt = toRFC3339ExpiresAt(tokenInfo.expires_at, tokenInfo.expires_in)
+    if (expiresAt) credentials.expires_at = expiresAt
+    if (typeof tokenInfo.expires_in === 'number' && tokenInfo.expires_in > 0) {
+      credentials.expires_in = tokenInfo.expires_in
     }
     if (tokenInfo.refresh_token) credentials.refresh_token = tokenInfo.refresh_token
     if (tokenInfo.id_token) credentials.id_token = tokenInfo.id_token

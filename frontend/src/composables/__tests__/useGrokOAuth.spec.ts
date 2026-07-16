@@ -29,7 +29,7 @@ vi.mock('@/api/admin', () => ({
   }
 }))
 
-import { useGrokOAuth } from '@/composables/useGrokOAuth'
+import { useGrokOAuth, GROK_CLI_BASE_URL, GROK_CLI_HEADERS, GROK_OAUTH_TOKEN_ENDPOINT } from '@/composables/useGrokOAuth'
 import { adminAPI } from '@/api/admin'
 
 describe('useGrokOAuth.exchangeAuthCode', () => {
@@ -51,5 +51,31 @@ describe('useGrokOAuth.exchangeAuthCode', () => {
     expect(oauth.error.value).toBe(
       'Grok OAuth state 与当前会话不匹配。请粘贴同一次生成的授权链接返回的回调 URL。'
     )
+  })
+})
+
+describe('useGrokOAuth.buildCredentials', () => {
+  it(' assembles CLI proxy base URL and identity headers for OAuth tokens', () => {
+    const oauth = useGrokOAuth()
+    const creds = oauth.buildCredentials({
+      access_token: 'at-123',
+      refresh_token: 'rt-456',
+      token_type: 'Bearer',
+      expires_at: 1784233642,
+      expires_in: 21600,
+      client_id: 'client-1',
+      email: 'user@example.com',
+      subscription_tier: 'free'
+    })
+
+    expect(creds.base_url).toBe(GROK_CLI_BASE_URL)
+    expect(creds.token_endpoint).toBe(GROK_OAUTH_TOKEN_ENDPOINT)
+    expect(creds.auth_kind).toBe('oauth')
+    expect(creds.access_token).toBe('at-123')
+    expect(creds.refresh_token).toBe('rt-456')
+    expect(creds.expires_at).toBe(new Date(1784233642 * 1000).toISOString())
+    expect(creds.headers).toEqual({ ...GROK_CLI_HEADERS })
+    // Must never default OAuth credentials to the public API host.
+    expect(String(creds.base_url)).not.toContain('api.x.ai')
   })
 })

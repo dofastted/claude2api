@@ -32,6 +32,7 @@ import (
 	infraerrors "github.com/dofastted/claude2api/internal/pkg/errors"
 	"github.com/dofastted/claude2api/internal/pkg/logger"
 	"github.com/dofastted/claude2api/internal/pkg/usagestats"
+	"github.com/dofastted/claude2api/internal/pkg/xai"
 	"github.com/dofastted/claude2api/internal/util/responseheaders"
 	"github.com/dofastted/claude2api/internal/util/urlvalidator"
 	"github.com/google/uuid"
@@ -10580,8 +10581,18 @@ func (s *GatewayService) GetAvailableModels(ctx context.Context, groupID *int64,
 	// Collect unique models from all accounts
 	modelSet := make(map[string]struct{})
 	hasAnyMapping := false
+	grokDefaultOnly := platform == PlatformGrok
 
 	for _, acc := range accounts {
+		rawMapping, hasExplicit := acc.Credentials["model_mapping"].(map[string]any)
+		if platform == PlatformGrok && (!hasExplicit || len(rawMapping) == 0) {
+			// Account relies on built-in Grok defaults; do not expand alias keys
+			// from DefaultModelMapping into /v1/models.
+			continue
+		}
+		if platform == PlatformGrok {
+			grokDefaultOnly = false
+		}
 		mapping := acc.GetModelMapping()
 		if len(mapping) > 0 {
 			hasAnyMapping = true
@@ -10589,6 +10600,17 @@ func (s *GatewayService) GetAvailableModels(ctx context.Context, groupID *int64,
 				modelSet[model] = struct{}{}
 			}
 		}
+	}
+
+	// Grok groups with only default (no per-account model_mapping) expose the
+	// compact chat model list, not every routing alias.
+	if platform == PlatformGrok && grokDefaultOnly {
+		models := xai.DefaultModelIDs()
+		if s.modelsListCache != nil {
+			s.modelsListCache.Set(cacheKey, cloneStringSlice(models), s.modelsListCacheTTL)
+			modelsListCacheStoreTotal.Add(1)
+		}
+		return cloneStringSlice(models)
 	}
 
 	// If no account has model_mapping, return nil (use default)

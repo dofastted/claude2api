@@ -442,6 +442,22 @@ func TestAccountSupportsOpenAIImageCapability_OAuthSupportsNative(t *testing.T) 
 	require.True(t, account.SupportsOpenAIImageCapability(OpenAIImagesCapabilityNative))
 }
 
+func TestAccountSupportsOpenAIImageCapability_EmptyAllowsGrokChat(t *testing.T) {
+	grok := &Account{
+		Platform: PlatformGrok,
+		Type:     AccountTypeOAuth,
+	}
+
+	// Ordinary chat selection passes empty image capability.
+	require.True(t, grok.SupportsOpenAIImageCapability(""))
+	require.True(t, accountSupportsOpenAICapabilities(grok, OpenAIEndpointCapabilityChatCompletions, ""))
+
+	// Real image requirements must still reject Grok.
+	require.False(t, grok.SupportsOpenAIImageCapability(OpenAIImagesCapabilityBasic))
+	require.False(t, grok.SupportsOpenAIImageCapability(OpenAIImagesCapabilityNative))
+	require.False(t, accountSupportsOpenAICapabilities(grok, OpenAIEndpointCapabilityChatCompletions, OpenAIImagesCapabilityBasic))
+}
+
 func TestAccountSupportsOpenAIEndpointCapability(t *testing.T) {
 	t.Run("OpenAI APIKey 默认兼容 chat 和 embeddings", func(t *testing.T) {
 		account := &Account{

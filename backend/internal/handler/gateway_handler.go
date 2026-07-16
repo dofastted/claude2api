@@ -1032,6 +1032,14 @@ func (h *GatewayHandler) Models(c *gin.Context) {
 		return
 	}
 
+	if platform == service.PlatformGrok {
+		c.JSON(http.StatusOK, gin.H{
+			"object": "list",
+			"data":   xai.DefaultModels(),
+		})
+		return
+	}
+
 	c.JSON(http.StatusOK, gin.H{
 		"object": "list",
 		"data":   claude.DefaultModels,

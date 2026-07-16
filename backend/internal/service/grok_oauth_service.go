@@ -5,7 +5,9 @@ import (
 	"crypto/subtle"
 	"encoding/base64"
 	"encoding/json"
+	"fmt"
 	"net/http"
+	"strconv"
 	"strings"
 	"time"
 
@@ -318,4 +320,83 @@ func parseJWTEmailClaim(token string) string {
 		return ""
 	}
 	return strings.TrimSpace(claims.Email)
+}
+
+// NormalizeGrokOAuthCredentials forces subscription/OAuth Grok accounts onto the
+// CLI chat proxy identity. Frontend/import paths historically defaulted base_url
+// to api.x.ai, which rejects OAuth bearer tokens with 401 Invalid bearer token.
+func NormalizeGrokOAuthCredentials(credentials map[string]any) map[string]any {
+	if credentials == nil {
+		return nil
+	}
+	out := make(map[string]any, len(credentials)+8)
+	for k, v := range credentials {
+		out[k] = v
+	}
+
+	baseURL := strings.TrimRight(strings.TrimSpace(credentialString(out["base_url"])), "/")
+	if baseURL == "" || strings.EqualFold(baseURL, strings.TrimRight(xai.DefaultBaseURL, "/")) {
+		out["base_url"] = xai.DefaultCLIBaseURL
+	}
+	if strings.TrimSpace(credentialString(out["auth_kind"])) == "" {
+		out["auth_kind"] = "oauth"
+	}
+	if strings.TrimSpace(credentialString(out["token_endpoint"])) == "" {
+		out["token_endpoint"] = xai.DefaultTokenURL
+	}
+	if strings.TrimSpace(credentialString(out["token_type"])) == "" {
+		out["token_type"] = "Bearer"
+	}
+	if _, ok := out["headers"]; !ok || out["headers"] == nil {
+		out["headers"] = xai.DefaultCLICredentialHeaders()
+	}
+
+	// Prefer RFC3339 expires_at; accept unix seconds left over from UI conversion.
+	switch v := out["expires_at"].(type) {
+	case float64:
+		if v > 0 {
+			out["expires_at"] = time.Unix(int64(v), 0).UTC().Format(time.RFC3339)
+		}
+	case int64:
+		if v > 0 {
+			out["expires_at"] = time.Unix(v, 0).UTC().Format(time.RFC3339)
+		}
+	case int:
+		if v > 0 {
+			out["expires_at"] = time.Unix(int64(v), 0).UTC().Format(time.RFC3339)
+		}
+	case json.Number:
+		if ts, err := v.Int64(); err == nil && ts > 0 {
+			out["expires_at"] = time.Unix(ts, 0).UTC().Format(time.RFC3339)
+		}
+	case string:
+		s := strings.TrimSpace(v)
+		if s == "" {
+			break
+		}
+		if t, err := time.Parse(time.RFC3339Nano, s); err == nil {
+			out["expires_at"] = t.UTC().Format(time.RFC3339)
+			break
+		}
+		if _, err := time.Parse(time.RFC3339, s); err == nil {
+			break
+		}
+		if ts, err := strconv.ParseInt(s, 10, 64); err == nil && ts > 0 {
+			out["expires_at"] = time.Unix(ts, 0).UTC().Format(time.RFC3339)
+		}
+	}
+	return out
+}
+
+func credentialString(v any) string {
+	switch t := v.(type) {
+	case nil:
+		return ""
+	case string:
+		return t
+	case fmt.Stringer:
+		return t.String()
+	default:
+		return strings.TrimSpace(fmt.Sprint(t))
+	}
 }

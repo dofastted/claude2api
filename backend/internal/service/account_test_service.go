@@ -23,6 +23,7 @@ import (
 	"github.com/dofastted/claude2api/internal/pkg/geminicli"
 	"github.com/dofastted/claude2api/internal/pkg/openai"
 	"github.com/dofastted/claude2api/internal/pkg/openai_compat"
+	"github.com/dofastted/claude2api/internal/pkg/xai"
 	"github.com/dofastted/claude2api/internal/util/urlvalidator"
 	"github.com/gin-gonic/gin"
 	"github.com/google/uuid"
@@ -336,6 +337,10 @@ func (s *AccountTestService) TestAccountConnection(c *gin.Context, accountID int
 
 	if account.Platform == PlatformAntigravity {
 		return s.routeAntigravityTest(c, account, modelID, prompt)
+	}
+
+	if account.IsGrok() {
+		return s.testGrokAccountConnection(c, account, modelID, prompt)
 	}
 
 	return s.testClaudeAccountConnection(c, account, modelID)
@@ -805,6 +810,100 @@ func (s *AccountTestService) testBedrockAccountConnection(c *gin.Context, ctx co
 	s.sendEvent(c, TestEvent{Type: "content", Text: text})
 	s.sendEvent(c, TestEvent{Type: "test_complete", Success: true})
 	return nil
+}
+
+// testGrokAccountConnection tests a Grok OAuth/APIKey account via CLI chat-completions.
+// Grok must NOT fall through to the Claude probe path: that posts to api.anthropic.com and
+// surfaces "API returned 401: Invalid bearer token" with Anthropic request_ids (req_011...).
+func (s *AccountTestService) testGrokAccountConnection(c *gin.Context, account *Account, modelID string, prompt string) error {
+	testModelID := strings.TrimSpace(modelID)
+	if testModelID == "" {
+		testModelID = "grok-4.5"
+	}
+	testModelID = account.GetMappedModel(testModelID)
+
+	var authToken string
+	switch {
+	case account.IsOAuth():
+		authToken = account.GetGrokAccessToken()
+		if strings.TrimSpace(authToken) == "" {
+			return s.sendErrorAndEnd(c, "No access token available")
+		}
+	case account.Type == "apikey" || account.Type == AccountTypeAPIKey:
+		authToken = strings.TrimSpace(account.GetCredential("api_key"))
+		if authToken == "" {
+			return s.sendErrorAndEnd(c, "No API key available")
+		}
+	default:
+		return s.sendErrorAndEnd(c, fmt.Sprintf("Unsupported Grok account type: %s", account.Type))
+	}
+
+	baseURL := strings.TrimSpace(account.GetGrokBaseURL())
+	if baseURL == "" {
+		if account.IsOAuth() {
+			baseURL = xai.DefaultCLIBaseURL
+		} else {
+			baseURL = xai.DefaultBaseURL
+		}
+	}
+	normalizedBaseURL, err := s.validateUpstreamBaseURL(baseURL)
+	if err != nil {
+		return s.sendErrorAndEnd(c, fmt.Sprintf("Invalid base URL: %s", err.Error()))
+	}
+
+	return s.testGrokChatCompletionsConnection(c, account, testModelID, prompt, normalizedBaseURL, authToken)
+}
+
+func (s *AccountTestService) testGrokChatCompletionsConnection(
+	c *gin.Context,
+	account *Account,
+	testModelID string,
+	prompt string,
+	normalizedBaseURL string,
+	authToken string,
+) error {
+	ctx := c.Request.Context()
+	apiURL := buildOpenAIChatCompletionsURL(normalizedBaseURL)
+
+	c.Writer.Header().Set("Content-Type", "text/event-stream")
+	c.Writer.Header().Set("Cache-Control", "no-cache")
+	c.Writer.Header().Set("Connection", "keep-alive")
+	c.Writer.Header().Set("X-Accel-Buffering", "no")
+	c.Writer.Flush()
+
+	payload := createOpenAIChatCompletionsTestPayload(testModelID, prompt)
+	payloadBytes, _ := json.Marshal(payload)
+
+	s.sendEvent(c, TestEvent{Type: "test_start", Model: testModelID})
+	s.sendEvent(c, TestEvent{Type: "status", Text: "正在通过 Grok /v1/chat/completions 测试连接"})
+
+	req, err := http.NewRequestWithContext(ctx, http.MethodPost, apiURL, bytes.NewReader(payloadBytes))
+	if err != nil {
+		return s.sendErrorAndEnd(c, "Failed to create Grok Chat Completions request")
+	}
+	req = req.WithContext(WithHTTPUpstreamProfile(req.Context(), HTTPUpstreamProfileOpenAI))
+	req.Header.Set("Content-Type", "application/json")
+	req.Header.Set("Accept", "text/event-stream")
+	req.Header.Set("Authorization", "Bearer "+authToken)
+	applyGrokUpstreamIdentityHeaders(req.Header, account)
+
+	proxyURL := ""
+	if account.ProxyID != nil && account.Proxy != nil {
+		proxyURL = account.Proxy.URL()
+	}
+
+	resp, err := s.httpUpstream.DoWithTLS(req, proxyURL, account.ID, account.Concurrency, s.tlsFPProfileService.ResolveTLSProfile(account))
+	if err != nil {
+		return s.sendErrorAndEnd(c, fmt.Sprintf("Grok Chat Completions request failed: %s", err.Error()))
+	}
+	defer func() { _ = resp.Body.Close() }()
+
+	if resp.StatusCode != http.StatusOK {
+		body, _ := io.ReadAll(resp.Body)
+		return s.sendErrorAndEnd(c, fmt.Sprintf("Grok Chat Completions returned %d: %s", resp.StatusCode, string(body)))
+	}
+
+	return s.processOpenAIChatCompletionsStream(c, resp.Body)
 }
 
 // testOpenAIAccountConnection tests an OpenAI account's connection
