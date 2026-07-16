@@ -916,7 +916,7 @@ func (s *AccountTestService) testOpenAIAccountConnection(c *gin.Context, account
 		}
 		codexProfile = resolvedProfile
 		if codexProfile != nil {
-			applyCodexEnvironmentProfile(req, account, codexProfile, CodexProfileApplyOptions{})
+			applyCodexEnvironmentProfile(req, account, codexProfile, CodexProfileApplyOptions{}, s.identityRegistry)
 		}
 		req = attachEnvironmentProfileLeaseToRequest(req, codexProfileLease)
 	}
@@ -1090,7 +1090,7 @@ func (s *AccountTestService) testOpenAICompactConnection(c *gin.Context, account
 		}
 		codexProfile = resolvedProfile
 		if codexProfile != nil {
-			applyCodexEnvironmentProfile(req, account, codexProfile, CodexProfileApplyOptions{PromptCacheKey: probeSessionID, Compact: true})
+			applyCodexEnvironmentProfile(req, account, codexProfile, CodexProfileApplyOptions{PromptCacheKey: probeSessionID, Compact: true}, s.identityRegistry)
 		}
 		req = attachEnvironmentProfileLeaseToRequest(req, codexProfileLease)
 	}
@@ -1962,7 +1962,7 @@ func (s *AccountTestService) testOpenAIImageOAuth(c *gin.Context, ctx context.Co
 		return s.sendErrorAndEnd(c, fmt.Sprintf("Failed to resolve Codex profile: %s", profileErr.Error()))
 	}
 	if codexProfile != nil {
-		applyCodexEnvironmentProfile(req, account, codexProfile, CodexProfileApplyOptions{PromptCacheKey: parsed.StickySessionSeed()})
+		applyCodexEnvironmentProfile(req, account, codexProfile, CodexProfileApplyOptions{PromptCacheKey: parsed.StickySessionSeed()}, s.identityRegistry)
 	}
 	req = attachEnvironmentProfileLeaseToRequest(req, codexProfileLease)
 

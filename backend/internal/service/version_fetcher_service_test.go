@@ -94,17 +94,41 @@ func TestFetchNPMLatest(t *testing.T) {
 }
 
 func TestFetchCodexVersion(t *testing.T) {
-	t.Run("returns npm latest", func(t *testing.T) {
+	t.Run("returns newer github version when npm lags", func(t *testing.T) {
 		svc, server := newVersionFetcherTestService(t, func(w http.ResponseWriter, r *http.Request) {
-			assert.Equal(t, "/@openai/codex", r.URL.Path)
-			assert.Equal(t, "application/json", r.Header.Get("Accept"))
-			_, _ = w.Write([]byte(`{"dist-tags":{"latest":"0.142.2"}}`))
+			switch r.URL.Path {
+			case "/@openai/codex":
+				assert.Equal(t, "application/json", r.Header.Get("Accept"))
+				_, _ = w.Write([]byte(`{"dist-tags":{"latest":"0.142.2"}}`))
+			case "/repos/openai/codex/releases/latest":
+				_, _ = w.Write([]byte(`{"tag_name":"rust-v0.144.4","prerelease":false}`))
+			default:
+				http.NotFound(w, r)
+			}
 		})
 		defer server.Close()
 
 		got, err := svc.fetchCodexVersion(context.Background())
 		require.NoError(t, err)
-		assert.Equal(t, "0.142.2", got)
+		assert.Equal(t, "0.144.4", got)
+	})
+
+	t.Run("returns newer npm version when github lags", func(t *testing.T) {
+		svc, server := newVersionFetcherTestService(t, func(w http.ResponseWriter, r *http.Request) {
+			switch r.URL.Path {
+			case "/@openai/codex":
+				_, _ = w.Write([]byte(`{"dist-tags":{"latest":"0.145.1"}}`))
+			case "/repos/openai/codex/releases/latest":
+				_, _ = w.Write([]byte(`{"tag_name":"rust-v0.145.0","prerelease":false}`))
+			default:
+				http.NotFound(w, r)
+			}
+		})
+		defer server.Close()
+
+		got, err := svc.fetchCodexVersion(context.Background())
+		require.NoError(t, err)
+		assert.Equal(t, "0.145.1", got)
 	})
 
 	t.Run("falls back to github rust release tag", func(t *testing.T) {
@@ -115,7 +139,7 @@ func TestFetchCodexVersion(t *testing.T) {
 			case "/repos/openai/codex/releases/latest":
 				assert.Equal(t, "application/vnd.github.v3+json", r.Header.Get("Accept"))
 				assert.Equal(t, "claude2api-version-fetcher", r.Header.Get("User-Agent"))
-				_, _ = w.Write([]byte(`{"tag_name":"rust-v0.142.2","prerelease":false}`))
+				_, _ = w.Write([]byte(`{"tag_name":"rust-v0.144.4","prerelease":false}`))
 			default:
 				http.NotFound(w, r)
 			}
@@ -124,7 +148,7 @@ func TestFetchCodexVersion(t *testing.T) {
 
 		got, err := svc.fetchCodexVersion(context.Background())
 		require.NoError(t, err)
-		assert.Equal(t, "0.142.2", got)
+		assert.Equal(t, "0.144.4", got)
 	})
 
 	t.Run("rejects prerelease flag", func(t *testing.T) {
@@ -280,7 +304,7 @@ func TestFetchAndUpdateBuildsConsistentCodexIdentity(t *testing.T) {
 		case "/@anthropic-ai/claude-code/2.1.161":
 			_, _ = w.Write([]byte(`{"dependencies":{"@anthropic-ai/sdk":"^0.62.0"}}`))
 		case "/repos/openai/codex/releases/latest":
-			_, _ = w.Write([]byte(`{"tag_name":"v0.125.0","prerelease":false}`))
+			_, _ = w.Write([]byte(`{"tag_name":"v0.145.0","prerelease":false}`))
 		default:
 			http.NotFound(w, r)
 		}
@@ -290,9 +314,9 @@ func TestFetchAndUpdateBuildsConsistentCodexIdentity(t *testing.T) {
 	svc.fetchAndUpdate()
 
 	snapshot := svc.registry.Get()
-	assert.Equal(t, "0.125.0", snapshot.Codex.VersionFields.CLIVersion)
+	assert.Equal(t, "0.145.0", snapshot.Codex.VersionFields.CLIVersion)
 	assert.Equal(t, "codex_cli_rs", snapshot.Codex.Headers["originator"])
-	assert.Equal(t, "codex_cli_rs/0.125.0 (Ubuntu 22.4.0; x86_64) xterm-256color", snapshot.Codex.Headers["User-Agent"])
+	assert.Equal(t, "codex_cli_rs/0.145.0 (Ubuntu 22.4.0; x86_64) xterm-256color", snapshot.Codex.Headers["User-Agent"])
 }
 
 func newVersionFetcherTestService(t *testing.T, handler http.HandlerFunc) (*VersionFetcherService, *httptest.Server) {
@@ -392,7 +416,7 @@ func TestFetchAndUpdatePersistsVersionsAndPartialSuccess(t *testing.T) {
 		case "/@anthropic-ai/claude-code/2.2.0":
 			_, _ = w.Write([]byte(`{"dependencies":{"@anthropic-ai/sdk":"^0.95.0"}}`))
 		case "/repos/openai/codex/releases/latest":
-			_, _ = w.Write([]byte(`{"tag_name":"v0.130.0","prerelease":false}`))
+			_, _ = w.Write([]byte(`{"tag_name":"v0.145.0","prerelease":false}`))
 		default:
 			http.NotFound(w, r)
 		}
@@ -404,7 +428,7 @@ func TestFetchAndUpdatePersistsVersionsAndPartialSuccess(t *testing.T) {
 	snapshot := registry.Get()
 	assert.Equal(t, "2.2.0", snapshot.Claude.VersionFields.CLIVersion)
 	assert.Equal(t, "0.95.0", snapshot.Claude.VersionFields.SDKVersion)
-	assert.Equal(t, "0.130.0", snapshot.Codex.VersionFields.CLIVersion)
+	assert.Equal(t, "0.145.0", snapshot.Codex.VersionFields.CLIVersion)
 
 	// 持久化写入 setting 表。
 	claudeRaw, err := repo.GetValue(context.Background(), SettingKeyClaudeCLIVersion)
@@ -413,7 +437,7 @@ func TestFetchAndUpdatePersistsVersionsAndPartialSuccess(t *testing.T) {
 	assert.Contains(t, claudeRaw, "0.95.0")
 	codexRaw, err := repo.GetValue(context.Background(), SettingKeyCodexCLIVersion)
 	require.NoError(t, err)
-	assert.Equal(t, "0.130.0", codexRaw)
+	assert.Equal(t, "0.145.0", codexRaw)
 }
 
 func TestFetchAndUpdatePersistsCodexOnlyWhenClaudeFails(t *testing.T) {
@@ -426,7 +450,7 @@ func TestFetchAndUpdatePersistsCodexOnlyWhenClaudeFails(t *testing.T) {
 		case "/@anthropic-ai/claude-code":
 			http.Error(w, "npm outage", http.StatusBadGateway)
 		case "/repos/openai/codex/releases/latest":
-			_, _ = w.Write([]byte(`{"tag_name":"v0.130.0","prerelease":false}`))
+			_, _ = w.Write([]byte(`{"tag_name":"v0.145.0","prerelease":false}`))
 		default:
 			http.NotFound(w, r)
 		}
@@ -439,11 +463,51 @@ func TestFetchAndUpdatePersistsCodexOnlyWhenClaudeFails(t *testing.T) {
 	// claude 侧保留默认快照未被覆盖。
 	assert.Equal(t, initialClaude.VersionFields.CLIVersion, snapshot.Claude.VersionFields.CLIVersion)
 	// codex 侧成功更新并持久化。
-	assert.Equal(t, "0.130.0", snapshot.Codex.VersionFields.CLIVersion)
+	assert.Equal(t, "0.145.0", snapshot.Codex.VersionFields.CLIVersion)
 	_, err := repo.GetValue(context.Background(), SettingKeyCodexCLIVersion)
 	require.NoError(t, err)
 	_, err = repo.GetValue(context.Background(), SettingKeyClaudeCLIVersion)
 	assert.ErrorIs(t, err, ErrSettingNotFound)
+}
+
+func TestFetchAndUpdateDoesNotDowngradeCodexIdentity(t *testing.T) {
+	repo := newMemorySettingRepo()
+	registry := clientidentity.NewRegistry()
+	current := registry.Get()
+	registry.Swap(&clientidentity.Snapshots{
+		Claude: current.Claude,
+		Codex: clientidentity.CodexSnapshot{
+			Headers: map[string]string{
+				"User-Agent": "codex_cli_rs/0.146.0 (Ubuntu 22.4.0; x86_64) xterm-256color",
+				"originator": "codex_cli_rs",
+			},
+			VersionFields:  clientidentity.VersionFields{CLIVersion: "0.146.0"},
+			TLSProfileName: clientidentity.TLSProfileCodexCLIDefault,
+		},
+	})
+	svc := NewVersionFetcherService(registry, &config.Config{}, repo)
+	svc, server := withTestHTTP(svc, t, func(w http.ResponseWriter, r *http.Request) {
+		switch r.URL.Path {
+		case "/@anthropic-ai/claude-code":
+			http.Error(w, "npm outage", http.StatusBadGateway)
+		case "/@openai/codex":
+			_, _ = w.Write([]byte(`{"dist-tags":{"latest":"0.145.0"}}`))
+		case "/repos/openai/codex/releases/latest":
+			_, _ = w.Write([]byte(`{"tag_name":"v0.145.0","prerelease":false}`))
+		default:
+			http.NotFound(w, r)
+		}
+	})
+	defer server.Close()
+
+	svc.fetchAndUpdate()
+
+	snapshot := registry.Get()
+	assert.Equal(t, "0.146.0", snapshot.Codex.VersionFields.CLIVersion)
+	assert.Contains(t, snapshot.Codex.Headers["User-Agent"], "codex_cli_rs/0.146.0")
+	codexRaw, err := repo.GetValue(context.Background(), SettingKeyCodexCLIVersion)
+	require.NoError(t, err)
+	assert.Equal(t, "0.146.0", codexRaw)
 }
 
 func TestBootstrapFromDBRestoresPersistedVersions(t *testing.T) {
@@ -458,7 +522,7 @@ func TestBootstrapFromDBRestoresPersistedVersions(t *testing.T) {
 	snapshot := registry.Get()
 	assert.Equal(t, "2.3.0", snapshot.Claude.VersionFields.CLIVersion)
 	assert.Equal(t, "0.96.0", snapshot.Claude.VersionFields.SDKVersion)
-	assert.Equal(t, "0.140.0", snapshot.Codex.VersionFields.CLIVersion)
+	assert.Equal(t, clientidentity.MinimumCodexCLIVersion, snapshot.Codex.VersionFields.CLIVersion)
 }
 
 func TestBootstrapFromDBNoOpWhenEmpty(t *testing.T) {

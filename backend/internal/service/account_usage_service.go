@@ -707,7 +707,7 @@ func (s *AccountUsageService) probeOpenAICodexSnapshot(ctx context.Context, acco
 		return nil, fmt.Errorf("resolve codex environment profile: %w", profileErr)
 	}
 	if codexProfile != nil {
-		applyCodexEnvironmentProfile(req, account, codexProfile, CodexProfileApplyOptions{})
+		applyCodexEnvironmentProfile(req, account, codexProfile, CodexProfileApplyOptions{}, s.identityRegistry)
 	}
 	req = attachEnvironmentProfileLeaseToRequest(req, codexProfileLease)
 	if chatgptAccountID := account.GetChatGPTAccountID(); chatgptAccountID != "" {

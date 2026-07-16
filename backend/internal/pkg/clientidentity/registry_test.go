@@ -18,3 +18,10 @@ func TestRegistryAtomicSwap(t *testing.T) {
 	assert.Equal(t, "1.0.0", registry.Get().Claude.VersionFields.CLIVersion)
 	assert.NotEqual(t, initial, registry.Get())
 }
+
+func TestRegistryDefaultCodexIdentityUsesMinimumSupportedVersion(t *testing.T) {
+	registry := NewRegistry()
+
+	assert.Equal(t, MinimumCodexCLIVersion, registry.Get().Codex.VersionFields.CLIVersion)
+	assert.Contains(t, registry.Get().Codex.Headers["User-Agent"], "codex_cli_rs/"+MinimumCodexCLIVersion)
+}

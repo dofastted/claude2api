@@ -5,8 +5,9 @@ import (
 )
 
 const (
-	defaultCodexCLIVersion = "0.142.2"
-	defaultCodexCLIUA      = "codex_cli_rs/0.142.2 (Ubuntu 22.4.0; x86_64) xterm-256color"
+	MinimumCodexCLIVersion = "0.144.4"
+	defaultCodexCLIVersion = MinimumCodexCLIVersion
+	defaultCodexCLIUA      = "codex_cli_rs/" + defaultCodexCLIVersion + " (Ubuntu 22.4.0; x86_64) xterm-256color"
 
 	defaultClaudeCLIVersion = "2.1.191"
 	defaultClaudeSDKVersion = "0.106.0"

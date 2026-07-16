@@ -123,6 +123,7 @@ func (s *VersionFetcherService) fetchAndUpdate() {
 		}
 	}
 	if codexVersion != "" {
+		codexVersion = newerCodexCLIVersion(codexVersion, codex.VersionFields.CLIVersion)
 		codex = clientidentity.CodexSnapshot{
 			Headers: s.buildCodexHeaders(codexVersion),
 			VersionFields: clientidentity.VersionFields{
@@ -169,6 +170,7 @@ func (s *VersionFetcherService) bootstrapFromDB() {
 		}
 	}
 	if codexVersion != "" {
+		codexVersion = newerCodexCLIVersion(codexVersion, codex.VersionFields.CLIVersion)
 		codex = clientidentity.CodexSnapshot{
 			Headers: s.buildCodexHeaders(codexVersion),
 			VersionFields: clientidentity.VersionFields{
@@ -286,14 +288,22 @@ func (s *VersionFetcherService) fetchClaudeVersions(ctx context.Context) (cliVer
 }
 
 func (s *VersionFetcherService) fetchCodexVersion(ctx context.Context) (string, error) {
-	version, npmErr := s.fetchNPMLatest(ctx, defaultCodexNPMPackage)
-	if npmErr == nil {
-		return version, nil
-	}
+	var npmVersion, releaseVersion string
+	var npmErr, releaseErr error
+	var wg sync.WaitGroup
+	wg.Add(2)
+	go func() {
+		defer wg.Done()
+		npmVersion, npmErr = s.fetchNPMLatest(ctx, defaultCodexNPMPackage)
+	}()
+	go func() {
+		defer wg.Done()
+		releaseVersion, releaseErr = s.fetchCodexReleaseVersion(ctx)
+	}()
+	wg.Wait()
 
-	version, releaseErr := s.fetchCodexReleaseVersion(ctx)
-	if releaseErr == nil {
-		return version, nil
+	if npmErr == nil || releaseErr == nil {
+		return newerCodexCLIVersion(npmVersion, releaseVersion), nil
 	}
 	return "", fmt.Errorf("npm latest: %v; github release: %w", npmErr, releaseErr)
 }
@@ -417,6 +427,7 @@ func (s *VersionFetcherService) buildClaudeHeaders(cliVer, sdkVer string) map[st
 }
 
 func (s *VersionFetcherService) buildCodexHeaders(cliVer string) map[string]string {
+	cliVer = newerCodexCLIVersion(cliVer)
 	return map[string]string{
 		"User-Agent": "codex_cli_rs/" + cliVer + " (Ubuntu 22.4.0; x86_64) xterm-256color",
 		"originator": "codex_cli_rs",
@@ -428,6 +439,17 @@ func (s *VersionFetcherService) httpClient() *http.Client {
 		return s.client
 	}
 	return http.DefaultClient
+}
+
+func newerCodexCLIVersion(versions ...string) string {
+	latest := clientidentity.MinimumCodexCLIVersion
+	for _, version := range versions {
+		version = strings.TrimSpace(version)
+		if version != "" && CompareVersions(version, latest) > 0 {
+			latest = version
+		}
+	}
+	return latest
 }
 
 var versionTokenPattern = regexp.MustCompile(`v?\d+\.\d+\.\d+(?:[-+][0-9A-Za-z.-]+)?`)

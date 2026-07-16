@@ -1207,7 +1207,7 @@ func (s *OpenAIGatewayService) buildOpenAIWSHeaders(
 			PromptCacheKey: promptCacheKey,
 			WSBetaValue:    betaValue,
 			AcceptLanguage: headers.Get("accept-language"),
-		})
+		}, s.identityRegistry)
 	}
 	return headers, sessionResolution, nil
 }

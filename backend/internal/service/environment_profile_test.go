@@ -3,9 +3,12 @@ package service
 import (
 	"context"
 	"encoding/json"
+	"github.com/dofastted/claude2api/internal/config"
 	"net/http"
 	"sync"
 	"testing"
+
+	"github.com/dofastted/claude2api/internal/pkg/clientidentity"
 
 	"github.com/stretchr/testify/require"
 )
@@ -21,6 +24,12 @@ func (r *environmentProfileAccountRepo) GetByID(context.Context, int64) (*Accoun
 	r.mu.Lock()
 	defer r.mu.Unlock()
 	return cloneEnvironmentProfileAccount(r.account), nil
+}
+func (r *environmentProfileAccountRepo) Update(_ context.Context, account *Account) error {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	r.account = cloneEnvironmentProfileAccount(account)
+	return nil
 }
 
 func (r *environmentProfileAccountRepo) UpdateExtra(_ context.Context, _ int64, updates map[string]any) error {
@@ -439,6 +448,56 @@ func TestCodexEnvironmentProfileApplyPreservesCompatBridgeBetaAndOriginatorRemov
 	require.Equal(t, req.Header.Get("thread-id"), jsonStringField(t, turnMetadata, "thread_id"))
 	require.Equal(t, req.Header.Get("x-codex-window-id"), jsonStringField(t, turnMetadata, "window_id"))
 	require.Equal(t, "turn", jsonStringField(t, turnMetadata, "request_kind"))
+}
+
+func TestCodexEnvironmentProfileApplyUsesNewerRegistryIdentity(t *testing.T) {
+	account := &Account{ID: 203, Platform: PlatformOpenAI, Type: AccountTypeOAuth}
+	profile := &CodexEnvironmentProfile{
+		Family:           CodexClientFamilyCLI,
+		Source:           "simulated",
+		UserAgent:        "codex_cli_rs/0.142.2 (Ubuntu 22.4.0; x86_64) xterm-256color",
+		Originator:       "codex_cli_rs",
+		Version:          "0.142.2",
+		SessionSeed:      "session-seed",
+		ConversationSeed: "conversation-seed",
+		TLSProfile:       "codex-cli-default",
+	}
+	req, err := http.NewRequest(http.MethodPost, "https://chatgpt.com/backend-api/codex/responses", nil)
+	require.NoError(t, err)
+
+	registry := clientidentity.NewRegistry()
+	applyCodexEnvironmentProfile(req, account, profile, CodexProfileApplyOptions{}, registry)
+
+	require.Equal(t, clientidentity.MinimumCodexCLIVersion, req.Header.Get("Version"))
+	require.Contains(t, req.Header.Get("User-Agent"), "codex_cli_rs/"+clientidentity.MinimumCodexCLIVersion)
+}
+func TestUpdateAccountWithUnchangedProxySkipsProfileTimezoneProbe(t *testing.T) {
+	proxyID := int64(42)
+	account := &Account{
+		ID:       204,
+		Platform: PlatformOpenAI,
+		Type:     AccountTypeOAuth,
+		Status:   StatusActive,
+		ProxyID:  &proxyID,
+		Proxy:    &Proxy{Protocol: "http", Host: "proxy.example", Port: 8080},
+		Extra:    map[string]any{},
+	}
+	repo := &environmentProfileAccountRepo{account: account}
+	prober := &fakeProbeProber{info: &ProxyExitInfo{Timezone: "Europe/Berlin", CountryCode: "DE", Source: "ip-api"}}
+	resolver := newResolverWithFakeAndProxyLookup(prober, &config.Config{}, &fakeEnvironmentProfileProxyLookup{proxy: account.Proxy})
+	svc := &adminServiceImpl{
+		accountRepo:             repo,
+		profileTimezoneResolver: resolver,
+	}
+
+	updated, err := svc.UpdateAccount(context.Background(), account.ID, &UpdateAccountInput{
+		Name:    "renamed",
+		ProxyID: &proxyID,
+	})
+
+	require.NoError(t, err)
+	require.Equal(t, "renamed", updated.Name)
+	require.Empty(t, prober.calledProxyURLs, "unchanged proxy must not trigger an external timezone probe")
 }
 
 func jsonStringField(t *testing.T, raw, key string) string {

@@ -506,15 +506,46 @@ func buildCodexTurnMetadata(meta codexProfileRequestMetadata, opts CodexProfileA
 	return string(raw)
 }
 
-func applyCodexEnvironmentProfile(req *http.Request, account *Account, profile *CodexEnvironmentProfile, opts CodexProfileApplyOptions) {
+func effectiveCodexProfileIdentity(profile *CodexEnvironmentProfile, registries ...*clientidentity.Registry) (userAgent, version string) {
+	if profile == nil {
+		return "", ""
+	}
+	userAgent = strings.TrimSpace(profile.UserAgent)
+	version = strings.TrimSpace(profile.Version)
+	if version == "" {
+		if parsedVersion, err := extractStableVersion(userAgent); err == nil {
+			version = parsedVersion
+		}
+	}
+
+	if profile.Family != CodexClientFamilyCLI {
+		return userAgent, version
+	}
+	var registry *clientidentity.Registry
+	if len(registries) > 0 {
+		registry = registries[0]
+	}
+	snapshot := codexSnapshotFromRegistry(registry)
+	currentVersion := strings.TrimSpace(snapshot.VersionFields.CLIVersion)
+	if currentVersion == "" || (version != "" && CompareVersions(currentVersion, version) <= 0) {
+		return userAgent, version
+	}
+	if currentUserAgent := strings.TrimSpace(snapshot.Headers["User-Agent"]); currentUserAgent != "" {
+		userAgent = currentUserAgent
+	}
+	return userAgent, currentVersion
+}
+
+func applyCodexEnvironmentProfile(req *http.Request, account *Account, profile *CodexEnvironmentProfile, opts CodexProfileApplyOptions, registries ...*clientidentity.Registry) {
 	if req == nil || account == nil || profile == nil || !account.IsOpenAIOAuth() {
 		return
 	}
-	if profile.UserAgent != "" {
-		req.Header.Set("User-Agent", profile.UserAgent)
+	userAgent, version := effectiveCodexProfileIdentity(profile, registries...)
+	if userAgent != "" {
+		req.Header.Set("User-Agent", userAgent)
 	}
-	if profile.Version != "" {
-		req.Header.Set("Version", profile.Version)
+	if version != "" {
+		req.Header.Set("Version", version)
 	}
 	if opts.CompatMessagesBridge {
 		req.Header.Del("OpenAI-Beta")
