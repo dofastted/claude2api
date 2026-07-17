@@ -68,7 +68,7 @@ func (s *GrokQuotaService) ProbeUsage(ctx context.Context, accountID int64) (*Gr
 	if err != nil {
 		return nil, infraerrors.Newf(http.StatusBadRequest, "GROK_QUOTA_PROBE_BODY_ERROR", "failed to build probe body: %v", err)
 	}
-	targetURL, err := xai.BuildResponsesURL(account.GetGrokBaseURL())
+	targetURL, err := xai.BuildChatCompletionsURL(account.GetGrokBaseURL())
 	if err != nil {
 		return nil, infraerrors.Newf(http.StatusBadRequest, "GROK_QUOTA_BASE_URL_INVALID", "invalid Grok base_url: %v", err)
 	}
@@ -189,10 +189,10 @@ func buildGrokQuotaProbeBody(model string) ([]byte, error) {
 		model = grokQuotaDefaultModel
 	}
 	return json.Marshal(map[string]any{
-		"model":             model,
-		"input":             grokQuotaProbeInput,
-		"max_output_tokens": 1,
-		"store":             false,
+		"model":      model,
+		"messages":   []map[string]any{{"role": "user", "content": grokQuotaProbeInput}},
+		"max_tokens": 1,
+		"stream":     false,
 	})
 }
 

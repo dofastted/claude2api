@@ -83,7 +83,7 @@ func TestGrokOAuthHandlerQueryQuotaProbesUpstream(t *testing.T) {
 			"X-Ratelimit-Limit-Requests":     []string{"10"},
 			"X-Ratelimit-Remaining-Requests": []string{"8"},
 		},
-		Body: io.NopCloser(strings.NewReader(`{"id":"resp_probe"}`)),
+		Body: io.NopCloser(strings.NewReader(`{"id":"chat_probe"}`)),
 	}}
 	quotaService := service.NewGrokQuotaService(repo, nil, service.NewGrokTokenProvider(repo, nil), upstream)
 	handler := NewGrokOAuthHandler(nil, nil, quotaService)
@@ -98,11 +98,13 @@ func TestGrokOAuthHandlerQueryQuotaProbesUpstream(t *testing.T) {
 	require.Contains(t, rec.Body.String(), `"source":"active_probe"`)
 	require.Contains(t, rec.Body.String(), `"headers_observed":true`)
 	require.NotContains(t, rec.Body.String(), "access-token")
-	require.Equal(t, xai.DefaultCLIBaseURL+"/responses", upstream.lastReq.URL.String())
+	require.Equal(t, xai.DefaultCLIBaseURL+"/chat/completions", upstream.lastReq.URL.String())
 	require.Equal(t, "Bearer access-token", upstream.lastReq.Header.Get("Authorization"))
 	require.Equal(t, xai.DefaultCLIUserAgent, upstream.lastReq.Header.Get("User-Agent"))
 	require.Equal(t, xai.DefaultCLIClientIdentifier, upstream.lastReq.Header.Get("x-grok-client-identifier"))
-	require.Contains(t, string(upstream.lastBody), `"store":false`)
+	require.Contains(t, string(upstream.lastBody), `"messages":[{"content":".","role":"user"}]`)
+	require.Contains(t, string(upstream.lastBody), `"max_tokens":1`)
+	require.Contains(t, string(upstream.lastBody), `"stream":false`)
 	require.NotNil(t, repo.updates[42])
 }
 

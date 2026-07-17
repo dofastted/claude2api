@@ -66,6 +66,28 @@ func TestBuildGrokResponsesRequestUsesAccountBaseURLAndBearerToken(t *testing.T)
 	require.NoError(t, err)
 	require.Equal(t, `{"model":"grok-4.3"}`, strings.TrimSpace(string(data)))
 }
+func TestBuildGrokResponsesRequestPreservesCredentialIdentityHeaders(t *testing.T) {
+	t.Parallel()
+
+	account := &Account{
+		Platform: PlatformGrok,
+		Type:     AccountTypeOAuth,
+		Credentials: map[string]any{
+			"base_url": xai.DefaultCLIBaseURL,
+			"headers": map[string]any{
+				"User-Agent":               "grok-pager/0.3.0 custom",
+				"X-XAI-Token-Auth":         "xai-grok-cli",
+				"x-grok-client-identifier": "grok-pager",
+				"x-grok-client-version":    "0.3.0",
+			},
+		},
+	}
+
+	req, err := buildGrokResponsesRequest(context.Background(), nil, account, []byte(`{"model":"grok-4.3"}`), "access-token")
+	require.NoError(t, err)
+	require.Equal(t, "grok-pager/0.3.0 custom", req.Header.Get("User-Agent"))
+	require.Equal(t, "0.3.0", req.Header.Get("x-grok-client-version"))
+}
 
 func TestBuildGrokResponsesRequestRejectsUnsafeAccountBaseURL(t *testing.T) {
 	t.Parallel()

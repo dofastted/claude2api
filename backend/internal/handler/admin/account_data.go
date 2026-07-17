@@ -132,7 +132,7 @@ func convertCPAXAICredential(raw json.RawMessage) (DataPayload, error) {
 	if !strings.EqualFold(strings.TrimSpace(source.Type), "xai") {
 		return DataPayload{}, fmt.Errorf("unsupported CPA credential type: %s", source.Type)
 	}
-	if authKind := strings.TrimSpace(source.AuthKind); authKind != "" && !strings.EqualFold(authKind, "oauth") {
+	if authKind := strings.TrimSpace(source.AuthKind); authKind != "" && !strings.EqualFold(authKind, "oauth") && !strings.EqualFold(authKind, "bearer") {
 		return DataPayload{}, fmt.Errorf("unsupported xAI auth_kind: %s", source.AuthKind)
 	}
 	accessToken := strings.TrimSpace(source.AccessToken)

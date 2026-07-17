@@ -55,7 +55,7 @@ func TestGrokQuotaServiceProbeUsageStoresHeaders(t *testing.T) {
 			"X-Ratelimit-Limit-Tokens":       []string{"1000"},
 			"X-Ratelimit-Remaining-Tokens":   []string{"900"},
 		},
-		Body: io.NopCloser(strings.NewReader(`{"id":"resp_probe"}`)),
+		Body: io.NopCloser(strings.NewReader(`{"id":"chat_probe"}`)),
 	}}
 	svc := NewGrokQuotaService(repo, nil, NewGrokTokenProvider(repo, nil), upstream)
 
@@ -72,13 +72,14 @@ func TestGrokQuotaServiceProbeUsageStoresHeaders(t *testing.T) {
 	require.NotNil(t, result.Snapshot.Requests)
 	require.EqualValues(t, 10, *result.Snapshot.Requests.Limit)
 	require.EqualValues(t, 7, *result.Snapshot.Requests.Remaining)
-	require.Equal(t, xai.DefaultCLIBaseURL+"/responses", upstream.lastReq.URL.String())
+	require.Equal(t, xai.DefaultCLIBaseURL+"/chat/completions", upstream.lastReq.URL.String())
 	require.Equal(t, "Bearer access-token", upstream.lastReq.Header.Get("Authorization"))
 	require.Equal(t, xai.DefaultCLIUserAgent, upstream.lastReq.Header.Get("User-Agent"))
 	require.Equal(t, xai.DefaultCLITokenAuth, upstream.lastReq.Header.Get("X-XAI-Token-Auth"))
-	require.Contains(t, string(upstream.lastBody), `"max_output_tokens":1`)
+	require.Contains(t, string(upstream.lastBody), `"messages":[{"content":".","role":"user"}]`)
 	require.Contains(t, string(upstream.lastBody), `"model":"grok-4.3"`)
-	require.Contains(t, string(upstream.lastBody), `"store":false`)
+	require.Contains(t, string(upstream.lastBody), `"stream":false`)
+	require.Contains(t, string(upstream.lastBody), `"max_tokens":1`)
 	require.NotNil(t, repo.updates[42][grokQuotaSnapshotExtraKey])
 }
 

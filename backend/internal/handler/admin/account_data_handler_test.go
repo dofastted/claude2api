@@ -381,3 +381,13 @@ func TestConvertCPAXAICredentialMapsPaidTiersToUsageEndpoint(t *testing.T) {
 		})
 	}
 }
+func TestConvertCPAXAICredentialAcceptsBearerAuthKind(t *testing.T) {
+	t.Parallel()
+
+	payload, err := convertCPAXAICredential(json.RawMessage(`{"type":"xai","auth_kind":"bearer","access_token":"token"}`))
+	require.NoError(t, err)
+	require.Len(t, payload.Accounts, 1)
+	require.Equal(t, service.PlatformGrok, payload.Accounts[0].Platform)
+	require.Equal(t, service.AccountTypeOAuth, payload.Accounts[0].Type)
+	require.Equal(t, "oauth", payload.Accounts[0].Credentials["auth_kind"])
+}
