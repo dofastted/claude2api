@@ -38,6 +38,12 @@ func TestBuildGrokAccountCredentialsUsesCLITemplateAndFreeDefaults(t *testing.T)
 	require.Equal(t, xai.DefaultCLIUserAgent, headers["User-Agent"])
 	require.Equal(t, xai.DefaultCLITokenAuth, headers["X-XAI-Token-Auth"])
 	require.Equal(t, xai.DefaultCLIClientIdentifier, headers["x-grok-client-identifier"])
+
+	mapping, ok := credentials["model_mapping"].(map[string]string)
+	require.True(t, ok)
+	require.Equal(t, "grok-4.6", mapping["grok"])
+	require.Equal(t, "grok-4.6", mapping["grok-latest"])
+	require.Equal(t, "grok-4.6", mapping["grok-4.6"])
 }
 
 func TestBuildGrokAccountCredentialsMapsHeavyUsageEndpoint(t *testing.T) {

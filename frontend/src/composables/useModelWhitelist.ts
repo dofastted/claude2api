@@ -133,6 +133,7 @@ const metaModels = [
 
 // xAI Grok
 const xaiModels = [
+  'grok-4.6',
   'grok-4.3',
   'grok-build-0.1',
   'grok-4.20-0309-reasoning',
@@ -140,6 +141,7 @@ const xaiModels = [
   'grok-4.20-multi-agent-0309',
   'grok',
   'grok-latest',
+  'grok-4.6-latest',
   'grok-build',
   'grok-4.20-reasoning',
   'grok-4.20-non-reasoning'
@@ -283,8 +285,9 @@ const geminiPresetMappings = [
 ]
 
 const grokPresetMappings = [
+  { label: 'Grok 4.6', from: 'grok-4.6', to: 'grok-4.6', color: 'bg-slate-100 text-slate-700 hover:bg-slate-200 dark:bg-slate-800/50 dark:text-slate-300' },
   { label: 'Grok 4.3', from: 'grok-4.3', to: 'grok-4.3', color: 'bg-slate-100 text-slate-700 hover:bg-slate-200 dark:bg-slate-800/50 dark:text-slate-300' },
-  { label: 'Grok Latest', from: 'grok-latest', to: 'grok-4.3', color: 'bg-emerald-100 text-emerald-700 hover:bg-emerald-200 dark:bg-emerald-900/30 dark:text-emerald-400' },
+  { label: 'Grok Latest', from: 'grok-latest', to: 'grok-4.6', color: 'bg-emerald-100 text-emerald-700 hover:bg-emerald-200 dark:bg-emerald-900/30 dark:text-emerald-400' },
   { label: 'Build 0.1', from: 'grok-build', to: 'grok-build-0.1', color: 'bg-cyan-100 text-cyan-700 hover:bg-cyan-200 dark:bg-cyan-900/30 dark:text-cyan-400' },
   { label: '4.20 Reasoning', from: 'grok-4.20-reasoning', to: 'grok-4.20-0309-reasoning', color: 'bg-indigo-100 text-indigo-700 hover:bg-indigo-200 dark:bg-indigo-900/30 dark:text-indigo-400' },
   { label: '4.20 Non Reasoning', from: 'grok-4.20-non-reasoning', to: 'grok-4.20-0309-non-reasoning', color: 'bg-violet-100 text-violet-700 hover:bg-violet-200 dark:bg-violet-900/30 dark:text-violet-400' }

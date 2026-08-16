@@ -215,6 +215,7 @@ func (s *GrokOAuthService) BuildAccountCredentials(tokenInfo *GrokTokenInfo) map
 		"token_endpoint": xai.DefaultTokenURL,
 		"auth_kind":      "oauth",
 		"headers":        xai.DefaultCLICredentialHeaders(),
+		"model_mapping":  xai.DefaultModelMapping(),
 	}
 	if tokenInfo.RefreshToken != "" {
 		creds["refresh_token"] = tokenInfo.RefreshToken

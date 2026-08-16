@@ -62,7 +62,7 @@ func TestGrokQuotaServiceProbeUsageStoresHeaders(t *testing.T) {
 	result, err := svc.ProbeUsage(context.Background(), 42)
 	require.NoError(t, err)
 	require.Equal(t, http.StatusOK, result.StatusCode)
-	require.Equal(t, "grok-4.3", result.Model)
+	require.Equal(t, "grok-4.6", result.Model)
 	require.True(t, result.HeadersObserved)
 	require.NotNil(t, result.Snapshot)
 	require.True(t, result.Snapshot.HeadersObserved)
@@ -77,7 +77,7 @@ func TestGrokQuotaServiceProbeUsageStoresHeaders(t *testing.T) {
 	require.Equal(t, xai.DefaultCLIUserAgent, upstream.lastReq.Header.Get("User-Agent"))
 	require.Equal(t, xai.DefaultCLITokenAuth, upstream.lastReq.Header.Get("X-XAI-Token-Auth"))
 	require.Contains(t, string(upstream.lastBody), `"max_output_tokens":1`)
-	require.Contains(t, string(upstream.lastBody), `"model":"grok-4.3"`)
+	require.Contains(t, string(upstream.lastBody), `"model":"grok-4.6"`)
 	require.Contains(t, string(upstream.lastBody), `"store":false`)
 	require.NotNil(t, repo.updates[42][grokQuotaSnapshotExtraKey])
 }
