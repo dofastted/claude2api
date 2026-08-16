@@ -10,6 +10,7 @@ import (
 	"strings"
 
 	"github.com/dofastted/claude2api/internal/pkg/antigravity"
+	"github.com/dofastted/claude2api/internal/pkg/xai"
 	"github.com/dofastted/claude2api/internal/pkg/claude"
 	"github.com/dofastted/claude2api/internal/pkg/geminicli"
 )
@@ -83,6 +84,16 @@ func (s *AccountTestService) FetchUpstreamSupportedModels(ctx context.Context, a
 
 	if account.Platform == PlatformAntigravity && account.Type != AccountTypeAPIKey {
 		return s.fetchAntigravityOAuthUpstreamModels(ctx, account)
+	}
+
+	// Grok: return official catalog (+ keeps custom IDs via UI merge). Live /models is not
+	// reliably available for OAuth CLI accounts, so sync uses the built-in model list.
+	if account.IsGrok() {
+		ids := xai.DefaultModelIDs()
+		if len(ids) == 0 {
+			return nil, newUpstreamModelSyncUpstreamError("Grok model catalog is empty", nil)
+		}
+		return ids, nil
 	}
 
 	if s.httpUpstream == nil {

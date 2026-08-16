@@ -23,6 +23,7 @@ import (
 	infraerrors "github.com/dofastted/claude2api/internal/pkg/errors"
 	"github.com/dofastted/claude2api/internal/pkg/geminicli"
 	"github.com/dofastted/claude2api/internal/pkg/openai"
+	"github.com/dofastted/claude2api/internal/pkg/xai"
 	"github.com/dofastted/claude2api/internal/pkg/response"
 	"github.com/dofastted/claude2api/internal/pkg/timezone"
 	"github.com/dofastted/claude2api/internal/service"
@@ -2273,6 +2274,38 @@ func (h *AccountHandler) GetAvailableModels(c *gin.Context) {
 					DisplayName: requestedModel,
 				})
 			}
+		}
+		response.Success(c, models)
+		return
+	}
+
+
+	// Handle Grok accounts: official catalog plus any custom mapping keys.
+	if account.IsGrok() {
+		mapping := account.GetModelMapping()
+		defaults := xai.DefaultModels()
+		if len(mapping) == 0 {
+			response.Success(c, defaults)
+			return
+		}
+		var models []xai.Model
+		seen := map[string]struct{}{}
+		for _, dm := range defaults {
+			if _, ok := mapping[dm.ID]; ok {
+				models = append(models, dm)
+				seen[dm.ID] = struct{}{}
+			}
+		}
+		for requestedModel := range mapping {
+			if _, ok := seen[requestedModel]; ok {
+				continue
+			}
+			models = append(models, xai.Model{
+				ID:          requestedModel,
+				Object:      "model",
+				OwnedBy:     "xai",
+				DisplayName: requestedModel,
+			})
 		}
 		response.Success(c, models)
 		return
