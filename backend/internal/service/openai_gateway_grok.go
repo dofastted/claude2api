@@ -116,9 +116,9 @@ func (s *OpenAIGatewayService) forwardGrokResponses(
 			return nil, s.handleOpenAIUpstreamTransportError(ctx, c, account, err, false)
 		}
 
-		// xAI can reject encrypted reasoning copied from a response produced under
-		// another account or cache identity. Retry once with the same routing and
-		// credential after removing only the rejected encrypted reasoning payload.
+		// xAI can reject encrypted reasoning or a compaction blob copied from a
+		// different decoder/cache context. Retry once on the same account after
+		// preserving visible summaries and removing only opaque replay state.
 		if attempt > 0 || (resp.StatusCode != http.StatusBadRequest && resp.StatusCode != http.StatusUnprocessableEntity) {
 			break
 		}
@@ -126,14 +126,22 @@ func (s *OpenAIGatewayService) forwardGrokResponses(
 		if resp.Body != nil {
 			_ = resp.Body.Close()
 		}
-		if !isGrokInvalidEncryptedContentResponse(resp.StatusCode, respBody) {
+		invalidEncryptedContent := isGrokInvalidEncryptedContentResponse(resp.StatusCode, respBody)
+		if !invalidEncryptedContent && !isGrokCompactionReplayDecodeError(resp.StatusCode, respBody) {
 			resp.Body = io.NopCloser(bytes.NewReader(respBody))
 			break
 		}
 
-		retryBody, changed, trimErr := trimGrokInvalidEncryptedContentRetryBody(patchedBody)
+		var retryBody []byte
+		var changed bool
+		var trimErr error
+		if invalidEncryptedContent {
+			retryBody, changed, trimErr = trimGrokInvalidEncryptedContentRetryBody(patchedBody)
+		} else {
+			retryBody, changed, trimErr = sanitizeGrokCompactionReplayBody(patchedBody)
+		}
 		if trimErr != nil {
-			return nil, fmt.Errorf("prepare Grok invalid encrypted_content retry: %w", trimErr)
+			return nil, fmt.Errorf("prepare Grok replay decode retry: %w", trimErr)
 		}
 		if !changed {
 			resp.Body = io.NopCloser(bytes.NewReader(respBody))
@@ -141,7 +149,7 @@ func (s *OpenAIGatewayService) forwardGrokResponses(
 		}
 
 		patchedBody = retryBody
-		slog.Info("grok_invalid_encrypted_content_retry", "account_id", account.ID, "cache_identity_present", cacheIdentity != "")
+		slog.Info("grok_replay_decode_retry", "account_id", account.ID, "cache_identity_present", cacheIdentity != "")
 	}
 	defer func() { _ = resp.Body.Close() }()
 
@@ -267,22 +275,9 @@ func isGrokInvalidEncryptedContentResponse(statusCode int, body []byte) bool {
 	//   {"code":"invalid-argument","error":"Could not decrypt the provided encrypted_content."}
 	//   {"error":{"message":"Could not decrypt the provided encrypted_content."}}
 	code := strings.TrimSpace(gjson.GetBytes(body, "code").String())
-	message := ""
 	errNode := gjson.GetBytes(body, "error")
-	switch {
-	case errNode.Type == gjson.String:
-		message = errNode.String()
-	case errNode.IsObject():
-		message = firstNonEmpty(errNode.Get("message").String(), errNode.Get("error").String())
-		if code == "" {
-			code = strings.TrimSpace(errNode.Get("code").String())
-		}
-	default:
-		message = gjson.GetBytes(body, "message").String()
-	}
-	normalizedMessage := strings.ToLower(strings.TrimSpace(message))
-	if normalizedMessage == "" {
-		return false
+	if code == "" && errNode.IsObject() {
+		code = strings.TrimSpace(errNode.Get("code").String())
 	}
 
 	if strings.EqualFold(code, "invalid_encrypted_content") || strings.EqualFold(code, "invalid_compaction") || strings.EqualFold(code, "compaction_decode_error") {
@@ -292,14 +287,105 @@ func isGrokInvalidEncryptedContentResponse(statusCode int, body []byte) bool {
 	if !strings.EqualFold(code, "invalid-argument") && code != "" {
 		return false
 	}
-	// Nested OpenAI-style envelopes may omit top-level code; require decrypt text.
-	if code == "" && !strings.Contains(normalizedMessage, "decrypt") && !strings.Contains(normalizedMessage, "decode the compaction blob") {
+	for _, candidate := range grokStructuredErrorMessageCandidates(body) {
+		normalizedMessage := strings.ToLower(candidate)
+		// Nested OpenAI-style envelopes may omit top-level code; require decrypt text.
+		if code == "" && !strings.Contains(normalizedMessage, "decrypt") && !strings.Contains(normalizedMessage, "decode the compaction blob") {
+			continue
+		}
+		if strings.Contains(normalizedMessage, "encrypted_content") &&
+			(strings.Contains(normalizedMessage, "decrypt") || strings.Contains(normalizedMessage, "unmodified")) {
+			return true
+		}
+		if strings.Contains(normalizedMessage, "decode the compaction blob") {
+			return true
+		}
+	}
+	return false
+}
+
+func isGrokCompactionReplayDecodeError(statusCode int, body []byte) bool {
+	if (statusCode != http.StatusBadRequest && statusCode != http.StatusUnprocessableEntity) || len(body) == 0 {
 		return false
 	}
-	return (strings.Contains(normalizedMessage, "encrypted_content") &&
-		(strings.Contains(normalizedMessage, "decrypt") ||
-			strings.Contains(normalizedMessage, "unmodified"))) ||
-		strings.Contains(normalizedMessage, "decode the compaction blob")
+	for _, candidate := range grokStructuredErrorMessageCandidates(body) {
+		message := strings.ToLower(candidate)
+		decodeSignal := strings.Contains(message, "decode") ||
+			strings.Contains(message, "deserialize") ||
+			strings.Contains(message, "decoder")
+		replaySignal := strings.Contains(message, "compaction") ||
+			strings.Contains(message, "summary") ||
+			strings.Contains(message, "encrypted_content") ||
+			strings.Contains(message, "response history")
+		if decodeSignal && replaySignal {
+			return true
+		}
+	}
+	return false
+}
+
+func sanitizeGrokCompactionReplayBody(body []byte) ([]byte, bool, error) {
+	converted, err := convertOpenAICompactInputsForGrok(body)
+	if err != nil {
+		return nil, false, fmt.Errorf("convert Grok compaction replay: %w", err)
+	}
+	var requestBody map[string]any
+	decoder := json.NewDecoder(bytes.NewReader(converted))
+	decoder.UseNumber()
+	if err := decoder.Decode(&requestBody); err != nil {
+		return nil, false, err
+	}
+
+	changed := !bytes.Equal(converted, body)
+	if trimOpenAIEncryptedReasoningItems(requestBody) {
+		changed = true
+	}
+	if dropEmptyGrokReplayReasoning(requestBody) {
+		changed = true
+	}
+	if previousID, _ := requestBody["previous_response_id"].(string); strings.TrimSpace(previousID) != "" && !HasFunctionCallOutput(requestBody) {
+		delete(requestBody, "previous_response_id")
+		if _, exists := requestBody["store"]; !exists {
+			requestBody["store"] = false
+		}
+		changed = true
+	}
+	if !changed {
+		return body, false, nil
+	}
+	retryBody, err := marshalOpenAIUpstreamJSON(requestBody)
+	if err != nil {
+		return nil, false, err
+	}
+	return retryBody, true, nil
+}
+
+func dropEmptyGrokReplayReasoning(requestBody map[string]any) bool {
+	items, ok := requestBody["input"].([]any)
+	if !ok {
+		return false
+	}
+	filtered := items[:0]
+	changed := false
+	for _, rawItem := range items {
+		item, ok := rawItem.(map[string]any)
+		if !ok || strings.TrimSpace(grokStringValue(item["type"])) != "reasoning" {
+			filtered = append(filtered, rawItem)
+			continue
+		}
+		summary, _ := item["summary"].([]any)
+		content, hasContent := item["content"]
+		_, hasEncrypted := item["encrypted_content"]
+		if hasEncrypted || len(summary) > 0 || (hasContent && content != nil) {
+			filtered = append(filtered, rawItem)
+			continue
+		}
+		changed = true
+	}
+	if changed {
+		requestBody["input"] = filtered
+	}
+	return changed
 }
 
 // requestHasGrokEncryptedReasoning reports whether the outbound Responses body
@@ -344,7 +430,7 @@ func stripAnthropicThinkingSignatures(body []byte) ([]byte, bool) {
 		return body, false
 	}
 	var req map[string]any
-	if err := json.Unmarshal(body, &req); err != nil {
+	if err := decodeOpenAIJSONUseNumber(body, &req); err != nil {
 		return body, false
 	}
 	messages, ok := req["messages"].([]any)
@@ -378,7 +464,7 @@ func stripAnthropicThinkingSignatures(body []byte) ([]byte, bool) {
 	if !changed {
 		return body, false
 	}
-	out, err := json.Marshal(req)
+	out, err := marshalOpenAIUpstreamJSON(req)
 	if err != nil {
 		return body, false
 	}
@@ -499,6 +585,10 @@ func patchGrokResponsesBodyBase(body []byte, upstreamModel string) ([]byte, erro
 		return nil, err
 	}
 	out, err = sanitizeGrokResponsesInput(out)
+	if err != nil {
+		return nil, err
+	}
+	out, err = sanitizeGrokResponsesModelInput(out)
 	if err != nil {
 		return nil, err
 	}
@@ -673,13 +763,13 @@ func sanitizeGrokResponsesUnsupportedFields(body []byte) ([]byte, error) {
 	}
 
 	var payload any
-	if err := json.Unmarshal(body, &payload); err != nil {
+	if err := decodeOpenAIJSONUseNumber(body, &payload); err != nil {
 		return nil, err
 	}
 	if !deleteJSONFields(payload, grokResponsesUnsupportedRecursiveFields) {
 		return body, nil
 	}
-	return json.Marshal(payload)
+	return marshalOpenAIUpstreamJSON(payload)
 }
 
 func deleteJSONFields(value any, fields map[string]struct{}) bool {
@@ -965,20 +1055,17 @@ var grokResponsesSupportedToolTypes = map[string]struct{}{
 func sanitizeGrokResponsesTools(body []byte) ([]byte, error) {
 	tools := gjson.GetBytes(body, "tools")
 	if !tools.Exists() {
-		if gjson.GetBytes(body, "tool_choice").Exists() {
-			return sjson.DeleteBytes(body, "tool_choice")
-		}
-		return body, nil
+		return deleteGrokOrphanToolControls(body)
 	}
 	if !tools.IsArray() {
-		// xAI rejects tool_choice when tools is null/object. Treat malformed
-		// tool collections as absent at egress rather than forwarding a pair
-		// that cannot be interpreted by the Grok Responses endpoint.
+		// xAI rejects tool_choice when tools is null/object. Drop the malformed
+		// collection and any orphan tool controls instead of forwarding a pair
+		// the Grok Responses endpoint cannot interpret.
 		body, err := sjson.DeleteBytes(body, "tools")
 		if err != nil {
 			return nil, err
 		}
-		return sjson.DeleteBytes(body, "tool_choice")
+		return deleteGrokOrphanToolControls(body)
 	}
 
 	rawTools := tools.Array()
@@ -990,11 +1077,11 @@ func sanitizeGrokResponsesTools(body []byte) ([]byte, error) {
 			raw := json.RawMessage(tool.Raw)
 			if toolType == "function" && (!tool.Get("parameters").Exists() || tool.Get("parameters").Type == gjson.Null) {
 				var payload map[string]any
-				if err := json.Unmarshal(raw, &payload); err != nil {
+				if err := decodeOpenAIJSONUseNumber(raw, &payload); err != nil {
 					return nil, err
 				}
 				payload["parameters"] = map[string]any{"type": "object", "properties": map[string]any{}}
-				encoded, err := json.Marshal(payload)
+				encoded, err := marshalOpenAIUpstreamJSON(payload)
 				if err != nil {
 					return nil, err
 				}
@@ -1021,6 +1108,9 @@ func sanitizeGrokResponsesTools(body []byte) ([]byte, error) {
 			return nil, err
 		}
 	}
+	if len(filteredTools) == 0 {
+		return deleteGrokOrphanToolControls(body)
+	}
 
 	toolChoice := gjson.GetBytes(body, "tool_choice")
 	if !toolChoice.Exists() {
@@ -1028,6 +1118,20 @@ func sanitizeGrokResponsesTools(body []byte) ([]byte, error) {
 	}
 	if shouldDropGrokToolChoice(toolChoice, filteredTools) {
 		body, err = sjson.DeleteBytes(body, "tool_choice")
+		if err != nil {
+			return nil, err
+		}
+	}
+	return body, nil
+}
+
+func deleteGrokOrphanToolControls(body []byte) ([]byte, error) {
+	var err error
+	for _, field := range []string{"tool_choice", "parallel_tool_calls"} {
+		if !gjson.GetBytes(body, field).Exists() {
+			continue
+		}
+		body, err = sjson.DeleteBytes(body, field)
 		if err != nil {
 			return nil, err
 		}
@@ -1093,7 +1197,7 @@ func (s *OpenAIGatewayService) bridgeGrokComposerImageInputs(
 	}
 
 	var reqBody map[string]any
-	if err := json.Unmarshal(body, &reqBody); err != nil {
+	if err := decodeOpenAIJSONUseNumber(body, &reqBody); err != nil {
 		return body, OpenAIUsage{}, false, fmt.Errorf("parse grok composer image bridge request: %w", err)
 	}
 
