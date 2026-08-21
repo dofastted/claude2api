@@ -119,7 +119,7 @@ func (s *OpenAIGatewayService) forwardGrokResponses(
 		// xAI can reject encrypted reasoning copied from a response produced under
 		// another account or cache identity. Retry once with the same routing and
 		// credential after removing only the rejected encrypted reasoning payload.
-		if attempt > 0 || resp.StatusCode != http.StatusBadRequest {
+		if attempt > 0 || (resp.StatusCode != http.StatusBadRequest && resp.StatusCode != http.StatusUnprocessableEntity) {
 			break
 		}
 		respBody := s.readUpstreamErrorBody(resp)
@@ -167,17 +167,22 @@ func (s *OpenAIGatewayService) forwardGrokResponses(
 		})
 		errCtx := withGrokTeamRateLimitModel(ctx, upstreamModel)
 		s.handleGrokAccountUpstreamError(errCtx, account, resp.StatusCode, resp.Header, respBody)
-		// 429 / free-usage: stamp team+model cool so sibling accounts skip this model.
-		if resp.StatusCode == http.StatusTooManyRequests ||
-			classifyGrokUpstreamFailure(resp.StatusCode, respBody, upstreamModel).Class == GrokFailureFreeUsage {
+		// Quota/rate-limit responses stamp the team+model overlay. Capacity is
+		// request pressure and must not hide sibling accounts.
+		if shouldMarkGrokTeamModelRateLimit(resp.StatusCode, respBody) {
 			markGrokTeamModelRateLimit(account, upstreamModel, resolveGrokTeamRateLimitUntil(time.Now().Add(grokTeamRateLimitDefaultTTL), time.Now()))
 		}
 		if s.shouldFailoverGrokUpstreamError(resp.StatusCode, respBody) {
+			retryable, retryDelay, retryDeadline, retryMax := grokSameAccountRetryMetadata(account, resp.StatusCode, respBody)
 			return nil, &UpstreamFailoverError{
-				StatusCode:             resp.StatusCode,
-				ResponseBody:           respBody,
-				ResponseHeaders:        resp.Header.Clone(),
-				RetryableOnSameAccount: account.IsPoolMode() && account.IsPoolModeRetryableStatus(resp.StatusCode),
+				StatusCode:               resp.StatusCode,
+				ResponseBody:             respBody,
+				ResponseHeaders:          resp.Header.Clone(),
+				RetryableOnSameAccount:   retryable,
+				RequestScopedTransient:   retryable && resp.StatusCode == http.StatusTooManyRequests,
+				SameAccountRetryDelay:    retryDelay,
+				SameAccountRetryDeadline: retryDeadline,
+				SameAccountRetryMax:      retryMax,
 			}
 		}
 		return s.handleErrorResponse(ctx, resp, c, account, patchedBody, upstreamModel)
@@ -254,7 +259,7 @@ func (s *OpenAIGatewayService) forwardGrokResponses(
 }
 
 func isGrokInvalidEncryptedContentResponse(statusCode int, body []byte) bool {
-	if statusCode != http.StatusBadRequest {
+	if statusCode != http.StatusBadRequest && statusCode != http.StatusUnprocessableEntity {
 		return false
 	}
 
@@ -280,7 +285,7 @@ func isGrokInvalidEncryptedContentResponse(statusCode int, body []byte) bool {
 		return false
 	}
 
-	if strings.EqualFold(code, "invalid_encrypted_content") {
+	if strings.EqualFold(code, "invalid_encrypted_content") || strings.EqualFold(code, "invalid_compaction") || strings.EqualFold(code, "compaction_decode_error") {
 		return true
 	}
 	// Keep the official xAI flat-code gate so unrelated 400s are not retried.
@@ -288,12 +293,13 @@ func isGrokInvalidEncryptedContentResponse(statusCode int, body []byte) bool {
 		return false
 	}
 	// Nested OpenAI-style envelopes may omit top-level code; require decrypt text.
-	if code == "" && !strings.Contains(normalizedMessage, "decrypt") {
+	if code == "" && !strings.Contains(normalizedMessage, "decrypt") && !strings.Contains(normalizedMessage, "decode the compaction blob") {
 		return false
 	}
-	return strings.Contains(normalizedMessage, "encrypted_content") &&
+	return (strings.Contains(normalizedMessage, "encrypted_content") &&
 		(strings.Contains(normalizedMessage, "decrypt") ||
-			strings.Contains(normalizedMessage, "unmodified"))
+			strings.Contains(normalizedMessage, "unmodified"))) ||
+		strings.Contains(normalizedMessage, "decode the compaction blob")
 }
 
 // requestHasGrokEncryptedReasoning reports whether the outbound Responses body
@@ -388,7 +394,8 @@ func trimGrokInvalidEncryptedContentRetryBody(body []byte) ([]byte, bool, error)
 
 	hasEncryptedReasoning := false
 	for _, item := range items {
-		if strings.TrimSpace(item.Get("type").String()) == "reasoning" && item.Get("encrypted_content").Exists() {
+		if (strings.TrimSpace(item.Get("type").String()) == "reasoning" && item.Get("encrypted_content").Exists()) ||
+			(isOpenAICompactionType(strings.TrimSpace(item.Get("type").String())) && item.Get("encrypted_content").Exists()) {
 			hasEncryptedReasoning = true
 			break
 		}
@@ -646,7 +653,7 @@ func grokSupportsXHighReasoningEffort(model string) bool {
 func grokSupportsReasoningEffort(model string) bool {
 	model = strings.ToLower(xai.StripGrokProviderPrefix(strings.TrimSpace(model)))
 	switch model {
-	case xai.DefaultTextModel, "grok-4.5-latest", "grok-4.6", "grok-4.6-latest",
+	case "grok-4.5", "grok-4.5-latest", "grok-4.6", "grok-4.6-latest",
 		"grok-4.3", "grok-4.3-latest",
 		"grok-3-mini", "grok-3-mini-fast", "grok-4.20-0309-reasoning",
 		"grok-4.20-reasoning", "grok-4.20-multi-agent-0309":
@@ -849,33 +856,98 @@ func grokResponsesToolDedupKey(tool gjson.Result) string {
 	return "json:" + normalizeCompatSeedJSON(json.RawMessage(tool.Raw))
 }
 
-// sanitizeGrokReasoningNullContent 删除 reasoning 项中的 "content": null。
-// xAI 的 untagged enum 反序列化器拒收该字段，返回 422。
+// sanitizeGrokReasoningNullContent drops explicit JSON nulls from Responses
+// input items. xAI's untagged ModelInput decoder 422s on those fields.
+// Compaction items stay unmodified per the compact contract.
 func sanitizeGrokReasoningNullContent(body []byte) ([]byte, error) {
 	input := gjson.GetBytes(body, "input")
-	if !input.Exists() || !input.IsArray() {
+	if !input.Exists() || (!input.IsArray() && !input.IsObject()) {
 		return body, nil
 	}
 
-	items := input.Array()
+	var decoded map[string]any
+	decoder := json.NewDecoder(bytes.NewReader(body))
+	decoder.UseNumber()
+	if err := decoder.Decode(&decoded); err != nil {
+		return body, nil
+	}
+	rawInput, ok := decoded["input"]
+	if !ok {
+		return body, nil
+	}
+	cleaned, changed := stripExplicitNullsFromGrokInput(rawInput)
+	if !changed {
+		return body, nil
+	}
+	decoded["input"] = cleaned
+	out, err := marshalOpenAIUpstreamJSON(decoded)
+	if err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
+func stripExplicitNullsFromGrokInput(value any) (any, bool) {
+	switch node := value.(type) {
+	case []any:
+		changed := false
+		for i, item := range node {
+			itemMap, ok := item.(map[string]any)
+			if !ok {
+				next, childChanged := stripExplicitNullsFromGrokInput(item)
+				if childChanged {
+					node[i] = next
+					changed = true
+				}
+				continue
+			}
+			if isOpenAICompactionType(stringValue(itemMap["type"])) {
+				continue
+			}
+			next, childChanged := stripExplicitNullsFromJSONObject(itemMap)
+			if childChanged {
+				node[i] = next
+				changed = true
+			}
+		}
+		return node, changed
+	case map[string]any:
+		if isOpenAICompactionType(stringValue(node["type"])) {
+			return node, false
+		}
+		return stripExplicitNullsFromJSONObject(node)
+	default:
+		return value, false
+	}
+}
+
+func stripExplicitNullsFromJSONObject(node map[string]any) (map[string]any, bool) {
+	if node == nil {
+		return node, false
+	}
 	changed := false
-	for i := len(items) - 1; i >= 0; i-- {
-		item := items[i]
-		if strings.TrimSpace(item.Get("type").String()) != "reasoning" {
+	for key, child := range node {
+		if child == nil {
+			delete(node, key)
+			changed = true
 			continue
 		}
-		contentResult := item.Get("content")
-		if contentResult.Exists() && contentResult.Type == gjson.Null {
-			var err error
-			body, err = sjson.DeleteBytes(body, fmt.Sprintf("input.%d.content", i))
-			if err != nil {
-				return nil, err
+		switch typed := child.(type) {
+		case map[string]any:
+			next, childChanged := stripExplicitNullsFromJSONObject(typed)
+			if childChanged {
+				node[key] = next
+				changed = true
 			}
-			changed = true
+		case []any:
+			next, childChanged := stripExplicitNullsFromGrokInput(typed)
+			if childChanged {
+				node[key] = next
+				changed = true
+			}
 		}
 	}
-	_ = changed
-	return body, nil
+	return node, changed
 }
 
 var grokResponsesSupportedToolTypes = map[string]struct{}{
@@ -899,7 +971,14 @@ func sanitizeGrokResponsesTools(body []byte) ([]byte, error) {
 		return body, nil
 	}
 	if !tools.IsArray() {
-		return body, nil
+		// xAI rejects tool_choice when tools is null/object. Treat malformed
+		// tool collections as absent at egress rather than forwarding a pair
+		// that cannot be interpreted by the Grok Responses endpoint.
+		body, err := sjson.DeleteBytes(body, "tools")
+		if err != nil {
+			return nil, err
+		}
+		return sjson.DeleteBytes(body, "tool_choice")
 	}
 
 	rawTools := tools.Array()
@@ -1173,11 +1252,16 @@ func (s *OpenAIGatewayService) describeGrokComposerImage(
 		})
 		s.handleGrokAccountUpstreamError(withGrokTeamRateLimitModel(ctx, grokComposerImageBridgeVisionModel), account, resp.StatusCode, resp.Header, respBody)
 		if s.shouldFailoverGrokUpstreamError(resp.StatusCode, respBody) {
+			retryable, retryDelay, retryDeadline, retryMax := grokSameAccountRetryMetadata(account, resp.StatusCode, respBody)
 			return "", OpenAIUsage{}, &UpstreamFailoverError{
-				StatusCode:             resp.StatusCode,
-				ResponseBody:           respBody,
-				ResponseHeaders:        resp.Header.Clone(),
-				RetryableOnSameAccount: account.IsPoolMode() && account.IsPoolModeRetryableStatus(resp.StatusCode),
+				StatusCode:               resp.StatusCode,
+				ResponseBody:             respBody,
+				ResponseHeaders:          resp.Header.Clone(),
+				RetryableOnSameAccount:   retryable,
+				RequestScopedTransient:   retryable && resp.StatusCode == http.StatusTooManyRequests,
+				SameAccountRetryDelay:    retryDelay,
+				SameAccountRetryDeadline: retryDeadline,
+				SameAccountRetryMax:      retryMax,
 			}
 		}
 		return "", OpenAIUsage{}, fmt.Errorf("grok composer image bridge upstream error: %s", upstreamMsg)
@@ -1314,6 +1398,7 @@ func buildGrokResponsesRequest(ctx context.Context, c *gin.Context, account *Acc
 	if err != nil {
 		return nil, err
 	}
+	req = req.WithContext(WithHTTPUpstreamProfile(req.Context(), HTTPUpstreamProfileGrok))
 	req.Header.Set("Authorization", "Bearer "+token)
 	req.Header.Set("Content-Type", "application/json")
 	req.Header.Set("Accept", "application/json, text/event-stream")
@@ -1350,6 +1435,10 @@ func applyGrokCLIHeaders(headers http.Header) {
 }
 
 func (s *OpenAIGatewayService) updateGrokUsageSnapshot(ctx context.Context, account *Account, snapshot *xai.QuotaSnapshot) {
+	s.updateGrokUsageSnapshotWithRateLimit(ctx, account, snapshot, true)
+}
+
+func (s *OpenAIGatewayService) updateGrokUsageSnapshotWithRateLimit(ctx context.Context, account *Account, snapshot *xai.QuotaSnapshot, installRateLimit bool) {
 	if s == nil || account == nil || account.ID <= 0 || snapshot == nil {
 		return
 	}
@@ -1397,7 +1486,7 @@ func (s *OpenAIGatewayService) updateGrokUsageSnapshot(ctx context.Context, acco
 	// API keys retain the snapshot for observability but leave account health to
 	// the upstream pool. Other accounts install the immediate runtime and durable
 	// rate-limit state when the observed window is exhausted.
-	if hasActiveLimit && !account.IsPoolMode() {
+	if installRateLimit && hasActiveLimit && !account.IsPoolMode() {
 		s.rateLimitGrok(stateCtx, account, resetAt)
 	} else if recovery {
 		clearGrokRateLimitAfterRecovery(stateCtx, s.accountRepo, account)
@@ -1720,17 +1809,12 @@ func grokRequestedModelFromCtx(ctx context.Context) string {
 	return strings.TrimSpace(model)
 }
 
-func isGrokHeavyTransientModel(requestedModel string) bool {
-	model := strings.ToLower(strings.TrimSpace(xai.ResolveGrokTextResponsesModelID(requestedModel)))
-	return strings.Contains(model, "multi-agent")
-}
-
 func persistGrokTransientModelCooldown(account *Account, decision GrokUpstreamFailureDecision) bool {
 	if account == nil {
 		return false
 	}
 	model := strings.TrimSpace(decision.Model)
-	if model == "" || !isGrokHeavyTransientModel(model) {
+	if model == "" {
 		return false
 	}
 	cooldown := decision.Cooldown
@@ -1749,14 +1833,17 @@ func (s *OpenAIGatewayService) handleGrokAccountUpstreamError(ctx context.Contex
 		return
 	}
 	now := time.Now()
+	decision := classifyGrokUpstreamFailure(statusCode, responseBody, grokRequestedModelFromCtx(ctx))
 	snapshot := parseGrokQuotaSnapshot(headers, statusCode, now)
 	stampGrokQuotaSnapshotForPlan(account, snapshot, grokRequestedModelFromCtx(ctx))
-	s.updateGrokUsageSnapshot(ctx, account, snapshot)
+	// Capacity 429 is model pressure, not account quota exhaustion. Keep the
+	// snapshot for observability but do not install account-level rate limiting;
+	// the failover decision below applies a bounded model-scoped block instead.
+	s.updateGrokUsageSnapshotWithRateLimit(ctx, account, snapshot, decision.Class != GrokFailureModelCapacity)
 
 	// Body-first free-usage / empty / billing / capacity must run before the
 	// status switch so non-429 free-usage bodies still cool the account.
 	// Pool-mode still skips durable mutation unless an explicit temp rule matches.
-	decision := classifyGrokUpstreamFailure(statusCode, responseBody, grokRequestedModelFromCtx(ctx))
 	if decision.ShouldCooldown && decision.Class != GrokFailureNone && decision.Class != GrokFailureRateLimit {
 		if account.IsPoolMode() {
 			// Allow configured temp rules (403) below; skip default body cools.
