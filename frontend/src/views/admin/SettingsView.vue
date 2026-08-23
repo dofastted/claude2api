@@ -9067,9 +9067,10 @@ interface ClaudeOAuthSystemPromptRawBlock {
 }
 
 const defaultClaudeCodeSystemPrompt =
-  "You are Claude Code, Anthropic's official CLI for Claude.";
+  "You are a Claude agent, built on Anthropic's Claude Agent SDK.";
 
-const defaultClaudeCodeExpansionPrompt = `You are an interactive agent that helps users with software engineering tasks. Use the instructions below and the tools available to you to assist the user.
+const defaultClaudeCodeExpansionPrompt = `
+You are an interactive agent that helps users with software engineering tasks. Use the instructions below and the tools available to you to assist the user.
 
 IMPORTANT: Assist with authorized security testing, defensive security, CTF challenges, and educational contexts. Refuse requests for destructive techniques, DoS attacks, mass targeting, supply chain compromise, or detection evasion for malicious purposes. Dual-use security tools (C2 frameworks, credential testing, exploit development) require clear authorization context: pentesting engagements, CTF competitions, security research, or defensive use cases.
 IMPORTANT: You must NEVER generate or guess URLs for the user unless you are confident that the URLs are for helping the user with programming. You may use URLs provided by the user in their messages or local files.
@@ -9107,7 +9108,7 @@ function detectClaudeOAuthSystemPromptPreset(
   }
   if (
     trimmed === "{claude_code_expansion_prompt}" ||
-    trimmed === defaultClaudeCodeExpansionPrompt
+    trimmed === defaultClaudeCodeExpansionPrompt.trim()
   ) {
     return "expansion";
   }
@@ -9167,7 +9168,7 @@ function createDefaultClaudeOAuthSystemPromptBlocks(
           : "custom",
       text: expansionText,
       cacheControlEnabled: true,
-      cacheControlTTL: "5m",
+      cacheControlTTL: "1h",
     }),
   ];
 }
@@ -9260,10 +9261,11 @@ function serializeClaudeOAuthSystemPromptBlocksToJSON(
       text: block.text,
     };
     if (block.cacheControlEnabled) {
-      raw.cache_control = {
-        type: "ephemeral",
-        ttl: normalizeClaudeOAuthSystemPromptCacheTTL(block.cacheControlTTL),
-      };
+      const ttl = normalizeClaudeOAuthSystemPromptCacheTTL(block.cacheControlTTL);
+      raw.cache_control =
+        ttl === "1h"
+          ? { type: "ephemeral", ttl, scope: "global" }
+          : { type: "ephemeral", ttl };
     }
     return raw;
   });

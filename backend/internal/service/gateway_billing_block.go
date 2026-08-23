@@ -4,6 +4,7 @@ import (
 	"crypto/sha256"
 	"encoding/hex"
 	"fmt"
+	"strings"
 
 	"github.com/tidwall/gjson"
 )
@@ -17,29 +18,35 @@ const fingerprintSalt = "59cf53e54c78"
 
 // computeClaudeCodeFingerprint 复刻真实 Claude Code CLI 的 cc_version 指纹算法：
 //
-//  1. 取 messages 中第一条 role=user 的纯文本（首块 text）
+//  1. 取 messages 中第一条 role=user 的可见纯文本（跳过 leading <system-reminder>）
 //  2. 取该文本的第 4、7、20 字符（不足以 '0' 补齐）
 //  3. SHA256(SALT + chars + cc_version) 取 hex 前 3 字符
 //
-// 算法来自 Parrot src/transform/cc_mimicry.py:compute_fingerprint，与官方 CLI 字节对齐。
-// 任何偏差都会导致 cc_version=X.Y.Z.{fp} 在上游侧与真实 CLI 不一致。
+// 算法来自 Parrot src/transform/cc_mimicry.py:compute_fingerprint。
+// 官方 CLI 2.1.241 主对话对可见用户句取样，而不是首个 system-reminder 块。
 func computeClaudeCodeFingerprint(body []byte, version string) string {
 	firstText := extractFirstUserText(body)
+	runes := []rune(firstText)
 	indices := []int{4, 7, 20}
-	chars := make([]byte, 0, 3)
+	sampled := make([]rune, 0, 3)
 	for _, i := range indices {
-		if i < len(firstText) {
-			chars = append(chars, firstText[i])
+		if i < len(runes) {
+			sampled = append(sampled, runes[i])
 		} else {
-			chars = append(chars, '0')
+			sampled = append(sampled, '0')
 		}
 	}
-	sum := sha256.Sum256([]byte(fingerprintSalt + string(chars) + version))
+	sum := sha256.Sum256([]byte(fingerprintSalt + string(sampled) + version))
 	return hex.EncodeToString(sum[:])[:3]
 }
 
-// extractFirstUserText 提取 messages 中第一条 user 消息的首段 text 内容。
+func isClaudeSystemReminderText(text string) bool {
+	return strings.HasPrefix(strings.TrimSpace(text), "<system-reminder>")
+}
+
+// extractFirstUserText 提取 messages 中第一条 user 消息的可见 text。
 // 兼容 string 和 []block 两种 content 格式。
+// 官方 CLI 2.1.241 会把 <system-reminder> 放在同一条 user 的第一块，指纹取其后的可见句。
 func extractFirstUserText(body []byte) string {
 	messages := gjson.GetBytes(body, "messages")
 	if !messages.IsArray() {
@@ -56,13 +63,27 @@ func extractFirstUserText(body []byte) string {
 			return false
 		}
 		if content.IsArray() {
+			var fallback string
 			content.ForEach(func(_, block gjson.Result) bool {
-				if block.Get("type").String() == "text" {
-					first = block.Get("text").String()
-					return false
+				if block.Get("type").String() != "" && block.Get("type").String() != "text" {
+					return true
 				}
-				return true
+				text := block.Get("text").String()
+				if text == "" {
+					return true
+				}
+				if fallback == "" {
+					fallback = text
+				}
+				if isClaudeSystemReminderText(text) {
+					return true
+				}
+				first = text
+				return false
 			})
+			if first == "" {
+				first = fallback
+			}
 			return false
 		}
 		return false
@@ -72,24 +93,22 @@ func extractFirstUserText(body []byte) string {
 
 // buildBillingAttributionText 构造 system 数组的 billing attribution 文本。
 //
-// 形态对齐真实 Claude Code CLI：
+// 形态对齐官方 CLI 2.1.241 主对话：
 //
-//	x-anthropic-billing-header: cc_version=2.1.161.{fp}; cc_entrypoint=cli;
+//	x-anthropic-billing-header: cc_version=2.1.241.{fp}; cc_entrypoint=sdk-cli; cc_prompt_id={uuid};
 //
-// 注意：新版 Claude Code CLI 已不再发送 cch=... 签名字段（见 issue #3358）。我们
-// 随之去掉了 cch 段——继续注入它反而会让伪装请求偏离真实 CLI 流量。cc_version +
-// cc_entrypoint=cli 仍保留：它们是客户端识别（claude_code_validator）与 Anthropic
-// 第一方判定都依赖的稳定信号。
+// cch 旧 xxHash 实现未通过 2.1.241 抓包验算，禁止写假 cch=00000。
+// cc_prev_req 依赖上一轮上游 request id，本函数无会话状态，不伪造。
 //
-// 此 block 不带 cache_control（与真实 CLI 一致；cache breakpoint 由后续的
-// Claude Code prompt block 承担）。
+// 此 block 不带 cache_control（与真实 CLI 一致；cache breakpoint 由后续扩写块承担）。
 func buildBillingAttributionText(body []byte, cliVersion string) (string, error) {
 	if cliVersion == "" {
 		return "", fmt.Errorf("cliVersion required")
 	}
 	fp := computeClaudeCodeFingerprint(body, cliVersion)
+	promptID := generateSessionUUID("cc_prompt_id::" + extractFirstUserText(body))
 	return fmt.Sprintf(
-		"x-anthropic-billing-header: cc_version=%s.%s; cc_entrypoint=cli;",
-		cliVersion, fp,
+		"x-anthropic-billing-header: cc_version=%s.%s; cc_entrypoint=sdk-cli; cc_prompt_id=%s;",
+		cliVersion, fp, promptID,
 	), nil
 }

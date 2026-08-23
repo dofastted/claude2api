@@ -928,13 +928,19 @@ func TestGatewayService_AnthropicOAuthMimic_RewritesSystemWithBillingBlock(t *te
 			billingText := arr[0].Get("text").String()
 			require.Contains(t, billingText, "x-anthropic-billing-header:")
 			require.Contains(t, billingText, "cc_version="+claude.CLICurrentVersion+".")
-			require.Contains(t, billingText, "cc_entrypoint=cli;")
+			require.Contains(t, billingText, "cc_entrypoint=sdk-cli;")
+			require.Contains(t, billingText, "cc_prompt_id=")
+			require.NotContains(t, billingText, "cch=")
+			require.NotContains(t, billingText, "cc_prev_req=")
 
 			require.Equal(t, claudeCodeSystemPrompt, arr[1].Get("text").String())
 			require.False(t, arr[1].Get("cache_control").Exists(), "身份前缀 block 不应带 cache_control")
 
 			require.Equal(t, claudeCodeSystemPromptExpansion, arr[2].Get("text").String())
+			require.True(t, strings.HasPrefix(claudeCodeSystemPromptExpansion, "\n"))
 			require.Equal(t, "ephemeral", arr[2].Get("cache_control.type").String())
+			require.Equal(t, claude.MimicExpansionCacheControlTTL, arr[2].Get("cache_control.ttl").String())
+			require.Equal(t, claude.MimicExpansionCacheControlScope, arr[2].Get("cache_control.scope").String())
 
 			// 原始 system prompt 应迁移至 messages 中。
 			messages := gjson.GetBytes(upstream.lastBody, "messages")

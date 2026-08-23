@@ -57,6 +57,7 @@ func TestIsAcceptableFingerprintUserAgent(t *testing.T) {
 		want bool
 	}{
 		{"official_cli", "claude-cli/2.1.220 (external, cli)", true},
+		{"official_sdk_cli", "claude-cli/2.1.241 (external, sdk-cli)", true},
 		{"official_cli_no_meta", "claude-cli/2.1.220", true},
 		{"next_major_still_allowed", "claude-cli/4.0.0 (external, cli)", true},
 		{"other_product_valid_form", "some-sdk/1.2.3 (node)", true},

@@ -124,13 +124,28 @@ func TestMergeAnthropicBetaDropping_DroppedBetas(t *testing.T) {
 	require.Contains(t, got, "fast-mode-2026-02-01")
 }
 
-func TestFullClaudeCodeMimicryBetas_DoesNotDefaultRedactThinking(t *testing.T) {
+func TestFullClaudeCodeMimicryBetas_MatchesOfficial241Order(t *testing.T) {
 	required := claude.FullClaudeCodeMimicryBetas()
 
 	require.NotContains(t, required, claude.BetaRedactThinking)
 	require.Contains(t, required, claude.BetaClaudeCode)
 	require.Contains(t, required, claude.BetaOAuth)
 	require.Contains(t, required, claude.BetaInterleavedThinking)
+	require.Contains(t, required, claude.BetaThinkingTokenCount)
+	require.Contains(t, required, claude.BetaMidConversationSystem)
+	require.Contains(t, required, claude.BetaAdvancedToolUse)
+	require.Equal(t, []string{
+		claude.BetaClaudeCode,
+		claude.BetaOAuth,
+		claude.BetaInterleavedThinking,
+		claude.BetaThinkingTokenCount,
+		claude.BetaContextManagement,
+		claude.BetaPromptCachingScope,
+		claude.BetaMidConversationSystem,
+		claude.BetaAdvancedToolUse,
+		claude.BetaEffort,
+		claude.BetaExtendedCacheTTL,
+	}, required)
 }
 
 func TestMergeAnthropicBetaDropping_PreservesIncomingRedactThinking(t *testing.T) {
