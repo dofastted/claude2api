@@ -5,7 +5,7 @@ package claude
 
 // Beta header 常量
 //
-// 这里的常量对齐真实 Claude Code CLI 的最新流量（截至 2026-04）。
+// 这里的常量对齐真实 Claude Code CLI 的最新流量（截至 2026-08，CLI 2.1.241）。
 // 选型参考：与 Parrot (src/transform/cc_mimicry.py) 的 BETAS 保持一致，
 // 原因：Anthropic 上游会基于 anthropic-beta 的完整集合判定请求来源；
 // 缺少任何"官方 Claude Code 请求才会带"的 beta，都会被降级到第三方额度，
@@ -25,6 +25,11 @@ const (
 	BetaRedactThinking     = "redact-thinking-2026-02-12"
 	BetaContextManagement  = "context-management-2025-06-27"
 	BetaExtendedCacheTTL   = "extended-cache-ttl-2025-04-11"
+
+	// 对齐官方 CLI 2.1.241 主对话抓包（vm-29-official-20260823）
+	BetaThinkingTokenCount    = "thinking-token-count-2026-05-13"
+	BetaMidConversationSystem = "mid-conversation-system-2026-04-07"
+	BetaAdvancedToolUse       = "advanced-tool-use-2025-11-20"
 )
 
 // DroppedBetas 是转发时需要从 anthropic-beta header 中移除的 beta token 列表。
@@ -63,14 +68,30 @@ const APIKeyHaikuBetaHeader = BetaInterleavedThinking
 // 客户端缺省时统一使用 5m"，这样既不浪费 1h 缓存额度，也保留客户端自定义能力。
 const DefaultCacheControlTTL = "5m"
 
+// MimicExpansionCacheControlTTL / Scope 是 OAuth mimic 身份扩写块的 cache_control。
+// 对齐官方 CLI 2.1.241 主对话 system[2]：ttl=1h + scope=global。
+const (
+	MimicExpansionCacheControlTTL   = "1h"
+	MimicExpansionCacheControlScope = "global"
+)
+
 // CLICurrentVersion 是 sub2api 当前对外伪装的 Claude Code CLI 版本号（三段 semver）。
 // 用于 billing attribution block 中的 cc_version=X.Y.Z.{fp} 前缀以及 fingerprint 计算。
 // 必须与 DefaultHeaders["User-Agent"] 中的版本号严格一致；不一致会被 Anthropic 判第三方。
-const CLICurrentVersion = "2.1.220"
+const CLICurrentVersion = "2.1.241"
+
+// DefaultCLIUserAgentSuffix 是官方 CLI 2.1.241 起 UA 括号内的入口标记。
+// 抓包为 `(external, sdk-cli)`；X-App 仍为 cli。
+const DefaultCLIUserAgentSuffix = " (external, sdk-cli)"
+
+// DefaultCLIUserAgent 返回 mimic / 默认指纹使用的 User-Agent。
+func DefaultCLIUserAgent() string {
+	return "claude-cli/" + CLICurrentVersion + DefaultCLIUserAgentSuffix
+}
 
 // FullClaudeCodeMimicryBetas 返回最"像"真实 Claude Code CLI 的完整 beta 列表，
 // 用于 OAuth 账号伪装成 Claude Code 时使用。
-// 顺序与真实 CLI 抓包一致。
+// 顺序与官方 CLI 2.1.241 主对话抓包一致。
 //
 // 使用建议：
 //   - OAuth mimic：所有模型（包括 Haiku）都使用这整份列表。
@@ -82,9 +103,12 @@ func FullClaudeCodeMimicryBetas() []string {
 		BetaClaudeCode,
 		BetaOAuth,
 		BetaInterleavedThinking,
-		BetaPromptCachingScope,
-		BetaEffort,
+		BetaThinkingTokenCount,
 		BetaContextManagement,
+		BetaPromptCachingScope,
+		BetaMidConversationSystem,
+		BetaAdvancedToolUse,
+		BetaEffort,
 		BetaExtendedCacheTTL,
 	}
 }
@@ -93,14 +117,14 @@ func FullClaudeCodeMimicryBetas() []string {
 var DefaultHeaders = map[string]string{
 	// Keep these in sync with recent Claude CLI traffic to reduce the chance
 	// that Claude Code-scoped OAuth credentials are rejected as "non-CLI" usage.
-	// 版本参考：对齐 Parrot (src/transform/cc_mimicry.py:49) 的 CLI_USER_AGENT。
-	"User-Agent":                                "claude-cli/" + CLICurrentVersion + " (external, cli)",
+	// 版本 / 入口对齐官方 CLI 2.1.241（vm-29-official-20260823）。
+	"User-Agent":                                DefaultCLIUserAgent(),
 	"X-Stainless-Lang":                          "js",
-	"X-Stainless-Package-Version":               "0.94.0",
+	"X-Stainless-Package-Version":               "0.112.1",
 	"X-Stainless-OS":                            "Linux",
 	"X-Stainless-Arch":                          "arm64",
 	"X-Stainless-Runtime":                       "node",
-	"X-Stainless-Runtime-Version":               "v24.3.0",
+	"X-Stainless-Runtime-Version":               "v26.3.0",
 	"X-Stainless-Retry-Count":                   "0",
 	"X-Stainless-Timeout":                       "600",
 	"X-App":                                     "cli",

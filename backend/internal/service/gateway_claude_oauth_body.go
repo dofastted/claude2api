@@ -699,11 +699,11 @@ type claudeOAuthSystemPromptBlocksEnvelope struct {
 }
 
 func defaultClaudeOAuthExpansionPrompt(expansionPrompt string) string {
-	expansionPrompt = strings.TrimSpace(expansionPrompt)
-	if expansionPrompt == "" {
+	trimmed := strings.TrimSpace(expansionPrompt)
+	if trimmed == "" || trimmed == strings.TrimSpace(claudeCodeSystemPromptExpansion) {
 		return claudeCodeSystemPromptExpansion
 	}
-	return expansionPrompt
+	return trimmed
 }
 
 func parseClaudeOAuthSystemPromptBlocksConfig(raw string) ([]claudeOAuthSystemPromptBlockConfig, error) {
@@ -784,7 +784,11 @@ func defaultClaudeOAuthSystemPromptBlockConfig() []claudeOAuthSystemPromptBlockC
 			Type:    "text",
 			Text:    "{claude_code_expansion_prompt}",
 			CacheControl: json.RawMessage(
-				fmt.Sprintf(`{"type":"ephemeral","ttl":%q}`, claude.DefaultCacheControlTTL),
+				fmt.Sprintf(
+					`{"type":"ephemeral","ttl":%q,"scope":%q}`,
+					claude.MimicExpansionCacheControlTTL,
+					claude.MimicExpansionCacheControlScope,
+				),
 			),
 		},
 	}
@@ -892,17 +896,16 @@ func rewriteSystemForNonClaudeCodeWithPromptBlocks(body []byte, system any, expa
 	originalSystemText, originalSystemCacheControl := extractSystemTextAndCacheControl(system)
 
 	// 2. 构造 system 数组，对齐真实 Claude Code CLI 的 3-block 形态：
-	//    [0] billing attribution block（cc_version={cliVer}.{fp}; cc_entrypoint=cli;）
-	//    [1] "You are Claude Code..." 身份前缀 block（默认不带 cache_control）
-	//    [2] 工具无关的通用提示词扩充 block（带 cache_control 作为稳定缓存断点）
+	//    [0] billing attribution block（cc_version={cliVer}.{fp}; cc_entrypoint=sdk-cli; cc_prompt_id=...;）
+	//    [1] Agent SDK 身份前缀 block（默认不带 cache_control）
+	//    [2] 工具无关的通用提示词扩充 block（ttl=1h + scope=global，作为稳定缓存断点）
 	//
-	//    真实 CC 的 system 在身份前缀之后还有大段提示词，仅有 2 块会在块数/体量上明显
-	//    区别于真实 CLI。这里注入 claudeCodeSystemPromptExpansion（中性段落）把形态做到
-	//    接近真实，同时不注入会污染被代理用户行为的工具专属指令。
+	//    真实 CC 2.1.241 主对话是 4 块（其后还有 Text output / memory / Environment）。
+	//    默认仍只做 3 块：注入 claudeCodeSystemPromptExpansion（中性段落）贴近形态，
+	//    不注入 # Doing tasks / 工具说明书 / 假会话环境。
 	//
-	//    缺失 billing block 的系统 payload 是 Anthropic 判定第三方的关键信号之一
-	//    （真实 CLI 每个请求都带）。新版 CLI 已取消 cch=... 签名字段，故 block 不再注入
-	//    cch（见 buildBillingAttributionText）。
+	//    缺失 billing block 的系统 payload 是 Anthropic 判定第三方的关键信号之一。
+	//    官方 2.1.241 重新带上 cch，但旧 xxHash 未通过抓包验算，故不写假 cch。
 	systemBlocks, blockErr := buildClaudeOAuthSystemPromptBlocksJSON(body, expansionPrompt, blocksConfig)
 	if blockErr != nil {
 		logger.LegacyPrintf("service.gateway", "Warning: failed to build configured Claude OAuth system blocks: %v", blockErr)

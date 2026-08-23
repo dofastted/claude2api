@@ -416,8 +416,9 @@ func TestRewriteSystemForNonClaudeCode(t *testing.T) {
 			require.Equal(t, "text", billingBlock["type"])
 			require.Contains(t, billingBlock["text"], "x-anthropic-billing-header:")
 			require.Contains(t, billingBlock["text"], "cc_version=")
-			require.Contains(t, billingBlock["text"], "cc_entrypoint=cli")
-			// 新版 CLI 已取消 cch=... 签名字段，注入的 billing block 不应再带 cch。
+			require.Contains(t, billingBlock["text"], "cc_entrypoint=sdk-cli")
+			require.Contains(t, billingBlock["text"], "cc_prompt_id=")
+			// 官方 2.1.241 重新带上 cch，但旧 xxHash 未通过抓包验算，禁止写假签名。
 			require.NotContains(t, billingBlock["text"], "cch=")
 
 			systemBlock, ok := systemArr[1].(map[string]any)
@@ -431,9 +432,12 @@ func TestRewriteSystemForNonClaudeCode(t *testing.T) {
 			require.True(t, ok)
 			require.Equal(t, "text", expansionBlock["type"])
 			require.Equal(t, claudeCodeSystemPromptExpansion, expansionBlock["text"])
+			require.True(t, strings.HasPrefix(claudeCodeSystemPromptExpansion, "\n"))
 			cc, ok := expansionBlock["cache_control"].(map[string]any)
 			require.True(t, ok, "expansion block should have cache_control")
 			require.Equal(t, "ephemeral", cc["type"])
+			require.Equal(t, claude.MimicExpansionCacheControlTTL, cc["ttl"])
+			require.Equal(t, claude.MimicExpansionCacheControlScope, cc["scope"])
 
 			// 检查 messages
 			messages, ok := parsed["messages"].([]any)
@@ -467,6 +471,14 @@ func TestRewriteSystemForNonClaudeCode(t *testing.T) {
 			}
 		})
 	}
+}
+
+func TestDefaultClaudeOAuthExpansionPrompt_PreservesOfficialLeadingNewline(t *testing.T) {
+	require.True(t, strings.HasPrefix(claudeCodeSystemPromptExpansion, "\n"))
+	require.Equal(t, claudeCodeSystemPromptExpansion, defaultClaudeOAuthExpansionPrompt(""))
+	require.Equal(t, claudeCodeSystemPromptExpansion, defaultClaudeOAuthExpansionPrompt(claudeCodeSystemPromptExpansion))
+	require.Equal(t, claudeCodeSystemPromptExpansion, defaultClaudeOAuthExpansionPrompt(strings.TrimSpace(claudeCodeSystemPromptExpansion)))
+	require.Equal(t, "Custom expansion", defaultClaudeOAuthExpansionPrompt("  Custom expansion  "))
 }
 
 func TestRewriteSystemForNonClaudeCodeWithPrompt_UsesCustomExpansionPrompt(t *testing.T) {
